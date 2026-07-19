@@ -19,7 +19,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
  */
 
 const SUPABASE_URL = "https://jtjqvlcryaeljcnhhrpv.supabase.co";
-const SUPABASE_ANON_KEY = "COLLE_ICI_TA_CLE_ANON_PUBLIC";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0anF2bGNyeWFlbGpjbmhocnB2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1Mzg2NjEsImV4cCI6MjA5OTExNDY2MX0.GbOgFkjbb8Rik1NQikrUFqGLmHDE_IwDt0zVoO3FCcQ";
 const SUPABASE_CONFIGURED = Boolean(SUPABASE_ANON_KEY) && SUPABASE_ANON_KEY !== "COLLE_ICI_TA_CLE_ANON_PUBLIC";
 
 const LOCAL_CLIENTS_KEY = "bmi-wifi-clients-demo";
