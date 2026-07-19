@@ -1478,6 +1478,11 @@ export default function AlerteClientWifi() {
         const created = SUPABASE_CONFIGURED ? await insertClientRow(payload) : { id: uid(), ...payload };
         setClients((cs) => [...cs, created]);
         showToast("Client ajouté.");
+        if (normalizePhone(created.telephone)) {
+          sendWelcomeWhatsApp(created);
+        } else {
+          showToast("Ajoute un numéro WhatsApp pour envoyer le message de bienvenue.");
+        }
       }
       closeClientModal();
     } catch (e) {
@@ -1494,6 +1499,34 @@ export default function AlerteClientWifi() {
       return;
     }
     const msg = buildWaMessage(c);
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+  };
+
+  const buildWelcomeMessage = (c) => {
+    const codeLine = c.accessCode ? `TON CODE : ${c.accessCode}` : "(demande ton code à APESPOT WI-FI)";
+    return [
+      `Bonjour ${c.nom}`,
+      ``,
+      `Bienvenue sur le réseau *APESPOT WI-FI* ! 🎉`,
+      `Ton offre : ${c.offre || "—"}`,
+      `Valable jusqu'au : *${fmtDate(c.dateExp)}*`,
+      ``,
+      `Click sur : `,
+      ``,
+      `https://apespot-wifi.vercel.app`,
+      ``,
+      `Vas sur *client* `,
+      ``,
+      codeLine,
+      ``,
+      `Accède à ton espace pour payer ou soumettre une réclamation`,
+    ].join("\n");
+  };
+
+  const sendWelcomeWhatsApp = (c) => {
+    const phone = normalizePhone(c.telephone);
+    if (!phone) return;
+    const msg = buildWelcomeMessage(c);
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
