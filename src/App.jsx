@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 
 /**
  * Alerte Client WiFi — APESPOT WI-FI
@@ -36,6 +36,8 @@ function uid() {
 // Codes d'accès internes — utilisés uniquement pour créer le tout premier compte Admin/Technicien.
 // Une fois connecté, gère les comptes depuis l'onglet "Utilisateurs".
 const DEFAULT_ADMIN_PIN = "2580";
+const SESSION_KEY = "apespot-wifi-session";
+const INACTIVITY_LIMIT_MS = 2 * 60 * 1000; // déconnexion après 2 min d'inactivité
 const DEFAULT_TECH_PIN = "1470";
 
 // Code client déterministe : 4 derniers chiffres du téléphone + 2 premières lettres du nom.
@@ -1127,6 +1129,8 @@ export default function AlerteClientWifi() {
   const [role, setRole] = useState(null); // null | 'admin' | 'technicien' | 'client'
   const [authClient, setAuthClient] = useState(null); // fiche du client connecté (rôle 'client')
   const [authUser, setAuthUser] = useState(null); // compte connecté (rôle 'admin' ou 'technicien')
+  const [sessionChecked, setSessionChecked] = useState(false); // évite un flash de l'écran de connexion pendant la restauration
+  const lastActivityRef = useRef(Date.now());
 
   const [tab, setTab] = useState("dashboard");
 
@@ -1218,6 +1222,90 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_PAYMENT_REQUESTS_KEY, paymentRequests);
   }, [paymentRequests, loading]);
+
+  // ---------- Session persistante (survit à une actualisation) + déconnexion après inactivité ----------
+
+  // Restaure la session sauvegardée une fois les données chargées (une seule fois).
+  useEffect(() => {
+    if (loading) return;
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const session = JSON.parse(raw);
+        const stillValid = session && session.role && (Date.now() - (session.lastActivity || 0) <= INACTIVITY_LIMIT_MS);
+        if (stillValid) {
+          if (session.role === "client") {
+            const c = clients.find((x) => x.id === session.clientId);
+            if (c) {
+              lastActivityRef.current = Date.now();
+              setAuthClient(c);
+              setRole("client");
+            }
+          } else if (session.role === "admin" || session.role === "technicien") {
+            const u = users.find((x) => x.id === session.userId) || null;
+            lastActivityRef.current = Date.now();
+            setAuthUser(u);
+            setRole(session.role);
+          }
+        } else {
+          localStorage.removeItem(SESSION_KEY);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setSessionChecked(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
+  // Sauvegarde la session à chaque connexion / changement de compte.
+  useEffect(() => {
+    if (!sessionChecked) return;
+    if (!role) {
+      localStorage.removeItem(SESSION_KEY);
+      return;
+    }
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      role,
+      userId: authUser?.id || null,
+      clientId: authClient?.id || null,
+      lastActivity: lastActivityRef.current,
+    }));
+  }, [role, authUser, authClient, sessionChecked]);
+
+  // Suit l'activité de l'utilisateur et déconnecte après 2 minutes d'inactivité.
+  useEffect(() => {
+    if (!role) return;
+
+    const bump = () => {
+      lastActivityRef.current = Date.now();
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (raw) {
+          const session = JSON.parse(raw);
+          session.lastActivity = lastActivityRef.current;
+          localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        }
+      } catch (e) { /* ignore */ }
+    };
+
+    const events = ["mousedown", "keydown", "touchstart", "scroll", "wheel"];
+    events.forEach((ev) => window.addEventListener(ev, bump, { passive: true }));
+
+    const interval = setInterval(() => {
+      if (Date.now() - lastActivityRef.current > INACTIVITY_LIMIT_MS) {
+        localStorage.removeItem(SESSION_KEY);
+        setRole(null);
+        setAuthUser(null);
+        setAuthClient(null);
+      }
+    }, 5000);
+
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, bump));
+      clearInterval(interval);
+    };
+  }, [role]);
 
   // ---- Alerts view state ----
   const [search, setSearch] = useState("");
@@ -1793,6 +1881,7 @@ export default function AlerteClientWifi() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem(SESSION_KEY);
     setRole(null);
     setAuthClient(null);
     setAuthUser(null);
@@ -1800,7 +1889,7 @@ export default function AlerteClientWifi() {
 
   const today = todayMidnight();
 
-  if (loading) {
+  if (loading || !sessionChecked) {
     return (
       <div className="wifi-app">
         <style>{CSS}</style>
