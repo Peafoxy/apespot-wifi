@@ -19,7 +19,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
  */
 
 const SUPABASE_URL = "https://jtjqvlcryaeljcnhhrpv.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0anF2bGNyeWFlbGpjbmhocnB2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1Mzg2NjEsImV4cCI6MjA5OTExNDY2MX0.GbOgFkjbb8Rik1NQikrUFqGLmHDE_IwDt0zVoO3FCcQ";
+const SUPABASE_ANON_KEY = "COLLE_ICI_TA_CLE_ANON_PUBLIC";
 const SUPABASE_CONFIGURED = Boolean(SUPABASE_ANON_KEY) && SUPABASE_ANON_KEY !== "COLLE_ICI_TA_CLE_ANON_PUBLIC";
 
 const LOCAL_CLIENTS_KEY = "bmi-wifi-clients-demo";
@@ -187,17 +187,22 @@ function normalizePhone(raw) {
 function buildWaMessage(c) {
   const { jours, statut } = computeStatus(c.dateExp);
   const dateTxt = fmtDate(c.dateExp);
+  let body;
   if (statut === "EXPIRE") {
-    return `Bonjour ${c.nom}, votre abonnement WiFi APESPOT a expiré le ${dateTxt}. Merci de renouveler pour rétablir votre connexion.`;
+    body = `Bonjour ${c.nom}, votre abonnement WiFi APESPOT a expiré le ${dateTxt}. Merci de renouveler pour rétablir votre connexion.`;
+  } else if (statut === "ATTENTION") {
+    body = jours === 0
+      ? `Bonjour ${c.nom}, votre abonnement WiFi APESPOT expire aujourd'hui (${dateTxt}). Merci de renouveler rapidement pour éviter une coupure.`
+      : `Bonjour ${c.nom}, votre abonnement WiFi APESPOT expire le ${dateTxt} (dans ${jours} jour${jours > 1 ? "s" : ""}). Merci de prévoir le renouvellement.`;
+  } else if (statut === "OK") {
+    body = `Bonjour ${c.nom}, votre abonnement WiFi APESPOT est à jour jusqu'au ${dateTxt}. Merci de votre confiance !`;
+  } else {
+    body = `Bonjour ${c.nom}, ceci est un message de APESPOT WI-FI concernant votre abonnement WiFi.`;
   }
-  if (statut === "ATTENTION") {
-    if (jours === 0) return `Bonjour ${c.nom}, votre abonnement WiFi APESPOT expire aujourd'hui (${dateTxt}). Merci de renouveler rapidement pour éviter une coupure.`;
-    return `Bonjour ${c.nom}, votre abonnement WiFi APESPOT expire le ${dateTxt} (dans ${jours} jour${jours > 1 ? "s" : ""}). Merci de prévoir le renouvellement.`;
-  }
-  if (statut === "OK") {
-    return `Bonjour ${c.nom}, votre abonnement WiFi APESPOT est à jour jusqu'au ${dateTxt}. Merci de votre confiance !`;
-  }
-  return `Bonjour ${c.nom}, ceci est un message de APESPOT WI-FI concernant votre abonnement WiFi.`;
+
+  const codeLine = c.accessCode ? ` (code : ${c.accessCode})` : "";
+  const footer = `\n\nAccède à ton espace client${codeLine} pour discuter avec nous, payer ou faire une réclamation : https://apespot-wifi.vercel.app`;
+  return body + footer;
 }
 
 function loadLocal(key, fallback) {
