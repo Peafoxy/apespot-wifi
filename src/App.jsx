@@ -187,22 +187,41 @@ function normalizePhone(raw) {
 function buildWaMessage(c) {
   const { jours, statut } = computeStatus(c.dateExp);
   const dateTxt = fmtDate(c.dateExp);
-  let body;
+
+  let statusLines;
   if (statut === "EXPIRE") {
-    body = `Bonjour ${c.nom}, votre abonnement WiFi APESPOT a expiré le ${dateTxt}. Merci de renouveler pour rétablir votre connexion.`;
+    statusLines = `Votre abonnement WiFi APESPOT a *expiré le ${dateTxt}*\nMerci de renouveler pour rétablir votre connexion.`;
   } else if (statut === "ATTENTION") {
-    body = jours === 0
-      ? `Bonjour ${c.nom}, votre abonnement WiFi APESPOT expire aujourd'hui (${dateTxt}). Merci de renouveler rapidement pour éviter une coupure.`
-      : `Bonjour ${c.nom}, votre abonnement WiFi APESPOT expire le ${dateTxt} (dans ${jours} jour${jours > 1 ? "s" : ""}). Merci de prévoir le renouvellement.`;
+    statusLines = jours === 0
+      ? `Votre abonnement WiFi APESPOT *expire aujourd'hui* (${dateTxt})\nMerci de renouveler rapidement pour éviter une coupure.`
+      : `Votre abonnement WiFi APESPOT expire le *${dateTxt}* (dans ${jours} jour${jours > 1 ? "s" : ""})\nMerci de prévoir le renouvellement.`;
   } else if (statut === "OK") {
-    body = `Bonjour ${c.nom}, votre abonnement WiFi APESPOT est à jour jusqu'au ${dateTxt}. Merci de votre confiance !`;
+    statusLines = `Votre abonnement WiFi APESPOT est à jour jusqu'au *${dateTxt}*\nMerci de votre confiance !`;
   } else {
-    body = `Bonjour ${c.nom}, ceci est un message de APESPOT WI-FI concernant votre abonnement WiFi.`;
+    statusLines = `Ceci est un message de APESPOT WI-FI concernant votre abonnement WiFi.`;
   }
 
-  const codeLine = c.accessCode ? ` (code : ${c.accessCode})` : "";
-  const footer = `\n\nAccède à ton espace client${codeLine} pour discuter avec nous, payer ou faire une réclamation : https://apespot-wifi.vercel.app`;
-  return body + footer;
+  const closing = statut === "OK"
+    ? "Accède à ton espace Pour discuter avec nous, payer ou faire une réclamation"
+    : "Accède à ton espace pour payer ou soumettre une réclamation";
+
+  const codeLine = c.accessCode ? `TON CODE : ${c.accessCode}` : "(demande ton code à APESPOT WI-FI)";
+
+  return [
+    `Bonjour ${c.nom}`,
+    ``,
+    statusLines,
+    ``,
+    `Click sur : `,
+    ``,
+    `https://apespot-wifi.vercel.app`,
+    ``,
+    `Vas sur *client* `,
+    ``,
+    codeLine,
+    ``,
+    closing,
+  ].join("\n");
 }
 
 function loadLocal(key, fallback) {
@@ -510,7 +529,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <div className="brand-mark brand-mark-logo" style={{ margin: "0 auto 18px" }}>
           <img src={LOGO_DATA_URI} alt="Apé Spot WiFi" />
         </div>
-        <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
+        <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 26 }}>Choisis ton espace</div>
 
         {!selected && (
@@ -792,8 +811,8 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
 
   // Codes USSD de paiement marchand — construits localement, jamais affichés ni envoyés à APESPOT WI-FI.
   const buildUssd = (mode, montant, codeSecret) => {
-    if (mode === "Flooz") return `*155*1*1*99968488*${montant}*${codeSecret}#`;
-    if (mode === "Mix by Yas") return `*145*1*92285325*${montant}*${codeSecret}#`;
+    if (mode === "Flooz") return `*155*1*1*99968488*99968488*${montant}*1*${codeSecret}#`;
+    if (mode === "Mix by Yas") return `*145*1*${montant}*1*${codeSecret}*92285325*1*${codeSecret}#`;
     return "";
   };
   const needsMobileMoney = (mode) => mode === "Flooz" || mode === "Mix by Yas";
@@ -2560,7 +2579,7 @@ const CSS = `
 .wifi-app .brand-mark svg{width:24px;height:24px;}
 .wifi-app .brand-mark.brand-mark-logo{width:auto;height:52px;padding:4px 8px;background:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.08), 0 8px 20px -6px rgba(0,0,0,.4);}
 .wifi-app .brand-mark.brand-mark-logo img{height:100%;width:auto;display:block;}
-.wifi-app .brand h1{font-size:20px;margin:0;letter-spacing:.2px;font-weight:700;}
+.wifi-app .brand h1{font-size:20px;margin:0;letter-spacing:.2px;font-weight:700;color:#FFE9A8;}
 .wifi-app .brand .sub{font-size:12.5px;color:var(--text-dim);margin-top:2px;letter-spacing:.3px;}
 .wifi-app .today-box{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);}
 .wifi-app .today-box .label{font-size:12px;color:#FFD400;letter-spacing:1px;text-transform:uppercase;font-weight:700;order:-1;}
