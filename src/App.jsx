@@ -2215,6 +2215,16 @@ export default function AlerteClientWifi() {
     showToast._t = window.setTimeout(() => setToast(""), 2400);
   }, []);
 
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Copié dans le presse-papier ✓");
+    } catch (e) {
+      console.error(e);
+      showToast("Impossible de copier automatiquement.");
+    }
+  };
+
   // ---------- Derived data ----------
   const enrichedClients = useMemo(
     () => clients.map((c) => ({ ...c, ...computeStatus(c.dateExp) })),
@@ -4145,6 +4155,15 @@ export default function AlerteClientWifi() {
                           </>
                         )}
                       </div>
+                      {l.note && (
+                        <button
+                          className="copy-chip"
+                          title="Cliquer pour copier"
+                          onClick={() => copyToClipboard(l.note)}
+                        >
+                          📋 {l.note}
+                        </button>
+                      )}
                       <div className="row-actions">
                         <button className="icon-btn" title="Modifier" onClick={() => setExpenseLineModal({ editingId: l.id, nom: l.nom, montant: l.montant, dateExp: l.dateExp || "", note: l.note || "" })}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
@@ -4939,6 +4958,9 @@ const CSS = `
 .wifi-app .action-text.warn{color:var(--amber);font-weight:600;}
 .wifi-app .row-actions{display:flex;gap:6px;justify-content:flex-end;}
 .wifi-app .icon-btn{width:28px;height:28px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--text-faint);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.wifi-app .copy-chip{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:#2A3747;color:var(--text-dim);font-size:12px;font-family:var(--mono);cursor:pointer;}
+.wifi-app .copy-chip:hover{background:#33455A;color:var(--text);}
+.wifi-app .copy-chip:active{background:var(--cyan-dim);color:var(--cyan);}
 .wifi-app .icon-btn:hover{border-color:var(--cyan);color:var(--cyan);}
 .wifi-app .icon-btn.del:hover{border-color:var(--red);color:var(--red);}
 .wifi-app .icon-btn.wa:hover{border-color:#25D366;color:#25D366;}
