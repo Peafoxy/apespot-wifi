@@ -32,6 +32,7 @@ const LOCAL_PAYMENT_REQUESTS_KEY = "bmi-wifi-payment-requests-demo";
 const LOCAL_TICKET_REQUESTS_KEY = "bmi-wifi-ticket-requests-demo";
 const LOCAL_TICKET_DURATIONS_KEY = "bmi-wifi-ticket-durations-demo";
 const LOCAL_OFFICE_LOCATION_KEY = "bmi-wifi-office-location-demo";
+const LOCAL_FUEL_RATE_KEY = "bmi-wifi-fuel-rate-demo";
 const LOCAL_FUEL_EXPENSES_KEY = "bmi-wifi-fuel-expenses-demo";
 
 function uid() {
@@ -255,7 +256,7 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
-const FUEL_RATE_PER_KM = 200; // FCFA/km
+const DEFAULT_FUEL_RATE_PER_KM = 200; // FCFA/km — valeur par défaut, modifiable par l'admin
 
 // Génère un reçu PDF pour un paiement, retourné sous forme de Blob prêt à uploader.
 // fmtFCFA utilise l'espace insécable fine du format fr-FR, absente de la police PDF de base
@@ -866,7 +867,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -975,7 +976,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                 </div>
               ))}
               <div style={{ fontSize: 12, color: "var(--text-dim)", margin: "10px 0" }}>
-                Distance totale estimée (avec retour au local à la fin) : <strong style={{ color: "var(--cyan)" }}>{tourTotalKm.toFixed(1)} km</strong> · {fmtFCFA(Math.round(tourTotalKm * FUEL_RATE_PER_KM))}
+                Distance totale estimée (avec retour au local à la fin) : <strong style={{ color: "var(--cyan)" }}>{tourTotalKm.toFixed(1)} km</strong> · {fmtFCFA(Math.round(tourTotalKm * fuelRatePerKm))}
               </div>
               <button className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={logTour}>
                 {tourLogged ? "Tournée enregistrée ✓" : "Enregistrer la tournée"}
@@ -1038,7 +1039,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                   {officeLocation && c.approvalStatus === "approved" && c.technicienStartLat != null && (() => {
                     const origin = { lat: c.technicienStartLat, lng: c.technicienStartLng };
                     const distanceKm = haversineKm(origin.lat, origin.lng, c.latitude, c.longitude) * 2;
-                    const montant = Math.round(distanceKm * FUEL_RATE_PER_KM);
+                    const montant = Math.round(distanceKm * fuelRatePerKm);
                     const already = fuelExpenses.some((f) => f.complaintId === c.id);
                     return (
                       <div className="fuel-estimate">
@@ -1865,6 +1866,7 @@ export default function AlerteClientWifi() {
   const [ticketRequests, setTicketRequests] = useState([]);
   const [ticketDurations, setTicketDurations] = useState([]);
   const [officeLocation, setOfficeLocation] = useState(null); // { lat, lng } | null
+  const [fuelRatePerKm, setFuelRatePerKm] = useState(DEFAULT_FUEL_RATE_PER_KM);
   const [fuelExpenses, setFuelExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -1879,6 +1881,7 @@ export default function AlerteClientWifi() {
       const demoTicketRequests = loadLocal(LOCAL_TICKET_REQUESTS_KEY, []);
       const demoTicketDurations = loadLocal(LOCAL_TICKET_DURATIONS_KEY, null) || ["1h", "3h", "6h", "12h", "24h"].map((label, i) => ({ id: uid(), label, sortOrder: i }));
       const demoOfficeLocation = loadLocal(LOCAL_OFFICE_LOCATION_KEY, null);
+      const demoFuelRate = loadLocal(LOCAL_FUEL_RATE_KEY, DEFAULT_FUEL_RATE_PER_KM);
       const demoFuelExpenses = loadLocal(LOCAL_FUEL_EXPENSES_KEY, []);
       const demoUsers = loadLocal(LOCAL_USERS_KEY, null) || [
         { id: uid(), nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN, isPrincipal: true, createdAt: new Date().toISOString() },
@@ -1896,6 +1899,7 @@ export default function AlerteClientWifi() {
       setTicketRequests(demoTicketRequests);
       setTicketDurations(demoTicketDurations);
       setOfficeLocation(demoOfficeLocation);
+      setFuelRatePerKm(demoFuelRate);
       setFuelExpenses(demoFuelExpenses);
       setLoading(false);
       return;
@@ -1923,6 +1927,7 @@ export default function AlerteClientWifi() {
         setTicketRequests(tr);
         setTicketDurations(td);
         if (st && st.office_lat && st.office_lng) setOfficeLocation({ lat: parseFloat(st.office_lat), lng: parseFloat(st.office_lng) });
+        if (st && st.fuel_rate_per_km) setFuelRatePerKm(parseFloat(st.fuel_rate_per_km));
         setFuelExpenses(fe || []);
         expireOldTicketsHandler(tr);
         trimTicketRequestsHandler(tr);
@@ -1962,6 +1967,7 @@ export default function AlerteClientWifi() {
         setTicketRequests(tr);
         setTicketDurations(td);
         if (st && st.office_lat && st.office_lng) setOfficeLocation({ lat: parseFloat(st.office_lat), lng: parseFloat(st.office_lng) });
+        if (st && st.fuel_rate_per_km) setFuelRatePerKm(parseFloat(st.fuel_rate_per_km));
         setFuelExpenses(fe || []);
         expireOldTicketsHandler(tr);
         trimTicketRequestsHandler(tr);
@@ -2000,6 +2006,9 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_OFFICE_LOCATION_KEY, officeLocation);
   }, [officeLocation, loading]);
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_FUEL_RATE_KEY, fuelRatePerKm);
+  }, [fuelRatePerKm, loading]);
   useEffect(() => {
     if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_FUEL_EXPENSES_KEY, fuelExpenses);
   }, [fuelExpenses, loading]);
@@ -2914,6 +2923,22 @@ export default function AlerteClientWifi() {
     );
   };
 
+  const updateFuelRate = async (value) => {
+    const rate = Number(value);
+    if (!rate || rate <= 0) {
+      showToast("Indique un tarif valide.");
+      return;
+    }
+    try {
+      if (SUPABASE_CONFIGURED) await saveSetting("fuel_rate_per_km", String(rate));
+      setFuelRatePerKm(rate);
+      showToast(`Tarif carburant mis à jour : ${rate} FCFA/km.`);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'enregistrement du tarif.");
+    }
+  };
+
   const logFuelExpense = async (complaint, technicienNom) => {
     if (!officeLocation) return;
     let distanceKm;
@@ -2927,7 +2952,7 @@ export default function AlerteClientWifi() {
         : officeLocation;
       distanceKm = haversineKm(origin.lat, origin.lng, complaint.latitude, complaint.longitude) * 2; // aller-retour
     }
-    const montant = Math.round(distanceKm * FUEL_RATE_PER_KM);
+    const montant = Math.round(distanceKm * fuelRatePerKm);
     try {
       const payload = { complaintId: complaint.id, technicienNom, clientNom: complaint.clientNom, distanceKm, montant };
       const created = SUPABASE_CONFIGURED
@@ -3237,6 +3262,7 @@ export default function AlerteClientWifi() {
         ticketRequests={ticketRequests}
         officeLocation={officeLocation}
         fuelExpenses={fuelExpenses}
+        fuelRatePerKm={fuelRatePerKm}
         onSendMessage={sendMessageHandler}
         onUpdateComplaintStatus={updateComplaintStatusHandler}
         onMarkComplaintsRead={markComplaintsReadHandler}
@@ -3644,7 +3670,7 @@ export default function AlerteClientWifi() {
                       ? { lat: c.technicienStartLat, lng: c.technicienStartLng }
                       : officeLocation;
                     const distanceKm = haversineKm(origin.lat, origin.lng, c.latitude, c.longitude) * 2;
-                    const montant = Math.round(distanceKm * FUEL_RATE_PER_KM);
+                    const montant = Math.round(distanceKm * fuelRatePerKm);
                     const already = fuelExpenses.some((f) => f.complaintId === c.id);
                     const fromStart = c.technicienStartLat != null;
                     return (
@@ -3749,6 +3775,37 @@ export default function AlerteClientWifi() {
             <button className="btn-add" onClick={captureOfficeLocation}>
               📍 {officeLocation ? "Mettre à jour ma position actuelle" : "Utiliser ma position actuelle"}
             </button>
+          </div>
+
+          <div className="chart-card">
+            <div className="ctitle">TARIF CARBURANT</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginBottom: 10 }}>
+              Par défaut : {DEFAULT_FUEL_RATE_PER_KM} FCFA/km. Actuel : <strong style={{ color: "var(--cyan)" }}>{fuelRatePerKm} FCFA/km</strong>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                id="fuelRateInput"
+                type="number"
+                min="1"
+                step="1"
+                defaultValue={fuelRatePerKm}
+                style={{ width: 100, padding: "9px 10px", borderRadius: 9, border: "1px solid var(--line)", background: "var(--bg-card)", color: "var(--text)" }}
+              />
+              <button
+                className="btn-add"
+                onClick={() => {
+                  const input = document.getElementById("fuelRateInput");
+                  updateFuelRate(input.value);
+                }}
+              >
+                Enregistrer
+              </button>
+              {fuelRatePerKm !== DEFAULT_FUEL_RATE_PER_KM && (
+                <button className="btn-cancel" onClick={() => updateFuelRate(DEFAULT_FUEL_RATE_PER_KM)}>
+                  Revenir à {DEFAULT_FUEL_RATE_PER_KM} F
+                </button>
+              )}
+            </div>
           </div>
 
           {Object.keys(fuelTotalsByTechnicien).length > 0 && (
