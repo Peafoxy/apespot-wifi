@@ -490,6 +490,9 @@ const rowToComplaint = (r) => ({
   description: r.description,
   status: r.status,
   read: r.read ?? false,
+  approvalStatus: r.approval_status || "none", // none | requested | approved | refused
+  technicienStartLat: r.technicien_start_lat,
+  technicienStartLng: r.technicien_start_lng,
   createdAt: r.created_at,
 });
 const complaintToRow = (c) => ({
@@ -503,6 +506,7 @@ const complaintToRow = (c) => ({
   description: c.description || null,
   status: c.status || "nouveau",
   read: c.read ?? false,
+  approval_status: c.approvalStatus || "none",
 });
 
 // Une table qui échoue (pas encore migrée, etc.) ne doit pas empêcher tout le reste de charger.
@@ -862,7 +866,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, busyUploadId, onLogout, authUser }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -871,6 +875,29 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
   const complaintsSorted = [...complaints].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const newComplaintsCount = complaints.filter((c) => !c.read).length;
+
+  // Tournée suggérée : réclamations non résolues avec position GPS, triées du plus proche
+  // au plus loin du local. Le retour au point A est toujours compté par défaut, même si le
+  // technicien ne revient pas physiquement au local à la fin de sa tournée.
+  const tourStops = useMemo(() => {
+    if (!officeLocation) return [];
+    return complaints
+      .filter((c) => c.status !== "resolu" && c.latitude != null && c.longitude != null && c.approvalStatus === "approved")
+      .map((c) => ({ ...c, distFromOffice: haversineKm(officeLocation.lat, officeLocation.lng, c.latitude, c.longitude) }))
+      .sort((a, b) => a.distFromOffice - b.distFromOffice);
+  }, [complaints, officeLocation]);
+
+  const tourTotalKm = useMemo(() => {
+    if (!officeLocation || tourStops.length === 0) return 0;
+    let total = 0;
+    let prev = officeLocation;
+    tourStops.forEach((c) => {
+      total += haversineKm(prev.lat, prev.lng, c.latitude, c.longitude);
+      prev = { lat: c.latitude, lng: c.longitude };
+    });
+    total += haversineKm(prev.lat, prev.lng, officeLocation.lat, officeLocation.lng); // retour au point A par défaut
+    return total;
+  }, [tourStops, officeLocation]);
 
   const threads = useMemo(() => {
     const map = {};
@@ -899,6 +926,15 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
     setReplyText("");
   };
 
+  const [tourLogged, setTourLogged] = useState(false);
+  const logTour = () => {
+    if (tourStops.length === 0) return;
+    const clientNoms = tourStops.map((c) => c.clientNom).join(", ");
+    onLogFuelExpense({ id: null, clientNom: clientNoms, latitude: null, longitude: null, _tourDistanceKm: tourTotalKm }, authUser?.nom || "Technicien");
+    setTourLogged(true);
+    setTimeout(() => setTourLogged(false), 2500);
+  };
+
   return (
     <div className="wifi-app">
       <style>{CSS}</style>
@@ -925,6 +961,28 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
       {tab === "complaints" && (
         <div className="view active">
+          {tourStops.length > 1 && (
+            <div className="chart-card" style={{ borderColor: "var(--cyan)" }}>
+              <div className="ctitle" style={{ color: "var(--cyan)" }}>🗺️ MA TOURNÉE (DU PLUS PROCHE AU PLUS LOIN)</div>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8 }}>
+                Uniquement les interventions déjà approuvées par un administrateur.
+              </div>
+              {tourStops.map((c, i) => (
+                <div key={c.id} className="rah-item">
+                  <span className="rah-date">{i + 1}.</span>
+                  <span>{c.clientNom}</span>
+                  <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{c.distFromOffice.toFixed(1)} km du local</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 12, color: "var(--text-dim)", margin: "10px 0" }}>
+                Distance totale estimée (avec retour au local à la fin) : <strong style={{ color: "var(--cyan)" }}>{tourTotalKm.toFixed(1)} km</strong> · {fmtFCFA(Math.round(tourTotalKm * FUEL_RATE_PER_KM))}
+              </div>
+              <button className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={logTour}>
+                {tourLogged ? "Tournée enregistrée ✓" : "Enregistrer la tournée"}
+              </button>
+            </div>
+          )}
+
           <div className="chips" style={{ marginBottom: 14 }}>
             {["ALL", "nouveau", "en_cours", "resolu"].map((f) => (
               <button key={f} className={`chip ${complaintFilter === f ? "active" : ""}`} onClick={() => setComplaintFilter(f)}>
@@ -950,18 +1008,41 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                 {c.dateDebut && <span>Depuis le {fmtDate(c.dateDebut)}</span>}
                 {c.localisation && <span> · {c.localisation}</span>}
               </div>
+
+              {c.status !== "resolu" && (
+                <div className="approval-row">
+                  {c.approvalStatus === "approved" && <span className="approval-badge ok">✓ Accord admin obtenu</span>}
+                  {c.approvalStatus === "requested" && <span className="approval-badge pending">⏳ En attente d'accord admin</span>}
+                  {c.approvalStatus === "refused" && <span className="approval-badge refused">✗ Intervention refusée par l'admin</span>}
+                  {(c.approvalStatus === "none" || !c.approvalStatus) && (
+                    <button className="btn-add btn-report" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onRequestApproval(c)}>
+                      Demander l'accord pour intervenir
+                    </button>
+                  )}
+                </div>
+              )}
+
               {c.latitude && (
                 <>
                   <a href={`https://www.google.com/maps?q=${c.latitude},${c.longitude}`} target="_blank" rel="noreferrer" className="gps-view-link complaint-map-link">
                     📍 Voir la position sur la carte
                   </a>
-                  {officeLocation && (() => {
-                    const distanceKm = haversineKm(officeLocation.lat, officeLocation.lng, c.latitude, c.longitude) * 2;
+                  {officeLocation && c.approvalStatus === "approved" && c.technicienStartLat == null && (
+                    <div className="fuel-estimate">
+                      📍 Avant de partir, capture ta position de départ
+                      <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onCaptureStartPosition(c)}>
+                        Démarrer l'intervention
+                      </button>
+                    </div>
+                  )}
+                  {officeLocation && c.approvalStatus === "approved" && c.technicienStartLat != null && (() => {
+                    const origin = { lat: c.technicienStartLat, lng: c.technicienStartLng };
+                    const distanceKm = haversineKm(origin.lat, origin.lng, c.latitude, c.longitude) * 2;
                     const montant = Math.round(distanceKm * FUEL_RATE_PER_KM);
                     const already = fuelExpenses.some((f) => f.complaintId === c.id);
                     return (
                       <div className="fuel-estimate">
-                        🚗 {distanceKm.toFixed(1)} km (aller-retour) · {fmtFCFA(montant)}
+                        🚗 {distanceKm.toFixed(1)} km (aller-retour, depuis ta position de départ) · {fmtFCFA(montant)}
                         {already ? (
                           <span className="fuel-logged">Déjà enregistré</span>
                         ) : (
@@ -972,6 +1053,11 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                       </div>
                     );
                   })()}
+                  {officeLocation && c.approvalStatus !== "approved" && (
+                    <div className="fuel-estimate fuel-locked">
+                      🚗 Déplacement non payé sans l'accord d'un administrateur
+                    </div>
+                  )}
                 </>
               )}
               {c.description && <div className="complaint-desc">{c.description}</div>}
@@ -2829,9 +2915,18 @@ export default function AlerteClientWifi() {
   };
 
   const logFuelExpense = async (complaint, technicienNom) => {
-    if (!officeLocation || complaint.latitude == null || complaint.longitude == null) return;
-    const oneWayKm = haversineKm(officeLocation.lat, officeLocation.lng, complaint.latitude, complaint.longitude);
-    const distanceKm = oneWayKm * 2; // aller-retour
+    if (!officeLocation) return;
+    let distanceKm;
+    if (complaint._tourDistanceKm != null) {
+      distanceKm = complaint._tourDistanceKm; // tournée à plusieurs arrêts, déjà calculée (retour au point A inclus)
+    } else {
+      if (complaint.latitude == null || complaint.longitude == null) return;
+      // Priorité à la position réelle capturée par le technicien avant son départ, sinon le local.
+      const origin = complaint.technicienStartLat != null && complaint.technicienStartLng != null
+        ? { lat: complaint.technicienStartLat, lng: complaint.technicienStartLng }
+        : officeLocation;
+      distanceKm = haversineKm(origin.lat, origin.lng, complaint.latitude, complaint.longitude) * 2; // aller-retour
+    }
     const montant = Math.round(distanceKm * FUEL_RATE_PER_KM);
     try {
       const payload = { complaintId: complaint.id, technicienNom, clientNom: complaint.clientNom, distanceKm, montant };
@@ -2856,6 +2951,25 @@ export default function AlerteClientWifi() {
     }
   };
 
+  const markAllFuelExpensesPaid = async (technicienNom) => {
+    const unpaid = fuelExpenses.filter((f) => f.technicienNom === technicienNom && f.status === "a_payer");
+    if (unpaid.length === 0) return;
+    const total = unpaid.reduce((s, f) => s + f.montant, 0);
+    if (!window.confirm(`Confirmer le paiement de ${fmtFCFA(total)} à "${technicienNom}" (${unpaid.length} déplacement(s)) ? Le compteur repassera à 0.`)) return;
+    try {
+      if (SUPABASE_CONFIGURED) {
+        await Promise.all(unpaid.map((f) => markFuelExpensePaidRow(f.id)));
+      }
+      const paidIds = new Set(unpaid.map((f) => f.id));
+      setFuelExpenses((fs) => fs.map((f) => (paidIds.has(f.id) ? { ...f, status: "paye", paidAt: new Date().toISOString() } : f)));
+      showToast(`${fmtFCFA(total)} payé à ${technicienNom}.`);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
+    }
+  };
+
+
   const updateComplaintStatusHandler = async (id, status) => {
     try {
       if (SUPABASE_CONFIGURED) await updateComplaintRow(id, { status });
@@ -2865,6 +2979,54 @@ export default function AlerteClientWifi() {
       showToast("Erreur de mise à jour du statut.");
     }
   };
+
+  // ---------- Accord admin avant intervention (condition du paiement du déplacement) ----------
+  const requestInterventionApproval = async (complaint) => {
+    try {
+      if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { approval_status: "requested" });
+      setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, approvalStatus: "requested" } : c)));
+      showToast("Demande d'accord envoyée à l'administrateur.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'envoi de la demande.");
+    }
+  };
+
+  const setInterventionApproval = async (complaint, approvalStatus) => {
+    try {
+      if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { approval_status: approvalStatus });
+      setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, approvalStatus } : c)));
+      showToast(approvalStatus === "approved" ? "Intervention approuvée." : "Intervention refusée.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
+    }
+  };
+
+  // Le technicien capture sa position réelle juste avant de partir (remplace le local comme point A
+  // pour le calcul du carburant de cette intervention précise).
+  const captureTechnicienStartPosition = (complaint) => {
+    if (!navigator.geolocation) {
+      showToast("La géolocalisation n'est pas disponible sur cet appareil.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        try {
+          if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { technicien_start_lat: lat, technicien_start_lng: lng });
+          setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, technicienStartLat: lat, technicienStartLng: lng } : c)));
+          showToast("Position de départ enregistrée.");
+        } catch (e) {
+          console.error(e);
+          showToast("Erreur d'enregistrement de la position.");
+        }
+      },
+      () => showToast("Impossible de récupérer ta position. Vérifie que la localisation est activée."),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
 
   const markComplaintsReadHandler = async () => {
     const unreadIds = complaints.filter((c) => !c.read).map((c) => c.id);
@@ -3069,6 +3231,8 @@ export default function AlerteClientWifi() {
         onMarkComplaintsRead={markComplaintsReadHandler}
         onUploadTicketFile={uploadTicketFileHandler}
         onLogFuelExpense={logFuelExpense}
+        onRequestApproval={requestInterventionApproval}
+        onCaptureStartPosition={captureTechnicienStartPosition}
         busyUploadId={busyUploadId}
         onLogout={handleLogout}
         authUser={authUser}
@@ -3439,18 +3603,42 @@ export default function AlerteClientWifi() {
                 {c.dateDebut && <span>Depuis le {fmtDate(c.dateDebut)}</span>}
                 {c.localisation && <span> · {c.localisation}</span>}
               </div>
+
+              {c.status !== "resolu" && (
+                <div className="approval-row">
+                  {c.approvalStatus === "approved" && <span className="approval-badge ok">✓ Accord admin obtenu</span>}
+                  {c.approvalStatus === "refused" && <span className="approval-badge refused">✗ Intervention refusée</span>}
+                  {c.approvalStatus === "requested" && (
+                    <>
+                      <span className="approval-badge pending">⏳ Demande d'accord du technicien</span>
+                      <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => setInterventionApproval(c, "approved")}>Approuver</button>
+                      <button className="btn-cancel" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => setInterventionApproval(c, "refused")}>Refuser</button>
+                    </>
+                  )}
+                  {(c.approvalStatus === "none" || !c.approvalStatus) && (
+                    <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => setInterventionApproval(c, "approved")}>
+                      Autoriser l'intervention
+                    </button>
+                  )}
+                </div>
+              )}
+
               {c.latitude && (
                 <>
                   <a href={`https://www.google.com/maps?q=${c.latitude},${c.longitude}`} target="_blank" rel="noreferrer" className="gps-view-link complaint-map-link">
                     📍 Voir la position sur la carte
                   </a>
-                  {officeLocation && (() => {
-                    const distanceKm = haversineKm(officeLocation.lat, officeLocation.lng, c.latitude, c.longitude) * 2;
+                  {officeLocation && c.approvalStatus === "approved" && (() => {
+                    const origin = c.technicienStartLat != null && c.technicienStartLng != null
+                      ? { lat: c.technicienStartLat, lng: c.technicienStartLng }
+                      : officeLocation;
+                    const distanceKm = haversineKm(origin.lat, origin.lng, c.latitude, c.longitude) * 2;
                     const montant = Math.round(distanceKm * FUEL_RATE_PER_KM);
                     const already = fuelExpenses.some((f) => f.complaintId === c.id);
+                    const fromStart = c.technicienStartLat != null;
                     return (
                       <div className="fuel-estimate">
-                        🚗 {distanceKm.toFixed(1)} km (aller-retour) · {fmtFCFA(montant)}
+                        🚗 {distanceKm.toFixed(1)} km (aller-retour{fromStart ? ", depuis la position réelle du technicien" : ""}) · {fmtFCFA(montant)}
                         {already ? (
                           <span className="fuel-logged">Déjà enregistré</span>
                         ) : (
@@ -3461,6 +3649,11 @@ export default function AlerteClientWifi() {
                       </div>
                     );
                   })()}
+                  {officeLocation && c.approvalStatus !== "approved" && (
+                    <div className="fuel-estimate fuel-locked">
+                      🚗 Déplacement non payé sans accord préalable
+                    </div>
+                  )}
                 </>
               )}
               {c.description && <div className="complaint-desc">{c.description}</div>}
@@ -3554,6 +3747,9 @@ export default function AlerteClientWifi() {
                 <div key={nom} className="rah-item">
                   <span>{nom}</span>
                   <span className="rah-amount">{fmtFCFA(total)}</span>
+                  <button className="btn-add" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={() => markAllFuelExpensesPaid(nom)}>
+                    Valider le paiement
+                  </button>
                 </div>
               ))}
             </div>
@@ -4306,6 +4502,12 @@ const CSS = `
 .wifi-app .gps-view-link{color:var(--cyan);font-size:11.5px;text-decoration:underline;font-weight:600;margin-left:4px;}
 .wifi-app .complaint-map-link{display:inline-block;margin-top:8px;font-size:12px;}
 .wifi-app .fuel-estimate{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;padding:8px 10px;border-radius:9px;background:var(--amber-dim);color:var(--amber);font-size:12px;font-weight:600;}
+.wifi-app .fuel-locked{background:var(--red-dim);color:var(--red);font-weight:600;}
+.wifi-app .approval-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0;}
+.wifi-app .approval-badge{font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:7px;}
+.wifi-app .approval-badge.ok{background:var(--green-dim);color:var(--green);}
+.wifi-app .approval-badge.pending{background:var(--amber-dim);color:var(--amber);}
+.wifi-app .approval-badge.refused{background:var(--red-dim);color:var(--red);}
 .wifi-app .fuel-logged{font-size:11px;color:var(--green);font-weight:700;}
 .wifi-app .request-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap;}
 .wifi-app .request-row:first-of-type{border-top:none;}
