@@ -28,6 +28,7 @@ const LOCAL_MESSAGES_KEY = "bmi-wifi-messages-demo";
 const LOCAL_COMPLAINTS_KEY = "bmi-wifi-complaints-demo";
 const LOCAL_USERS_KEY = "bmi-wifi-users-demo";
 const LOCAL_PAYMENT_REQUESTS_KEY = "bmi-wifi-payment-requests-demo";
+const LOCAL_TICKET_REQUESTS_KEY = "bmi-wifi-ticket-requests-demo";
 
 function uid() {
   return "d_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -72,6 +73,44 @@ async function sbFetch(path, options = {}) {
   }
   if (res.status === 204) return null;
   return res.json();
+}
+
+// ---- Supabase Storage (fichiers PDF des tickets) ----
+const TICKETS_BUCKET = "tickets";
+
+async function sbStorageUpload(path, file) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${TICKETS_BUCKET}/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": file.type || "application/pdf",
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Upload échoué — ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+async function sbStorageDelete(path) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${TICKETS_BUCKET}/${path}`, {
+    method: "DELETE",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Suppression échouée — ${res.status} ${text}`);
+  }
+}
+
+function sbStorageUrl(path) {
+  return `${SUPABASE_URL}/storage/v1/object/public/${TICKETS_BUCKET}/${path}`;
 }
 
 const SEED_CLIENTS = [
@@ -272,6 +311,25 @@ const messageToRow = (m) => ({ client_id: m.clientId || null, client_nom: m.clie
 const rowToUser = (r) => ({ id: r.id, nom: r.nom, role: r.role, pin: r.pin });
 const userToRow = (u) => ({ nom: u.nom, role: u.role, pin: u.pin });
 
+const rowToTicketRequest = (r) => ({
+  id: r.id,
+  clientId: r.client_id,
+  clientNom: r.client_nom,
+  note: r.note,
+  status: r.status,
+  filePath: r.file_path,
+  fileName: r.file_name,
+  createdAt: r.created_at,
+});
+const ticketRequestToRow = (r) => ({
+  client_id: r.clientId || null,
+  client_nom: r.clientNom,
+  note: r.note || null,
+  status: r.status || "pending",
+  file_path: r.filePath || null,
+  file_name: r.fileName || null,
+});
+
 const rowToPaymentRequest = (r) => ({
   id: r.id,
   clientId: r.client_id,
@@ -361,6 +419,11 @@ async function fetchPaymentRequests() {
   return (data || []).map(rowToPaymentRequest);
 }
 
+async function fetchTicketRequests() {
+  const data = await sbFetch("wifi_ticket_requests?select=*&order=created_at.desc");
+  return (data || []).map(rowToTicketRequest);
+}
+
 async function insertClientRow(c) {
   const data = await sbFetch("wifi_clients", { method: "POST", body: JSON.stringify(clientToRow(c)) });
   return rowToClient(data[0]);
@@ -413,6 +476,17 @@ async function insertPaymentRequestRow(r) {
 }
 async function updatePaymentRequestRow(id, patch) {
   await sbFetch(`wifi_payment_requests?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+async function insertTicketRequestRow(r) {
+  const data = await sbFetch("wifi_ticket_requests", { method: "POST", body: JSON.stringify(ticketRequestToRow(r)) });
+  return rowToTicketRequest(data[0]);
+}
+async function updateTicketRequestRow(id, patch) {
+  await sbFetch(`wifi_ticket_requests?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+async function deleteTicketRequestRow(id) {
+  await sbFetch(`wifi_ticket_requests?id=eq.${id}`, { method: "DELETE" });
 }
 
 // -------------------- Small reusable bits --------------------
@@ -725,7 +799,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, onSend
 
 // -------------------- Client view --------------------
 
-function ClientView({ client, clients, payments, paymentRequests, complaints, messages, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onLogout }) {
+function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onDownloadTicket, onLogout }) {
   const [tab, setTab] = useState("home");
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Cash", note: "", codeSecret: "" });
@@ -736,6 +810,8 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const [sentComplaint, setSentComplaint] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locError, setLocError] = useState("");
+  const [ticketNote, setTicketNote] = useState("");
+  const [sentTicketRequest, setSentTicketRequest] = useState(false);
 
   const pendingPaymentKey = `apespot-wifi-pending-payment-${client.id}`;
 
@@ -781,9 +857,22 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     .filter((c) => (c.clientNom || "").trim().toLowerCase() === freshClient.nom.trim().toLowerCase())
     .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
+  const myTicketRequests = (ticketRequests || [])
+    .filter((r) => (r.clientNom || "").trim().toLowerCase() === freshClient.nom.trim().toLowerCase())
+    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
   const myMessages = messages
     .filter((m) => (m.clientNom || "").trim().toLowerCase() === freshClient.nom.trim().toLowerCase())
     .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+
+  const submitTicketRequest = async () => {
+    const ok = await onSubmitTicketRequest(freshClient.id, freshClient.nom, ticketNote);
+    if (ok) {
+      setSentTicketRequest(true);
+      setTicketNote("");
+      setTimeout(() => setSentTicketRequest(false), 2200);
+    }
+  };
 
   const submitComplaint = async () => {
     if (!complaintForm.reason) return;
@@ -895,6 +984,9 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
       <div className="tabs">
         <button className={`tab ${tab === "home" ? "active" : ""}`} onClick={() => setTab("home")}>Mon compte</button>
         <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => setTab("messages")}>Message</button>
+        <button className={`tab ${tab === "tickets" ? "active" : ""}`} onClick={() => setTab("tickets")}>
+          Ticket{myTicketRequests.some((r) => r.status === "ready") && <span className="tab-badge">1</span>}
+        </button>
       </div>
 
       {tab === "home" && (
@@ -1158,6 +1250,47 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
         </div>
       )}
 
+      {tab === "tickets" && (
+        <div className="view active">
+          <div className="chart-card">
+            <div className="ctitle">DEMANDER DES TICKETS</div>
+            {sentTicketRequest ? (
+              <div style={{ textAlign: "center", padding: "20px 0", color: "var(--green)", fontWeight: 700 }}>Demande envoyée ✓</div>
+            ) : (
+              <>
+                <div className="field">
+                  <label>Précisions (optionnel)</label>
+                  <input placeholder="Ex: 50 tickets" value={ticketNote} onChange={(e) => setTicketNote(e.target.value)} />
+                </div>
+                <button className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={submitTicketRequest}>
+                  Envoyer la demande
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="chart-card">
+            <div className="ctitle">MES DEMANDES</div>
+            {myTicketRequests.length === 0 && <div className="empty" style={{ padding: "20px 0" }}>Aucune demande pour l'instant.</div>}
+            {myTicketRequests.map((r) => (
+              <div key={r.id} className="rah-item">
+                <span className="rah-date">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("fr-FR") : ""}</span>
+                <span>{r.note || "—"}</span>
+                {r.status === "ready" ? (
+                  <button className="btn-add" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={() => onDownloadTicket(r)}>
+                    Télécharger
+                  </button>
+                ) : (
+                  <span className={`badge ${r.status === "pending" ? "ATTENTION" : "NA"}`}>
+                    {r.status === "pending" ? "En attente" : "Livré"}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {tab === "messages" && (
         <div className="view active">
           <div className="thread-view">
@@ -1198,6 +1331,7 @@ export default function AlerteClientWifi() {
   const [complaints, setComplaints] = useState([]);
   const [users, setUsers] = useState([]);
   const [paymentRequests, setPaymentRequests] = useState([]);
+  const [ticketRequests, setTicketRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -1208,6 +1342,7 @@ export default function AlerteClientWifi() {
       const demoMessages = loadLocal(LOCAL_MESSAGES_KEY, []);
       const demoComplaints = loadLocal(LOCAL_COMPLAINTS_KEY, []);
       const demoPaymentRequests = loadLocal(LOCAL_PAYMENT_REQUESTS_KEY, []);
+      const demoTicketRequests = loadLocal(LOCAL_TICKET_REQUESTS_KEY, []);
       const demoUsers = loadLocal(LOCAL_USERS_KEY, null) || [
         { id: uid(), nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN },
         { id: uid(), nom: "Technicien", role: "technicien", pin: DEFAULT_TECH_PIN },
@@ -1220,21 +1355,23 @@ export default function AlerteClientWifi() {
       setComplaints(demoComplaints);
       setUsers(demoUsers);
       setPaymentRequests(demoPaymentRequests);
+      setTicketRequests(demoTicketRequests);
       setLoading(false);
       return;
     }
     (async () => {
       try {
-        const [c, p, m, cp, u, pr] = await Promise.all([fetchClients(), fetchPayments(), fetchMessages(), fetchComplaints(), fetchUsers(), fetchPaymentRequests()]);
+        const [c, p, m, cp, u, pr, tr] = await Promise.all([fetchClients(), fetchPayments(), fetchMessages(), fetchComplaints(), fetchUsers(), fetchPaymentRequests(), fetchTicketRequests()]);
         setClients(c);
         setPayments(p);
         setMessages(m);
         setComplaints(cp);
         setUsers(u);
         setPaymentRequests(pr);
+        setTicketRequests(tr);
       } catch (e) {
         console.error(e);
-        setLoadError("Connexion à Supabase impossible. Vérifie SUPABASE_URL / SUPABASE_ANON_KEY et les tables wifi_clients / wifi_payments / wifi_messages / wifi_complaints / wifi_users / wifi_payment_requests.");
+        setLoadError("Connexion à Supabase impossible. Vérifie SUPABASE_URL / SUPABASE_ANON_KEY et les tables wifi_clients / wifi_payments / wifi_messages / wifi_complaints / wifi_users / wifi_payment_requests / wifi_ticket_requests.");
       } finally {
         setLoading(false);
       }
@@ -1247,13 +1384,14 @@ export default function AlerteClientWifi() {
     if (!SUPABASE_CONFIGURED) return;
     const t = setInterval(async () => {
       try {
-        const [c, p, m, cp, u, pr] = await Promise.all([fetchClients(), fetchPayments(), fetchMessages(), fetchComplaints(), fetchUsers(), fetchPaymentRequests()]);
+        const [c, p, m, cp, u, pr, tr] = await Promise.all([fetchClients(), fetchPayments(), fetchMessages(), fetchComplaints(), fetchUsers(), fetchPaymentRequests(), fetchTicketRequests()]);
         setClients(c);
         setPayments(p);
         setMessages(m);
         setComplaints(cp);
         setUsers(u);
         setPaymentRequests(pr);
+        setTicketRequests(tr);
       } catch (e) {
         console.error("Rafraîchissement automatique échoué:", e);
       }
@@ -1280,6 +1418,9 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_PAYMENT_REQUESTS_KEY, paymentRequests);
   }, [paymentRequests, loading]);
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_TICKET_REQUESTS_KEY, ticketRequests);
+  }, [ticketRequests, loading]);
 
   // ---------- Session persistante (survit à une actualisation) + déconnexion après inactivité ----------
 
@@ -1449,6 +1590,11 @@ export default function AlerteClientWifi() {
   const newComplaintsCount = useMemo(
     () => complaints.filter((c) => !c.read).length,
     [complaints]
+  );
+
+  const pendingTicketRequests = useMemo(
+    () => ticketRequests.filter((r) => r.status === "pending"),
+    [ticketRequests]
   );
 
   const unresolvedComplaintsCount = useMemo(
@@ -1864,6 +2010,73 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // ---------- Demandes de tickets (coupons revendeur) ----------
+  const submitTicketRequestHandler = async (clientId, clientNom, note) => {
+    const payload = { clientId, clientNom, note, status: "pending", filePath: null, fileName: null };
+    try {
+      const created = SUPABASE_CONFIGURED
+        ? await insertTicketRequestRow(payload)
+        : { id: uid(), ...payload, createdAt: new Date().toISOString() };
+      setTicketRequests((rs) => [created, ...rs]);
+      return true;
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'envoi de la demande de tickets.");
+      return false;
+    }
+  };
+
+  // L'admin joint le PDF déjà prêt à la demande du client.
+  const uploadTicketFileHandler = async (req, file) => {
+    try {
+      if (SUPABASE_CONFIGURED) {
+        const path = `${req.id}-${Date.now()}-${file.name}`;
+        await sbStorageUpload(path, file);
+        await updateTicketRequestRow(req.id, { status: "ready", file_path: path, file_name: file.name });
+        setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "ready", filePath: path, fileName: file.name } : r)));
+      } else {
+        // Mode démo : le PDF est gardé en base64 localement (pas de vrai stockage Supabase).
+        const reader = new FileReader();
+        const dataUrl = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "ready", filePath: dataUrl, fileName: file.name } : r)));
+      }
+      showToast("Ticket envoyé au client.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'envoi du fichier.");
+    }
+  };
+
+  // Le client télécharge le PDF ; le fichier est ensuite supprimé de Supabase Storage.
+  const downloadAndDeleteTicketHandler = async (req) => {
+    try {
+      const url = SUPABASE_CONFIGURED ? sbStorageUrl(req.filePath) : req.filePath;
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = req.fileName || "ticket.pdf";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+
+      if (SUPABASE_CONFIGURED) {
+        await sbStorageDelete(req.filePath);
+        await updateTicketRequestRow(req.id, { status: "delivered", file_path: null });
+      }
+      setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "delivered", filePath: null } : r)));
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de téléchargement du ticket.");
+    }
+  };
+
   const updateComplaintStatusHandler = async (id, status) => {
     try {
       if (SUPABASE_CONFIGURED) await updateComplaintRow(id, { status });
@@ -2030,9 +2243,12 @@ export default function AlerteClientWifi() {
         paymentRequests={paymentRequests}
         complaints={complaints}
         messages={messages}
+        ticketRequests={ticketRequests}
         onSendMessage={sendMessageHandler}
         onAddComplaint={addComplaintHandler}
         onSubmitPaymentRequest={submitPaymentRequestHandler}
+        onSubmitTicketRequest={submitTicketRequestHandler}
+        onDownloadTicket={downloadAndDeleteTicketHandler}
         onLogout={handleLogout}
       />
     );
@@ -2079,6 +2295,9 @@ export default function AlerteClientWifi() {
         </button>
         <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => { setTab("complaints"); markComplaintsReadHandler(); }}>
           Réclamations{newComplaintsCount > 0 && <span className="tab-badge">{newComplaintsCount}</span>}
+        </button>
+        <button className={`tab ${tab === "tickets" ? "active" : ""}`} onClick={() => setTab("tickets")}>
+          Tickets{pendingTicketRequests.length > 0 && <span className="tab-badge">{pendingTicketRequests.length}</span>}
         </button>
         <button className={`tab ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>
           Utilisateurs
@@ -2367,6 +2586,54 @@ export default function AlerteClientWifi() {
               )}
               {c.description && <div className="complaint-desc">{c.description}</div>}
               <div className="complaint-date">{c.createdAt ? new Date(c.createdAt).toLocaleString("fr-FR") : ""}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "tickets" && (
+        <div className="view active">
+          <div className="toolbar">
+            <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
+              {ticketRequests.length} demande(s) au total · {pendingTicketRequests.length} en attente
+            </div>
+          </div>
+
+          {ticketRequests.length === 0 && <div className="empty">Aucune demande de tickets pour l'instant.</div>}
+
+          {[...ticketRequests].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).map((r) => (
+            <div className="complaint-card" key={r.id}>
+              <div className="complaint-top">
+                <div className="complaint-client">{r.clientNom}</div>
+                <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "ready" ? "OK" : "NA"}`}>
+                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : "Livré"}
+                </span>
+              </div>
+              {r.note && <div className="complaint-desc">{r.note}</div>}
+              <div className="complaint-date">{r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}</div>
+
+              {r.status === "pending" && (
+                <label className="btn-add" style={{ marginTop: 10, display: "inline-flex", cursor: "pointer" }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#08201C" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5-5 5 5" /><path d="M4 19h16" /></svg>
+                  Joindre le PDF
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) uploadTicketFileHandler(r, file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+              {r.status === "ready" && (
+                <div style={{ fontSize: 12, color: "var(--green)", marginTop: 8 }}>✓ {r.fileName} envoyé — en attente que le client le télécharge.</div>
+              )}
+              {r.status === "delivered" && (
+                <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 8 }}>Téléchargé par le client · fichier supprimé du stockage.</div>
+              )}
             </div>
           ))}
         </div>
