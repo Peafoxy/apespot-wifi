@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import jsPDF from "jspdf";
 
 /**
  * Alerte Client WiFi — APESPOT WI-FI
@@ -78,9 +79,10 @@ async function sbFetch(path, options = {}) {
 
 // ---- Supabase Storage (fichiers PDF des tickets) ----
 const TICKETS_BUCKET = "tickets";
+const RECEIPTS_BUCKET = "receipts";
 
-async function sbStorageUpload(path, file) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${TICKETS_BUCKET}/${path}`, {
+async function sbStorageUpload(path, file, bucket = TICKETS_BUCKET) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
     method: "POST",
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -96,8 +98,8 @@ async function sbStorageUpload(path, file) {
   return res.json();
 }
 
-async function sbStorageDelete(path) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${TICKETS_BUCKET}/${path}`, {
+async function sbStorageDelete(path, bucket = TICKETS_BUCKET) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
     method: "DELETE",
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -110,8 +112,8 @@ async function sbStorageDelete(path) {
   }
 }
 
-function sbStorageUrl(path) {
-  return `${SUPABASE_URL}/storage/v1/object/public/${TICKETS_BUCKET}/${path}`;
+function sbStorageUrl(path, bucket = TICKETS_BUCKET) {
+  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
 }
 
 const SEED_CLIENTS = [
@@ -218,6 +220,84 @@ function fmtFCFA(n) {
   return (Number(n) || 0).toLocaleString("fr-FR") + " F";
 }
 
+// Génère un reçu PDF pour un paiement, retourné sous forme de Blob prêt à uploader.
+// fmtFCFA utilise l'espace insécable fine du format fr-FR, absente de la police PDF de base
+// (elle s'affichait comme "/"). On reformate ici avec un espace normal, PDF uniquement.
+function fmtFCFAForPdf(n) {
+  const num = Math.round(Number(n) || 0);
+  return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " F";
+}
+
+function generateReceiptPDF(payment) {
+  const doc = new jsPDF({ unit: "mm", format: "a5" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 15;
+  const tableWidth = pageWidth - marginX * 2;
+
+  // ---- En-tête clair ----
+  doc.setTextColor(20, 30, 42);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("APESPOT WI-FI", pageWidth / 2, 18, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(110, 120, 130);
+  doc.text("Reçu de paiement", pageWidth / 2, 25, { align: "center" });
+
+  doc.setDrawColor(62, 216, 195); // accent cyan de l'app
+  doc.setLineWidth(0.8);
+  doc.line(pageWidth / 2 - 16, 29, pageWidth / 2 + 16, 29);
+
+  // ---- Tableau ----
+  const rows = [
+    ["Client", payment.clientNom || "—"],
+    ["Montant", fmtFCFAForPdf(payment.montant)],
+    ["Mode de paiement", payment.mode || "—"],
+    ["Date", fmtDate(payment.date)],
+  ];
+  if (payment.newExpiration) rows.push(["Abonnement valable jusqu'au", fmtDate(payment.newExpiration)]);
+  if (payment.note) rows.push(["Référence", payment.note]);
+  rows.push(["N° de reçu", payment.id ? payment.id.slice(0, 8).toUpperCase() : "—"]);
+
+  const rowH = 11;
+  const colLabelW = tableWidth * 0.46;
+  let y = 42;
+
+  doc.setDrawColor(210, 216, 224);
+  doc.setLineWidth(0.25);
+
+  rows.forEach((row, i) => {
+    const rowY = y + i * rowH;
+    if (i % 2 === 0) {
+      doc.setFillColor(244, 247, 250);
+      doc.rect(marginX, rowY, tableWidth, rowH, "F");
+    }
+    doc.line(marginX, rowY, marginX + tableWidth, rowY);
+    doc.line(marginX + colLabelW, rowY, marginX + colLabelW, rowY + rowH);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(40, 48, 58);
+    doc.text(row[0], marginX + 4, rowY + rowH / 2 + 1.3, { maxWidth: colLabelW - 6 });
+
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(20, 20, 20);
+    doc.text(String(row[1]), marginX + colLabelW + 4, rowY + rowH / 2 + 1.3, { maxWidth: tableWidth - colLabelW - 8 });
+  });
+
+  const tableBottom = y + rows.length * rowH;
+  doc.line(marginX, tableBottom, marginX + tableWidth, tableBottom);
+  doc.rect(marginX, y, tableWidth, rows.length * rowH);
+
+  doc.setFontSize(8.5);
+  doc.setTextColor(140, 148, 158);
+  doc.setFont("helvetica", "italic");
+  doc.text("Merci de votre confiance — APESPOT WI-FI", pageWidth / 2, tableBottom + 12, { align: "center" });
+
+  return doc.output("blob");
+}
+
 function normalizePhone(raw) {
   let d = (raw || "").replace(/[^\d]/g, "");
   if (!d) return "";
@@ -296,6 +376,8 @@ const rowToPayment = (r) => ({
   date: r.date,
   newExpiration: r.new_expiration,
   note: r.note,
+  receiptPath: r.receipt_path,
+  receiptName: r.receipt_name,
 });
 const paymentToRow = (p) => ({
   client_nom: p.clientNom,
@@ -304,6 +386,8 @@ const paymentToRow = (p) => ({
   date: p.date,
   new_expiration: p.newExpiration || null,
   note: p.note || null,
+  receipt_path: p.receiptPath || null,
+  receipt_name: p.receiptName || null,
 });
 
 const rowToMessage = (r) => ({ id: r.id, clientId: r.client_id, clientNom: r.client_nom, sender: r.sender, body: r.body, createdAt: r.created_at });
@@ -323,6 +407,7 @@ const rowToTicketRequest = (r) => ({
   status: r.status,
   filePath: r.file_path,
   fileName: r.file_name,
+  readyAt: r.ready_at,
   createdAt: r.created_at,
 });
 const ticketRequestToRow = (r) => ({
@@ -332,6 +417,7 @@ const ticketRequestToRow = (r) => ({
   status: r.status || "pending",
   file_path: r.filePath || null,
   file_name: r.fileName || null,
+  ready_at: r.readyAt || null,
 });
 
 const rowToPaymentRequest = (r) => ({
@@ -690,10 +776,12 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogout, authUser }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, busyUploadId, onLogout, authUser }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
+  const [clientFilter, setClientFilter] = useState("ALL");
+  const [complaintFilter, setComplaintFilter] = useState("ALL");
 
   const complaintsSorted = [...complaints].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const newComplaintsCount = complaints.filter((c) => !c.read).length;
@@ -751,8 +839,17 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
       {tab === "complaints" && (
         <div className="view active">
-          {complaintsSorted.length === 0 && <div className="empty">Aucune réclamation pour l'instant.</div>}
-          {complaintsSorted.map((c) => (
+          <div className="chips" style={{ marginBottom: 14 }}>
+            {["ALL", "nouveau", "en_cours", "resolu"].map((f) => (
+              <button key={f} className={`chip ${complaintFilter === f ? "active" : ""}`} onClick={() => setComplaintFilter(f)}>
+                {f === "ALL" ? "Toutes" : f === "nouveau" ? "Nouveau" : f === "en_cours" ? "En cours" : "Résolu"}
+              </button>
+            ))}
+          </div>
+          {complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length === 0 && (
+            <div className="empty">Aucune réclamation dans cette catégorie.</div>
+          )}
+          {complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).map((c) => (
             <div className="complaint-card" key={c.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{c.clientNom}</div>
@@ -815,20 +912,24 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
             <div className="complaint-card" key={r.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{r.clientNom}</div>
-                <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "ready" ? "OK" : "NA"}`}>
-                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : "Livré"}
+                <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "ready" ? "OK" : r.status === "expired" ? "EXPIRE" : "NA"}`}>
+                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : r.status === "expired" ? "Expiré" : "Livré"}
                 </span>
               </div>
               {r.note && <div className="complaint-desc">{r.note}</div>}
               <div className="complaint-date">{r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}</div>
 
               {r.status === "pending" && (
-                <label className="btn-add" style={{ marginTop: 10, display: "inline-flex", cursor: "pointer" }}>
+                <label
+                  className="btn-add"
+                  style={{ marginTop: 10, display: "inline-flex", cursor: busyUploadId === r.id ? "wait" : "pointer", opacity: busyUploadId === r.id ? 0.6 : 1 }}
+                >
                   <svg viewBox="0 0 24 24" fill="none" stroke="#08201C" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5-5 5 5" /><path d="M4 19h16" /></svg>
-                  Joindre le PDF
+                  {busyUploadId === r.id ? "Envoi..." : "Joindre le PDF"}
                   <input
                     type="file"
                     accept="application/pdf"
+                    disabled={busyUploadId === r.id}
                     style={{ display: "none" }}
                     onChange={(e) => {
                       const file = e.target.files[0];
@@ -844,6 +945,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
               {r.status === "delivered" && (
                 <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 8 }}>Téléchargé par le client · fichier supprimé du stockage.</div>
               )}
+              {r.status === "expired" && (
+                <div style={{ fontSize: 12, color: "var(--red)", marginTop: 8 }}>Non téléchargé après 45 jours · fichier supprimé automatiquement.</div>
+              )}
             </div>
           ))}
         </div>
@@ -851,8 +955,15 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
       {tab === "clients" && (
         <div className="view active">
-          <div className="client-list-scroll" style={{ maxHeight: "62vh" }}>
-            {enrichedClients.map((c) => (
+          <div className="chips" style={{ marginBottom: 14 }}>
+            {["ALL", "EXPIRE", "ATTENTION", "OK"].map((f) => (
+              <button key={f} className={`chip ${clientFilter === f ? "active" : ""}`} onClick={() => setClientFilter(f)}>
+                {f === "ALL" ? "Tous" : f === "EXPIRE" ? "Expiré" : f === "ATTENTION" ? "Attention" : "OK"}
+              </button>
+            ))}
+          </div>
+          <div className="client-list-scroll" style={{ maxHeight: "58vh" }}>
+            {enrichedClients.filter((c) => clientFilter === "ALL" || c.statut === clientFilter).map((c) => (
               <div className="client-row" key={c.id}>
                 <div className="client-row-top">
                   <div className="client-row-left">
@@ -868,6 +979,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                 </div>
               </div>
             ))}
+            {enrichedClients.filter((c) => clientFilter === "ALL" || c.statut === clientFilter).length === 0 && (
+              <div className="empty">Aucun client dans cette catégorie.</div>
+            )}
           </div>
         </div>
       )}
@@ -879,7 +993,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
 // -------------------- Client view --------------------
 
-function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onLogout }) {
+function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onLogout }) {
   const [tab, setTab] = useState("home");
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Cash", note: "", codeSecret: "" });
@@ -895,6 +1009,10 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const [ticketError, setTicketError] = useState("");
   const [editingTicketId, setEditingTicketId] = useState(null);
   const [editingTicketNote, setEditingTicketNote] = useState("");
+  const [busyTicketDuration, setBusyTicketDuration] = useState("");
+  const [busyComplaint, setBusyComplaint] = useState(false);
+  const [busyPayment, setBusyPayment] = useState(false);
+  const [busyMsg, setBusyMsg] = useState(false);
 
   const pendingPaymentKey = `apespot-wifi-pending-payment-${client.id}`;
 
@@ -955,7 +1073,9 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
       setTicketError(`Indique une quantité pour ${duree}.`);
       return;
     }
+    setBusyTicketDuration(duree);
     const ok = await onSubmitTicketRequest(freshClient.id, freshClient.nom, `${duree}: ${qty}`);
+    setBusyTicketDuration("");
     if (ok) {
       setTicketQuantities({ ...ticketQuantities, [duree]: "" });
       setSentTicketLine(duree);
@@ -964,7 +1084,8 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   };
 
   const submitComplaint = async () => {
-    if (!complaintForm.reason) return;
+    if (!complaintForm.reason || busyComplaint) return;
+    setBusyComplaint(true);
     const ok = await onAddComplaint({
       clientId: freshClient.id,
       clientNom: freshClient.nom,
@@ -975,6 +1096,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
       longitude: complaintForm.longitude,
       description: complaintForm.description,
     });
+    setBusyComplaint(false);
     if (ok) {
       setSentComplaint(true);
       setComplaintForm({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
@@ -984,6 +1106,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   };
 
   const composePayment = () => {
+    if (busyPayment) return;
     setPayError("");
     if (!payForm.montant || Number(payForm.montant) <= 0) {
       setPayError("Indique un montant valide.");
@@ -999,6 +1122,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   };
 
   const submitPayment = async () => {
+    if (busyPayment) return;
     setPayError("");
     if (!payForm.montant || Number(payForm.montant) <= 0) {
       setPayError("Indique un montant valide.");
@@ -1009,7 +1133,9 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
       return;
     }
 
+    setBusyPayment(true);
     const ok = await onSubmitPaymentRequest(freshClient.id, freshClient.nom, Number(payForm.montant), payForm.mode, payForm.note);
+    setBusyPayment(false);
     if (ok) {
       setSentPayRequest(true);
       setDialed(false);
@@ -1053,9 +1179,11 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     );
   };
 
-  const sendMsg = () => {
-    if (!msgText.trim()) return;
-    onSendMessage(freshClient.id, freshClient.nom, "client", msgText);
+  const sendMsg = async () => {
+    if (!msgText.trim() || busyMsg) return;
+    setBusyMsg(true);
+    await onSendMessage(freshClient.id, freshClient.nom, "client", msgText);
+    setBusyMsg(false);
     setMsgText("");
   };
 
@@ -1145,6 +1273,24 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                 <span className="rah-date">{fmtDate(p.date)}</span>
                 <span>{p.mode}</span>
                 <span className="rah-amount">{fmtFCFA(p.montant)}</span>
+                {p.receiptPath && (
+                  <button
+                    className="btn-add"
+                    style={{ padding: "5px 10px", fontSize: 10.5, flexShrink: 0 }}
+                    onClick={() => {
+                      const url = SUPABASE_CONFIGURED ? sbStorageUrl(p.receiptPath, RECEIPTS_BUCKET) : p.receiptPath;
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = p.receiptName || "recu.pdf";
+                      a.target = "_blank";
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                    }}
+                  >
+                    Reçu
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1199,7 +1345,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                     {payError && <div className="login-error" style={{ textAlign: "left", marginBottom: 10 }}>{payError}</div>}
                     <div className="modal-actions">
                       <button className="btn-cancel" onClick={resetPaymentForm}>Annuler</button>
-                      <button className="btn-save" onClick={composePayment}>Composer le paiement</button>
+                      <button className="btn-save" disabled={busyPayment} onClick={composePayment}>Composer le paiement</button>
                     </div>
                   </>
                 )}
@@ -1246,7 +1392,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                     {payError && <div className="login-error" style={{ textAlign: "left", marginBottom: 10 }}>{payError}</div>}
                     <div className="modal-actions">
                       <button className="btn-cancel" onClick={resetPaymentForm}>Annuler</button>
-                      <button className="btn-save" onClick={submitPayment}>Envoyer la demande</button>
+                      <button className="btn-save" disabled={busyPayment} onClick={submitPayment}>{busyPayment ? "Envoi..." : "Envoyer la demande"}</button>
                     </div>
                   </>
                 )}
@@ -1263,7 +1409,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                     {payError && <div className="login-error" style={{ textAlign: "left", marginBottom: 10 }}>{payError}</div>}
                     <div className="modal-actions">
                       <button className="btn-cancel" onClick={resetPaymentForm}>Annuler</button>
-                      <button className="btn-save" onClick={submitPayment}>Envoyer la demande</button>
+                      <button className="btn-save" disabled={busyPayment} onClick={submitPayment}>{busyPayment ? "Envoi..." : "Envoyer la demande"}</button>
                     </div>
                   </>
                 )}
@@ -1331,7 +1477,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                 </div>
                 <div className="modal-actions">
                   <button className="btn-cancel" onClick={() => setTab("home")}>Annuler</button>
-                  <button className="btn-save" onClick={submitComplaint}>Envoyer</button>
+                  <button className="btn-save" disabled={busyComplaint} onClick={submitComplaint}>{busyComplaint ? "Envoi..." : "Envoyer"}</button>
                 </div>
               </>
             )}
@@ -1341,6 +1487,46 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
 
       {tab === "tickets" && (
         <div className="view active">
+          <div className="chart-card">
+            <div className="ctitle">MES LIGNES DE TICKETS</div>
+            {(ticketDurations || []).map((d) => (
+              <div className="ticket-duration-row" key={d.id}>
+                <input
+                  defaultValue={d.label}
+                  onBlur={(e) => { if (e.target.value.trim() !== d.label) onEditTicketDuration(d.id, e.target.value); }}
+                  style={{ flex: 1, textAlign: "left" }}
+                />
+                <button className="icon-btn del" title="Supprimer" onClick={() => onDeleteTicketDuration(d.id)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+                </button>
+              </div>
+            ))}
+            <div className="ticket-duration-row" style={{ borderBottom: "none" }}>
+              <input
+                id="clientNewDurationInput"
+                placeholder="Ex: 50f, 1 semaine..."
+                style={{ flex: 1, textAlign: "left" }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    onAddTicketDuration(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+              />
+              <button
+                className="btn-add"
+                style={{ padding: "8px 14px", fontSize: 12.5 }}
+                onClick={() => {
+                  const input = document.getElementById("clientNewDurationInput");
+                  onAddTicketDuration(input.value);
+                  input.value = "";
+                }}
+              >
+                Ajouter
+              </button>
+            </div>
+          </div>
+
           <div className="chart-card">
             <div className="ctitle">DEMANDER DES TICKETS</div>
             <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 10 }}>
@@ -1361,9 +1547,10 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                 <button
                   className="btn-add"
                   style={{ padding: "8px 14px", fontSize: 12.5, flexShrink: 0 }}
+                  disabled={busyTicketDuration === d.label}
                   onClick={() => requestTicketDuration(d.label)}
                 >
-                  {sentTicketLine === d.label ? "Envoyé ✓" : "Demander"}
+                  {busyTicketDuration === d.label ? "Envoi..." : sentTicketLine === d.label ? "Envoyé ✓" : "Demander"}
                 </button>
               </div>
             ))}
@@ -1383,8 +1570,8 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                       Télécharger
                     </button>
                   ) : (
-                    <span className={`badge ${r.status === "pending" ? "ATTENTION" : "NA"}`}>
-                      {r.status === "pending" ? "En attente" : "Livré"}
+                    <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "expired" ? "EXPIRE" : "NA"}`}>
+                      {r.status === "pending" ? "En attente" : r.status === "expired" ? "Expiré (non téléchargé)" : "Livré"}
                     </span>
                   )}
                 </div>
@@ -1448,7 +1635,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
             </div>
             <div className="thread-input">
               <input placeholder="Écris un message..." value={msgText} onChange={(e) => setMsgText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendMsg()} />
-              <button className="btn-save" onClick={sendMsg}>Envoyer</button>
+              <button className="btn-save" disabled={busyMsg} onClick={sendMsg}>{busyMsg ? "Envoi..." : "Envoyer"}</button>
             </div>
           </div>
         </div>
@@ -1529,6 +1716,8 @@ export default function AlerteClientWifi() {
         setPaymentRequests(pr);
         setTicketRequests(tr);
         setTicketDurations(td);
+        expireOldTicketsHandler(tr);
+        trimTicketRequestsHandler(tr);
       } catch (e) {
         console.error(e);
         setLoadError("Connexion à Supabase impossible. Vérifie SUPABASE_URL / SUPABASE_ANON_KEY et les tables wifi_clients / wifi_payments / wifi_messages / wifi_complaints / wifi_users / wifi_payment_requests / wifi_ticket_requests.");
@@ -1562,6 +1751,8 @@ export default function AlerteClientWifi() {
         setPaymentRequests(pr);
         setTicketRequests(tr);
         setTicketDurations(td);
+        expireOldTicketsHandler(tr);
+        trimTicketRequestsHandler(tr);
       } catch (e) {
         console.error("Rafraîchissement automatique échoué:", e);
       }
@@ -1685,10 +1876,13 @@ export default function AlerteClientWifi() {
   // ---- Alerts view state ----
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("ALL");
+  const [complaintFilter, setComplaintFilter] = useState("ALL");
   const [sortKey, setSortKey] = useState("jours");
   const [sortDir, setSortDir] = useState(1);
   const [clientModal, setClientModal] = useState(null); // null | { editingId, nom, offre, dateExp }
   const [userModal, setUserModal] = useState(null); // null | { editingId, nom, role, pin }
+  const [deleteClientModal, setDeleteClientModal] = useState(null); // null | { client, code, input }
+  const [busyUploadId, setBusyUploadId] = useState(null);
   const [rowActionsClient, setRowActionsClient] = useState(null); // client currently shown in the row-actions sheet
 
   // ---- Payments view state ----
@@ -1910,16 +2104,46 @@ export default function AlerteClientWifi() {
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
-  const deleteClient = async (c) => {
-    if (window.confirm(`Supprimer "${c.nom}" de la liste ?`)) {
-      try {
-        if (SUPABASE_CONFIGURED) await deleteClientRow(c.id);
-        setClients((cs) => cs.filter((x) => x.id !== c.id));
-        showToast("Client supprimé.");
-      } catch (e) {
-        console.error(e);
-        showToast("Erreur de suppression Supabase.");
+  const deleteClient = (c) => {
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    setDeleteClientModal({ client: c, code, input: "" });
+  };
+
+  const confirmDeleteClient = async () => {
+    if (!deleteClientModal) return;
+    const c = deleteClientModal.client;
+    const nomKey = c.nom.trim().toLowerCase();
+    try {
+      // Supprime d'abord les PDF de tickets encore stockés pour ce client (sinon ils resteraient orphelins).
+      const clientTicketRequests = ticketRequests.filter(
+        (r) => r.clientId === c.id || (r.clientNom || "").trim().toLowerCase() === nomKey
+      );
+      for (const r of clientTicketRequests) {
+        if (SUPABASE_CONFIGURED && r.filePath) {
+          await sbStorageDelete(r.filePath).catch(() => {});
+        }
       }
+
+      if (SUPABASE_CONFIGURED) {
+        const nomEnc = encodeURIComponent(c.nom);
+        await Promise.all([
+          deleteClientRow(c.id), // les messages / réclamations / demandes liées via client_id sont supprimées en cascade
+          sbFetch(`wifi_payments?client_nom=eq.${nomEnc}`, { method: "DELETE" }),
+        ]);
+      }
+
+      setClients((cs) => cs.filter((x) => x.id !== c.id));
+      setPayments((ps) => ps.filter((p) => (p.clientNom || "").trim().toLowerCase() !== nomKey));
+      setMessages((ms) => ms.filter((m) => (m.clientNom || "").trim().toLowerCase() !== nomKey));
+      setComplaints((cps) => cps.filter((cp) => (cp.clientNom || "").trim().toLowerCase() !== nomKey));
+      setPaymentRequests((rs) => rs.filter((r) => (r.clientNom || "").trim().toLowerCase() !== nomKey));
+      setTicketRequests((rs) => rs.filter((r) => (r.clientNom || "").trim().toLowerCase() !== nomKey));
+
+      setDeleteClientModal(null);
+      showToast("Client et tout son historique supprimés.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de suppression Supabase.");
     }
   };
 
@@ -1954,6 +2178,32 @@ export default function AlerteClientWifi() {
     });
   };
 
+  // Génère automatiquement un reçu PDF pour un paiement et le met à disposition du client.
+  const generateAndAttachReceipt = async (payment) => {
+    try {
+      const blob = generateReceiptPDF(payment);
+      const fileName = `recu-${(payment.id || "").slice(0, 8) || "apespot"}.pdf`;
+      const file = new File([blob], fileName, { type: "application/pdf" });
+
+      if (SUPABASE_CONFIGURED) {
+        const path = `${payment.id}-${Date.now()}.pdf`;
+        await sbStorageUpload(path, file, RECEIPTS_BUCKET);
+        await updatePaymentRow(payment.id, { ...payment, receiptPath: path, receiptName: fileName });
+        setPayments((ps) => ps.map((p) => (p.id === payment.id ? { ...p, receiptPath: path, receiptName: fileName } : p)));
+      } else {
+        const reader = new FileReader();
+        const dataUrl = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        setPayments((ps) => ps.map((p) => (p.id === payment.id ? { ...p, receiptPath: dataUrl, receiptName: fileName } : p)));
+      }
+    } catch (e) {
+      console.error("Erreur génération/envoi du reçu:", e);
+    }
+  };
+
   const savePaymentModal = async () => {
     const { editingId, clientNom, montant, mode, date, newExpiration, note } = paymentModal;
     if (!clientNom.trim()) return showToast("Le nom du client est requis.");
@@ -1978,6 +2228,7 @@ export default function AlerteClientWifi() {
         const created = SUPABASE_CONFIGURED ? await insertPaymentRow(payload) : { id: uid(), ...payload };
         setPayments((ps) => [created, ...ps]);
         showToast("Paiement enregistré.");
+        generateAndAttachReceipt(created);
       }
 
       if (newExpiration) {
@@ -2129,6 +2380,15 @@ export default function AlerteClientWifi() {
     downloadCSV(`reclamations_apespot_${new Date().toISOString().slice(0, 10)}.csv`, rows);
   };
 
+  const exportTicketsCSV = () => {
+    const header = ["Client", "Demande", "Statut", "Fichier", "Créée le"];
+    const rows = [header, ...ticketRequests.map((r) => [
+      r.clientNom || "", r.note || "", r.status || "", r.fileName || "",
+      r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : "",
+    ])];
+    downloadCSV(`tickets_apespot_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  };
+
   // ---------- Relance groupée (bulk WhatsApp) ----------
   const [bulkQueue, setBulkQueue] = useState([]);
   const [bulkIndex, setBulkIndex] = useState(0);
@@ -2224,12 +2484,14 @@ export default function AlerteClientWifi() {
 
   // L'admin joint le PDF déjà prêt à la demande du client.
   const uploadTicketFileHandler = async (req, file) => {
+    setBusyUploadId(req.id);
     try {
+      const now = new Date().toISOString();
       if (SUPABASE_CONFIGURED) {
         const path = `${req.id}-${Date.now()}-${file.name}`;
         await sbStorageUpload(path, file);
-        await updateTicketRequestRow(req.id, { status: "ready", file_path: path, file_name: file.name });
-        setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "ready", filePath: path, fileName: file.name } : r)));
+        await updateTicketRequestRow(req.id, { status: "ready", file_path: path, file_name: file.name, ready_at: now });
+        setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "ready", filePath: path, fileName: file.name, readyAt: now } : r)));
       } else {
         // Mode démo : le PDF est gardé en base64 localement (pas de vrai stockage Supabase).
         const reader = new FileReader();
@@ -2238,16 +2500,62 @@ export default function AlerteClientWifi() {
           reader.onerror = reject;
           reader.readAsDataURL(file);
         });
-        setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "ready", filePath: dataUrl, fileName: file.name } : r)));
+        setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "ready", filePath: dataUrl, fileName: file.name, readyAt: now } : r)));
       }
       showToast("Ticket envoyé au client.");
     } catch (e) {
       console.error(e);
       showToast("Erreur d'envoi du fichier.");
+    } finally {
+      setBusyUploadId(null);
     }
   };
 
   // Le client télécharge le PDF ; le fichier est ensuite supprimé de Supabase Storage.
+  // Ticket "Prêt" jamais téléchargé après 45 jours : le PDF est supprimé du stockage
+  // pour ne pas encombrer Supabase indéfiniment.
+  const TICKET_EXPIRY_MS = 45 * 24 * 60 * 60 * 1000;
+  const expireOldTicketsHandler = async (list) => {
+    const now = Date.now();
+    const expired = (list || []).filter(
+      (r) => r.status === "ready" && r.readyAt && now - new Date(r.readyAt).getTime() > TICKET_EXPIRY_MS
+    );
+    if (expired.length === 0) return;
+    for (const r of expired) {
+      try {
+        if (SUPABASE_CONFIGURED && r.filePath) {
+          await sbStorageDelete(r.filePath).catch(() => {});
+          await updateTicketRequestRow(r.id, { status: "expired", file_path: null });
+        }
+      } catch (e) {
+        console.error("Expiration ticket échouée:", e);
+      }
+    }
+    const expiredIds = new Set(expired.map((r) => r.id));
+    setTicketRequests((rs) => rs.map((r) => (expiredIds.has(r.id) ? { ...r, status: "expired", filePath: null } : r)));
+  };
+
+  // Ne garde que les 10 demandes les plus récentes — les plus anciennes sont
+  // supprimées définitivement (table + fichier PDF s'il en reste un).
+  const TICKET_HISTORY_LIMIT = 10;
+  const trimTicketRequestsHandler = async (list) => {
+    const sorted = [...(list || [])].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    const toDelete = sorted.slice(TICKET_HISTORY_LIMIT);
+    if (toDelete.length === 0) return;
+    for (const r of toDelete) {
+      try {
+        if (SUPABASE_CONFIGURED) {
+          if (r.filePath) await sbStorageDelete(r.filePath).catch(() => {});
+          await deleteTicketRequestRow(r.id);
+        }
+      } catch (e) {
+        console.error("Suppression ancienne demande de ticket échouée:", e);
+      }
+    }
+    const deletedIds = new Set(toDelete.map((r) => r.id));
+    setTicketRequests((rs) => rs.filter((r) => !deletedIds.has(r.id)));
+  };
+
   const downloadAndDeleteTicketHandler = async (req) => {
     try {
       const url = SUPABASE_CONFIGURED ? sbStorageUrl(req.filePath) : req.filePath;
@@ -2464,6 +2772,7 @@ export default function AlerteClientWifi() {
         onUpdateComplaintStatus={updateComplaintStatusHandler}
         onMarkComplaintsRead={markComplaintsReadHandler}
         onUploadTicketFile={uploadTicketFileHandler}
+        busyUploadId={busyUploadId}
         onLogout={handleLogout}
         authUser={authUser}
       />
@@ -2488,6 +2797,9 @@ export default function AlerteClientWifi() {
         onEditTicketRequest={editTicketRequestHandler}
         onDeleteTicketRequest={deleteTicketRequestHandler}
         onDownloadTicket={downloadAndDeleteTicketHandler}
+        onAddTicketDuration={addTicketDuration}
+        onEditTicketDuration={editTicketDuration}
+        onDeleteTicketDuration={deleteTicketDuration}
         onLogout={handleLogout}
       />
     );
@@ -2802,8 +3114,17 @@ export default function AlerteClientWifi() {
               Export CSV
             </button>
           </div>
-          {complaints.length === 0 && <div className="empty">Aucune réclamation pour l'instant.</div>}
-          {[...complaints].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).map((c) => (
+          <div className="chips" style={{ marginBottom: 14 }}>
+            {["ALL", "nouveau", "en_cours", "resolu"].map((f) => (
+              <button key={f} className={`chip ${complaintFilter === f ? "active" : ""}`} onClick={() => setComplaintFilter(f)}>
+                {f === "ALL" ? "Toutes" : f === "nouveau" ? "Nouveau" : f === "en_cours" ? "En cours" : "Résolu"}
+              </button>
+            ))}
+          </div>
+          {complaints.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length === 0 && (
+            <div className="empty">Aucune réclamation dans cette catégorie.</div>
+          )}
+          {[...complaints].filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).map((c) => (
             <div className="complaint-card" key={c.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{c.clientNom}</div>
@@ -2832,50 +3153,14 @@ export default function AlerteClientWifi() {
 
       {tab === "tickets" && (
         <div className="view active">
-          <div className="chart-card">
-            <div className="ctitle">DURÉES DISPONIBLES</div>
-            {ticketDurations.map((d) => (
-              <div className="ticket-duration-row" key={d.id}>
-                <input
-                  defaultValue={d.label}
-                  onBlur={(e) => { if (e.target.value.trim() !== d.label) editTicketDuration(d.id, e.target.value); }}
-                  style={{ flex: 1, textAlign: "left" }}
-                />
-                <button className="icon-btn del" title="Supprimer" onClick={() => deleteTicketDuration(d.id)}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
-                </button>
-              </div>
-            ))}
-            <div className="ticket-duration-row" style={{ borderBottom: "none" }}>
-              <input
-                id="newTicketDurationInput"
-                placeholder="Ex: 2h, 1 semaine..."
-                style={{ flex: 1, textAlign: "left" }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    addTicketDuration(e.target.value);
-                    e.target.value = "";
-                  }
-                }}
-              />
-              <button
-                className="btn-add"
-                style={{ padding: "8px 14px", fontSize: 12.5 }}
-                onClick={() => {
-                  const input = document.getElementById("newTicketDurationInput");
-                  addTicketDuration(input.value);
-                  input.value = "";
-                }}
-              >
-                Ajouter
-              </button>
-            </div>
-          </div>
-
           <div className="toolbar">
             <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
               {ticketRequests.length} demande(s) au total · {pendingTicketRequests.length} en attente
             </div>
+            <button className="btn-add btn-report" onClick={exportTicketsCSV}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 19h16" /></svg>
+              Export CSV
+            </button>
           </div>
 
           {ticketRequests.length === 0 && <div className="empty">Aucune demande de tickets pour l'instant.</div>}
@@ -2884,20 +3169,24 @@ export default function AlerteClientWifi() {
             <div className="complaint-card" key={r.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{r.clientNom}</div>
-                <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "ready" ? "OK" : "NA"}`}>
-                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : "Livré"}
+                <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "ready" ? "OK" : r.status === "expired" ? "EXPIRE" : "NA"}`}>
+                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : r.status === "expired" ? "Expiré" : "Livré"}
                 </span>
               </div>
               {r.note && <div className="complaint-desc">{r.note}</div>}
               <div className="complaint-date">{r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}</div>
 
               {r.status === "pending" && (
-                <label className="btn-add" style={{ marginTop: 10, display: "inline-flex", cursor: "pointer" }}>
+                <label
+                  className="btn-add"
+                  style={{ marginTop: 10, display: "inline-flex", cursor: busyUploadId === r.id ? "wait" : "pointer", opacity: busyUploadId === r.id ? 0.6 : 1 }}
+                >
                   <svg viewBox="0 0 24 24" fill="none" stroke="#08201C" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5-5 5 5" /><path d="M4 19h16" /></svg>
-                  Joindre le PDF
+                  {busyUploadId === r.id ? "Envoi..." : "Joindre le PDF"}
                   <input
                     type="file"
                     accept="application/pdf"
+                    disabled={busyUploadId === r.id}
                     style={{ display: "none" }}
                     onChange={(e) => {
                       const file = e.target.files[0];
@@ -2912,6 +3201,9 @@ export default function AlerteClientWifi() {
               )}
               {r.status === "delivered" && (
                 <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 8 }}>Téléchargé par le client · fichier supprimé du stockage.</div>
+              )}
+              {r.status === "expired" && (
+                <div style={{ fontSize: 12, color: "var(--red)", marginTop: 8 }}>Non téléchargé après 45 jours · fichier supprimé automatiquement.</div>
               )}
             </div>
           ))}
@@ -2989,6 +3281,44 @@ export default function AlerteClientWifi() {
             <div className="modal-actions">
               <button className="btn-cancel" onClick={closeUserModal}>Annuler</button>
               <button className="btn-save" onClick={saveUserModal}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteClientModal && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setDeleteClientModal(null)}>
+          <div className="modal">
+            <h2>Supprimer "{deleteClientModal.client.nom}" ?</h2>
+            <div style={{ fontSize: 12.5, color: "var(--red)", marginBottom: 16, lineHeight: 1.5 }}>
+              Cette action supprime aussi définitivement son historique (paiements, messages, réclamations, demandes de tickets) et est irréversible.
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>
+              Pour confirmer, tape ce code :
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 24, fontWeight: 700, letterSpacing: 4, color: "var(--red)", textAlign: "center", marginBottom: 16 }}>
+              {deleteClientModal.code}
+            </div>
+            <div className="field">
+              <input
+                autoFocus
+                placeholder="Code"
+                style={{ textAlign: "center", fontFamily: "var(--mono)", fontSize: 18, letterSpacing: 2 }}
+                value={deleteClientModal.input}
+                onChange={(e) => setDeleteClientModal({ ...deleteClientModal, input: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter" && deleteClientModal.input === deleteClientModal.code) confirmDeleteClient(); }}
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={() => setDeleteClientModal(null)}>Annuler</button>
+              <button
+                className="btn-save"
+                style={{ background: "var(--red)", borderColor: "var(--red)" }}
+                disabled={deleteClientModal.input !== deleteClientModal.code}
+                onClick={confirmDeleteClient}
+              >
+                Supprimer définitivement
+              </button>
             </div>
           </div>
         </div>
@@ -3440,6 +3770,7 @@ const CSS = `
 .wifi-app .modal-actions button{flex:1;padding:11px;border-radius:9px;border:1px solid var(--line);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--sans);}
 .wifi-app .btn-cancel{background:transparent;color:var(--text-dim);}
 .wifi-app .btn-save{background:var(--cyan);color:#08201C;border-color:var(--cyan);}
+.wifi-app button:disabled{opacity:.4;cursor:not-allowed;}
 .wifi-app .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--bg-card);border:1px solid var(--line);color:var(--text);padding:11px 18px;border-radius:10px;font-size:13px;z-index:60;}
 .wifi-app footer{text-align:center;color:var(--text-faint);font-size:11.5px;margin-top:28px;letter-spacing:.2px;}
 .wifi-app .btn-add.btn-report{background:transparent;border:1px solid var(--cyan);color:var(--cyan);}
