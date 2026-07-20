@@ -1034,9 +1034,32 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                     </div>
                     <div className="field">
                       <label>Référence de la transaction (reçue par SMS)</label>
-                      <input placeholder="Ex: FLZ2607131234" value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          placeholder="Ex: FLZ2607131234"
+                          value={payForm.note}
+                          onChange={(e) => setPayForm({ ...payForm, note: e.target.value })}
+                          style={{ flex: 1 }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-cancel"
+                          style={{ flex: "0 0 auto", padding: "0 14px" }}
+                          onClick={async () => {
+                            try {
+                              const text = await navigator.clipboard.readText();
+                              if (text) setPayForm((f) => ({ ...f, note: text.trim() }));
+                              else setPayError("Le presse-papier est vide.");
+                            } catch (e) {
+                              setPayError("Impossible d'accéder au presse-papier. Colle la référence manuellement.");
+                            }
+                          }}
+                        >
+                          Coller
+                        </button>
+                      </div>
                       <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
-                        Une fois le paiement confirmé par SMS, recopie ici la référence avant d'envoyer ta demande.
+                        Copie le SMS reçu (appui long → Copier) puis clique "Coller" — ou recopie la référence toi-même.
                       </div>
                     </div>
                     {payError && <div className="login-error" style={{ textAlign: "left", marginBottom: 10 }}>{payError}</div>}
@@ -1324,8 +1347,10 @@ export default function AlerteClientWifi() {
       } catch (e) { /* ignore */ }
     };
 
-    const events = ["mousedown", "keydown", "touchstart", "scroll", "wheel"];
+    const events = ["mousedown", "pointerdown", "keydown", "input", "touchstart", "touchmove", "scroll", "wheel"];
     events.forEach((ev) => window.addEventListener(ev, bump, { passive: true }));
+    // focus/blur ne remontent pas naturellement (pas de bubbling) : on les capte en phase de capture.
+    window.addEventListener("focus", bump, true);
 
     const interval = setInterval(() => {
       if (Date.now() - lastActivityRef.current > INACTIVITY_LIMIT_MS) {
@@ -1338,6 +1363,7 @@ export default function AlerteClientWifi() {
 
     return () => {
       events.forEach((ev) => window.removeEventListener(ev, bump));
+      window.removeEventListener("focus", bump, true);
       clearInterval(interval);
     };
   }, [role]);
