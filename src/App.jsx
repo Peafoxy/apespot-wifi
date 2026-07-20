@@ -737,6 +737,35 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const [locating, setLocating] = useState(false);
   const [locError, setLocError] = useState("");
 
+  const pendingPaymentKey = `apespot-wifi-pending-payment-${client.id}`;
+
+  // Un paiement composé (montant + mode) mais pas encore envoyé (référence manquante) survit
+  // à une déconnexion/reconnexion — seul le code secret n'est jamais conservé.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(pendingPaymentKey);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved && saved.dialed) {
+          setPayForm({ montant: saved.montant || "", mode: saved.mode || "Cash", note: saved.note || "", codeSecret: "" });
+          setDialed(true);
+        }
+      }
+    } catch (e) { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (dialed && needsMobileMoney(payForm.mode)) {
+        localStorage.setItem(pendingPaymentKey, JSON.stringify({ montant: payForm.montant, mode: payForm.mode, note: payForm.note, dialed: true }));
+      } else {
+        localStorage.removeItem(pendingPaymentKey);
+      }
+    } catch (e) { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialed, payForm.montant, payForm.mode, payForm.note]);
+
   const freshClient = clients.find((c) => c.id === client.id) || client;
   const { statut, action } = computeStatus(freshClient.dateExp);
 
@@ -890,6 +919,12 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
               Faire une réclamation
             </button>
           </div>
+
+          {dialed && needsMobileMoney(payForm.mode) && (
+            <div className="call-reminder" style={{ cursor: "pointer" }} onClick={() => setTab("payment")}>
+              📞 Tu as un paiement {payForm.mode} composé en attente de référence — appuie ici pour continuer.
+            </div>
+          )}
 
           {myPaymentRequests.length > 0 && (
             <div className="chart-card">
