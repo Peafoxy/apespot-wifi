@@ -3020,6 +3020,7 @@ const CSS = `
   background:radial-gradient(circle at 15% 0%, #14202e 0%, transparent 45%),
              radial-gradient(circle at 90% 10%, #142722 0%, transparent 40%), var(--bg);
   color:var(--text); font-family:var(--sans); min-height:100vh; padding:28px 20px 60px; border-radius:8px;
+  overflow-x:hidden;
 }
 .wifi-app *{box-sizing:border-box;}
 .wifi-app{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
@@ -3034,8 +3035,9 @@ const CSS = `
 .wifi-app .today-box{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);}
 .wifi-app .today-box .label{font-size:12px;color:#FFD400;letter-spacing:1px;text-transform:uppercase;font-weight:700;order:-1;}
 .wifi-app .today-box .val{font-size:16px;color:var(--cyan);font-weight:600;}
-.wifi-app .tabs{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);}
-.wifi-app .tab{padding:10px 4px;margin-bottom:-1px;background:none;border:none;color:var(--text-faint);font-size:13.5px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);}
+.wifi-app .tabs{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.wifi-app .tabs::-webkit-scrollbar{display:none;}
+.wifi-app .tab{padding:10px 12px;margin-bottom:-1px;background:none;border:none;color:var(--text-faint);font-size:13.5px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
 .wifi-app .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;}
