@@ -116,6 +116,30 @@ function sbStorageUrl(path, bucket = TICKETS_BUCKET) {
   return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
 }
 
+async function sbStorageClearBucket(bucket) {
+  const listRes = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${bucket}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ prefix: "", limit: 1000 }),
+  });
+  if (!listRes.ok) return;
+  const files = await listRes.json();
+  if (!files || files.length === 0) return;
+  await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}`, {
+    method: "DELETE",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ prefixes: files.map((f) => f.name) }),
+  });
+}
+
 const SEED_CLIENTS = [
   ["POROZI", "30 Mbps/10 000F", "2025-05-30"],
   ["CASH POWER", "CASH POWER", "2025-08-17"],
@@ -393,7 +417,7 @@ const paymentToRow = (p) => ({
 const rowToMessage = (r) => ({ id: r.id, clientId: r.client_id, clientNom: r.client_nom, sender: r.sender, body: r.body, createdAt: r.created_at });
 const messageToRow = (m) => ({ client_id: m.clientId || null, client_nom: m.clientNom, sender: m.sender, body: m.body });
 
-const rowToUser = (r) => ({ id: r.id, nom: r.nom, role: r.role, pin: r.pin });
+const rowToUser = (r) => ({ id: r.id, nom: r.nom, role: r.role, pin: r.pin, createdAt: r.created_at });
 const userToRow = (u) => ({ nom: u.nom, role: u.role, pin: u.pin });
 
 const rowToTicketDuration = (r) => ({ id: r.id, label: r.label, sortOrder: r.sort_order });
@@ -428,6 +452,7 @@ const rowToPaymentRequest = (r) => ({
   mode: r.mode,
   note: r.note,
   status: r.status,
+  rejectReason: r.reject_reason,
   createdAt: r.created_at,
 });
 const paymentRequestToRow = (r) => ({
@@ -437,6 +462,7 @@ const paymentRequestToRow = (r) => ({
   mode: r.mode,
   note: r.note || null,
   status: r.status || "pending",
+  reject_reason: r.rejectReason || null,
 });
 
 const rowToComplaint = (r) => ({
@@ -723,7 +749,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
     <div className="wifi-app login-screen">
       <style>{CSS}</style>
       <div className="login-card">
-        <div className="brand-mark brand-mark-logo" style={{ margin: "0 auto 18px" }}>
+        <div className="brand-mark brand-mark-logo" style={{ margin: "0 auto 18px", height: 68 }}>
           <img src={LOGO_DATA_URI} alt="Apé Spot WiFi" />
         </div>
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
@@ -1239,12 +1265,19 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
             <div className="chart-card">
               <div className="ctitle">MES DEMANDES DE PAIEMENT</div>
               {myPaymentRequests.map((r) => (
-                <div key={r.id} className="rah-item">
-                  <span className="rah-date">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("fr-FR") : ""}</span>
-                  <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "accepted" ? "OK" : "EXPIRE"}`}>
-                    {r.status === "pending" ? "En attente" : r.status === "accepted" ? "Acceptée" : "Refusée"}
-                  </span>
-                  <span className="rah-amount">{fmtFCFA(r.montant)}</span>
+                <div key={r.id}>
+                  <div className="rah-item" style={{ borderBottom: r.status === "rejected" && r.rejectReason ? "none" : undefined }}>
+                    <span className="rah-date">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("fr-FR") : ""}</span>
+                    <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "accepted" ? "OK" : "EXPIRE"}`}>
+                      {r.status === "pending" ? "En attente" : r.status === "accepted" ? "Acceptée" : "Refusée"}
+                    </span>
+                    <span className="rah-amount">{fmtFCFA(r.montant)}</span>
+                  </div>
+                  {r.status === "rejected" && r.rejectReason && (
+                    <div style={{ fontSize: 11.5, color: "var(--red)", padding: "0 0 8px", borderBottom: "1px solid var(--line)" }}>
+                      Motif : {r.rejectReason}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1679,8 +1712,8 @@ export default function AlerteClientWifi() {
       const demoTicketRequests = loadLocal(LOCAL_TICKET_REQUESTS_KEY, []);
       const demoTicketDurations = loadLocal(LOCAL_TICKET_DURATIONS_KEY, null) || ["1h", "3h", "6h", "12h", "24h"].map((label, i) => ({ id: uid(), label, sortOrder: i }));
       const demoUsers = loadLocal(LOCAL_USERS_KEY, null) || [
-        { id: uid(), nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN },
-        { id: uid(), nom: "Technicien", role: "technicien", pin: DEFAULT_TECH_PIN },
+        { id: uid(), nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN, createdAt: new Date().toISOString() },
+        { id: uid(), nom: "Technicien", role: "technicien", pin: DEFAULT_TECH_PIN, createdAt: new Date().toISOString() },
       ];
       saveLocal(LOCAL_CLIENTS_KEY, demoClients);
       saveLocal(LOCAL_USERS_KEY, demoUsers);
@@ -1883,6 +1916,8 @@ export default function AlerteClientWifi() {
   const [userModal, setUserModal] = useState(null); // null | { editingId, nom, role, pin }
   const [deleteClientModal, setDeleteClientModal] = useState(null); // null | { client, code, input }
   const [busyUploadId, setBusyUploadId] = useState(null);
+  const [rejectPaymentModal, setRejectPaymentModal] = useState(null); // null | { request, reason }
+  const [resetAppModal, setResetAppModal] = useState(null); // null | { code, input }
   const [rowActionsClient, setRowActionsClient] = useState(null); // client currently shown in the row-actions sheet
 
   // ---- Payments view state ----
@@ -1963,6 +1998,13 @@ export default function AlerteClientWifi() {
     () => ticketRequests.filter((r) => r.status === "pending"),
     [ticketRequests]
   );
+
+  // L'admin "principal" est le tout premier compte Admin créé — seul lui peut réinitialiser l'app.
+  const principalAdminId = useMemo(() => {
+    const admins = users.filter((u) => u.role === "admin").sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+    return admins[0]?.id || null;
+  }, [users]);
+  const isPrincipalAdmin = authUser && authUser.id === principalAdminId;
 
   const unresolvedComplaintsCount = useMemo(
     () => complaints.filter((c) => c.status !== "resolu").length,
@@ -2673,12 +2715,29 @@ export default function AlerteClientWifi() {
     });
   };
 
-  const rejectPaymentRequest = async (req) => {
-    if (!window.confirm(`Refuser la demande de paiement de "${req.clientNom}" (${fmtFCFA(req.montant)}) ?`)) return;
+  const rejectPaymentRequest = (req) => {
+    setRejectPaymentModal({ request: req, reason: "" });
+  };
+
+  const confirmRejectPaymentRequest = async () => {
+    if (!rejectPaymentModal) return;
+    const { request: req, reason } = rejectPaymentModal;
+    if (!reason.trim()) return;
     try {
-      if (SUPABASE_CONFIGURED) await updatePaymentRequestRow(req.id, { status: "rejected" });
-      setPaymentRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "rejected" } : r)));
-      showToast("Demande refusée.");
+      if (SUPABASE_CONFIGURED) await updatePaymentRequestRow(req.id, { status: "rejected", reject_reason: reason });
+      setPaymentRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "rejected", rejectReason: reason } : r)));
+
+      // Notifie le client dans son fil de messages.
+      const client = clients.find((c) => c.nom === req.clientNom);
+      const notifyBody = `Ta demande de paiement de ${fmtFCFA(req.montant)} (${req.mode}) a été refusée. Motif : ${reason}`;
+      const payload = { clientId: client?.id || req.clientId, clientNom: req.clientNom, sender: "company", body: notifyBody };
+      const createdMsg = SUPABASE_CONFIGURED
+        ? await insertMessageRow(payload)
+        : { id: uid(), ...payload, createdAt: new Date().toISOString() };
+      setMessages((ms) => [...ms, createdMsg]);
+
+      setRejectPaymentModal(null);
+      showToast("Demande refusée, client notifié.");
     } catch (e) {
       console.error(e);
       showToast("Erreur de mise à jour de la demande.");
@@ -2701,7 +2760,7 @@ export default function AlerteClientWifi() {
         setUsers((us) => us.map((u) => (u.id === editingId ? { ...u, ...payload } : u)));
         showToast("Utilisateur mis à jour.");
       } else {
-        const created = SUPABASE_CONFIGURED ? await insertUserRow(payload) : { id: uid(), ...payload };
+        const created = SUPABASE_CONFIGURED ? await insertUserRow(payload) : { id: uid(), ...payload, createdAt: new Date().toISOString() };
         setUsers((us) => [...us, created]);
         showToast("Utilisateur créé.");
       }
@@ -2726,6 +2785,46 @@ export default function AlerteClientWifi() {
         console.error(e);
         showToast("Erreur de suppression Supabase.");
       }
+    }
+  };
+
+  // ---------- Réinitialisation complète de l'application (zone de danger) ----------
+  const openResetAppModal = () => {
+    if (!isPrincipalAdmin) return;
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    setResetAppModal({ code, input: "" });
+  };
+
+  const confirmResetApplication = async () => {
+    if (!resetAppModal || !isPrincipalAdmin) return;
+    try {
+      if (SUPABASE_CONFIGURED) {
+        await Promise.all([
+          sbFetch("wifi_payments?id=not.is.null", { method: "DELETE" }),
+          sbFetch("wifi_messages?id=not.is.null", { method: "DELETE" }),
+          sbFetch("wifi_complaints?id=not.is.null", { method: "DELETE" }),
+          sbFetch("wifi_payment_requests?id=not.is.null", { method: "DELETE" }),
+          sbFetch("wifi_ticket_requests?id=not.is.null", { method: "DELETE" }),
+        ]);
+        // Best-effort : vide aussi les fichiers restants dans les buckets (tickets, reçus).
+        await Promise.all([sbStorageClearBucket(TICKETS_BUCKET), sbStorageClearBucket(RECEIPTS_BUCKET)]).catch(() => {});
+      } else {
+        [LOCAL_PAYMENTS_KEY, LOCAL_MESSAGES_KEY, LOCAL_COMPLAINTS_KEY, LOCAL_PAYMENT_REQUESTS_KEY, LOCAL_TICKET_REQUESTS_KEY].forEach((k) =>
+          localStorage.removeItem(k)
+        );
+      }
+
+      setPayments([]);
+      setMessages([]);
+      setComplaints([]);
+      setPaymentRequests([]);
+      setTicketRequests([]);
+
+      setResetAppModal(null);
+      showToast("Application réinitialisée. Clients et comptes Admin/Technicien conservés.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur lors de la réinitialisation.");
     }
   };
 
@@ -3247,6 +3346,20 @@ export default function AlerteClientWifi() {
               </div>
             ))}
           </div>
+
+          {isPrincipalAdmin && (
+            <div className="chart-card" style={{ borderColor: "var(--red)", marginTop: 20 }}>
+              <div className="ctitle" style={{ color: "var(--red)" }}>ZONE DE DANGER</div>
+              <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12, lineHeight: 1.5 }}>
+                Réinitialiser l'application supprime définitivement tous les paiements, messages,
+                réclamations et demandes de tickets. Les clients et les comptes Admin/Technicien sont
+                conservés. Action irréversible. Réservé à l'administrateur principal.
+              </div>
+              <button className="btn-add" style={{ background: "var(--red)", borderColor: "var(--red)" }} onClick={openResetAppModal}>
+                Réinitialiser l'application
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -3318,6 +3431,78 @@ export default function AlerteClientWifi() {
                 onClick={confirmDeleteClient}
               >
                 Supprimer définitivement
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rejectPaymentModal && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setRejectPaymentModal(null)}>
+          <div className="modal">
+            <h2>Refuser la demande de "{rejectPaymentModal.request.clientNom}" ?</h2>
+            <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginBottom: 16 }}>
+              {fmtFCFA(rejectPaymentModal.request.montant)} · {rejectPaymentModal.request.mode}
+            </div>
+            <div className="field">
+              <label>Motif du refus (envoyé au client)</label>
+              <textarea
+                autoFocus
+                rows={3}
+                placeholder="Ex: référence introuvable, montant incorrect..."
+                value={rejectPaymentModal.reason}
+                onChange={(e) => setRejectPaymentModal({ ...rejectPaymentModal, reason: e.target.value })}
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={() => setRejectPaymentModal(null)}>Annuler</button>
+              <button
+                className="btn-save"
+                style={{ background: "var(--red)", borderColor: "var(--red)" }}
+                disabled={!rejectPaymentModal.reason.trim()}
+                onClick={confirmRejectPaymentRequest}
+              >
+                Refuser et notifier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resetAppModal && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setResetAppModal(null)}>
+          <div className="modal">
+            <h2>Réinitialiser l'application ?</h2>
+            <div style={{ fontSize: 12.5, color: "var(--red)", marginBottom: 16, lineHeight: 1.5 }}>
+              Tous les paiements, messages, réclamations et demandes de tickets seront supprimés
+              définitivement, pour tout le monde. Les clients et les comptes Admin/Technicien restent
+              intacts. Cette action est irréversible.
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>
+              Pour confirmer, tape ce code :
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 24, fontWeight: 700, letterSpacing: 4, color: "var(--red)", textAlign: "center", marginBottom: 16 }}>
+              {resetAppModal.code}
+            </div>
+            <div className="field">
+              <input
+                autoFocus
+                placeholder="Code"
+                style={{ textAlign: "center", fontFamily: "var(--mono)", fontSize: 18, letterSpacing: 2 }}
+                value={resetAppModal.input}
+                onChange={(e) => setResetAppModal({ ...resetAppModal, input: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter" && resetAppModal.input === resetAppModal.code) confirmResetApplication(); }}
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={() => setResetAppModal(null)}>Annuler</button>
+              <button
+                className="btn-save"
+                style={{ background: "var(--red)", borderColor: "var(--red)" }}
+                disabled={resetAppModal.input !== resetAppModal.code}
+                onClick={confirmResetApplication}
+              >
+                Tout réinitialiser
               </button>
             </div>
           </div>
