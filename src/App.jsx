@@ -376,6 +376,16 @@ const complaintToRow = (c) => ({
   read: c.read ?? false,
 });
 
+// Une table qui échoue (pas encore migrée, etc.) ne doit pas empêcher tout le reste de charger.
+async function safeFetch(label, fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    console.error(`Chargement "${label}" échoué :`, e);
+    return [];
+  }
+}
+
 async function fetchClients() {
   const data = await sbFetch("wifi_clients?select=*&order=date_exp.asc.nullslast");
   if (data && data.length) return data.map(rowToClient);
@@ -810,8 +820,10 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const [sentComplaint, setSentComplaint] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locError, setLocError] = useState("");
-  const [ticketNote, setTicketNote] = useState("");
+  const TICKET_DURATIONS = ["1h", "3h", "6h", "12h", "24h"];
+  const [ticketQuantities, setTicketQuantities] = useState({ "1h": "", "3h": "", "6h": "", "12h": "", "24h": "" });
   const [sentTicketRequest, setSentTicketRequest] = useState(false);
+  const [ticketError, setTicketError] = useState("");
 
   const pendingPaymentKey = `apespot-wifi-pending-payment-${client.id}`;
 
@@ -866,10 +878,19 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 
   const submitTicketRequest = async () => {
-    const ok = await onSubmitTicketRequest(freshClient.id, freshClient.nom, ticketNote);
+    setTicketError("");
+    const lines = TICKET_DURATIONS
+      .filter((d) => Number(ticketQuantities[d]) > 0)
+      .map((d) => `${d}: ${ticketQuantities[d]}`);
+    if (lines.length === 0) {
+      setTicketError("Indique la quantité pour au moins une durée.");
+      return;
+    }
+    const note = lines.join(" · ");
+    const ok = await onSubmitTicketRequest(freshClient.id, freshClient.nom, note);
     if (ok) {
       setSentTicketRequest(true);
-      setTicketNote("");
+      setTicketQuantities({ "1h": "", "3h": "", "6h": "", "12h": "", "24h": "" });
       setTimeout(() => setSentTicketRequest(false), 2200);
     }
   };
@@ -1258,11 +1279,24 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
               <div style={{ textAlign: "center", padding: "20px 0", color: "var(--green)", fontWeight: 700 }}>Demande envoyée ✓</div>
             ) : (
               <>
-                <div className="field">
-                  <label>Précisions (optionnel)</label>
-                  <input placeholder="Ex: 50 tickets" value={ticketNote} onChange={(e) => setTicketNote(e.target.value)} />
+                <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 10 }}>
+                  Indique le nombre de tickets voulus pour chaque durée (laisse à 0 si tu n'en veux pas).
                 </div>
-                <button className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={submitTicketRequest}>
+                {TICKET_DURATIONS.map((d) => (
+                  <div className="ticket-duration-row" key={d}>
+                    <span className="ticket-duration-label">{d}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                      value={ticketQuantities[d]}
+                      onChange={(e) => setTicketQuantities({ ...ticketQuantities, [d]: e.target.value })}
+                    />
+                  </div>
+                ))}
+                {ticketError && <div className="login-error" style={{ textAlign: "left", margin: "10px 0" }}>{ticketError}</div>}
+                <button className="btn-add" style={{ width: "100%", justifyContent: "center", marginTop: 12 }} onClick={submitTicketRequest}>
                   Envoyer la demande
                 </button>
               </>
@@ -1361,7 +1395,15 @@ export default function AlerteClientWifi() {
     }
     (async () => {
       try {
-        const [c, p, m, cp, u, pr, tr] = await Promise.all([fetchClients(), fetchPayments(), fetchMessages(), fetchComplaints(), fetchUsers(), fetchPaymentRequests(), fetchTicketRequests()]);
+        const [c, p, m, cp, u, pr, tr] = await Promise.all([
+          safeFetch("clients", fetchClients),
+          safeFetch("paiements", fetchPayments),
+          safeFetch("messages", fetchMessages),
+          safeFetch("réclamations", fetchComplaints),
+          safeFetch("utilisateurs", fetchUsers),
+          safeFetch("demandes de paiement", fetchPaymentRequests),
+          safeFetch("demandes de tickets", fetchTicketRequests),
+        ]);
         setClients(c);
         setPayments(p);
         setMessages(m);
@@ -1384,7 +1426,15 @@ export default function AlerteClientWifi() {
     if (!SUPABASE_CONFIGURED) return;
     const t = setInterval(async () => {
       try {
-        const [c, p, m, cp, u, pr, tr] = await Promise.all([fetchClients(), fetchPayments(), fetchMessages(), fetchComplaints(), fetchUsers(), fetchPaymentRequests(), fetchTicketRequests()]);
+        const [c, p, m, cp, u, pr, tr] = await Promise.all([
+          safeFetch("clients", fetchClients),
+          safeFetch("paiements", fetchPayments),
+          safeFetch("messages", fetchMessages),
+          safeFetch("réclamations", fetchComplaints),
+          safeFetch("utilisateurs", fetchUsers),
+          safeFetch("demandes de paiement", fetchPaymentRequests),
+          safeFetch("demandes de tickets", fetchTicketRequests),
+        ]);
         setClients(c);
         setPayments(p);
         setMessages(m);
@@ -3235,6 +3285,10 @@ const CSS = `
 .wifi-app .request-actions{display:flex;gap:8px;}
 .wifi-app .button-row{display:flex;gap:10px;margin-bottom:16px;}
 .wifi-app .call-reminder{background:var(--green-dim);border:1px solid var(--green);color:var(--green);padding:11px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px;line-height:1.4;}
+.wifi-app .ticket-duration-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);}
+.wifi-app .ticket-duration-row:last-of-type{border-bottom:none;}
+.wifi-app .ticket-duration-label{font-family:var(--mono);font-weight:700;font-size:13.5px;color:var(--text);}
+.wifi-app .ticket-duration-row input{width:90px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg-card);color:var(--text);text-align:center;font-family:var(--sans);}
 .wifi-app .status-select{padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg-panel);color:var(--text);font-size:11.5px;font-weight:700;}
 .wifi-app .status-select.status-nouveau{color:var(--red);}
 .wifi-app .status-select.status-en_cours{color:var(--amber);}
