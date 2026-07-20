@@ -4503,7 +4503,7 @@ const CSS = `
 .wifi-app .complaint-map-link{display:inline-block;margin-top:8px;font-size:12px;}
 .wifi-app .fuel-estimate{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;padding:8px 10px;border-radius:9px;background:var(--amber-dim);color:var(--amber);font-size:12px;font-weight:600;}
 .wifi-app .fuel-locked{background:var(--red-dim);color:var(--red);font-weight:600;}
-.wifi-app .approval-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0;}
+.wifi-app .approval-row{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:8px 0;text-align:center;}
 .wifi-app .approval-badge{font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:7px;}
 .wifi-app .approval-badge.ok{background:var(--green-dim);color:var(--green);}
 .wifi-app .approval-badge.pending{background:var(--amber-dim);color:var(--amber);}
