@@ -29,6 +29,7 @@ const LOCAL_COMPLAINTS_KEY = "bmi-wifi-complaints-demo";
 const LOCAL_USERS_KEY = "bmi-wifi-users-demo";
 const LOCAL_PAYMENT_REQUESTS_KEY = "bmi-wifi-payment-requests-demo";
 const LOCAL_TICKET_REQUESTS_KEY = "bmi-wifi-ticket-requests-demo";
+const LOCAL_TICKET_DURATIONS_KEY = "bmi-wifi-ticket-durations-demo";
 
 function uid() {
   return "d_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -311,6 +312,9 @@ const messageToRow = (m) => ({ client_id: m.clientId || null, client_nom: m.clie
 const rowToUser = (r) => ({ id: r.id, nom: r.nom, role: r.role, pin: r.pin });
 const userToRow = (u) => ({ nom: u.nom, role: u.role, pin: u.pin });
 
+const rowToTicketDuration = (r) => ({ id: r.id, label: r.label, sortOrder: r.sort_order });
+const ticketDurationToRow = (d) => ({ label: d.label, sort_order: d.sortOrder ?? 0 });
+
 const rowToTicketRequest = (r) => ({
   id: r.id,
   clientId: r.client_id,
@@ -434,6 +438,16 @@ async function fetchTicketRequests() {
   return (data || []).map(rowToTicketRequest);
 }
 
+async function fetchTicketDurations() {
+  const data = await sbFetch("wifi_ticket_durations?select=*&order=sort_order.asc");
+  if (data && data.length) return data.map(rowToTicketDuration);
+
+  // Table vide : on importe les durées par défaut une seule fois.
+  const seedRows = ["1h", "3h", "6h", "12h", "24h"].map((label, i) => ({ label, sort_order: i }));
+  const inserted = await sbFetch("wifi_ticket_durations", { method: "POST", body: JSON.stringify(seedRows) });
+  return (inserted || []).map(rowToTicketDuration);
+}
+
 async function insertClientRow(c) {
   const data = await sbFetch("wifi_clients", { method: "POST", body: JSON.stringify(clientToRow(c)) });
   return rowToClient(data[0]);
@@ -497,6 +511,17 @@ async function updateTicketRequestRow(id, patch) {
 }
 async function deleteTicketRequestRow(id) {
   await sbFetch(`wifi_ticket_requests?id=eq.${id}`, { method: "DELETE" });
+}
+
+async function insertTicketDurationRow(d) {
+  const data = await sbFetch("wifi_ticket_durations", { method: "POST", body: JSON.stringify(ticketDurationToRow(d)) });
+  return rowToTicketDuration(data[0]);
+}
+async function updateTicketDurationRow(id, d) {
+  await sbFetch(`wifi_ticket_durations?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(ticketDurationToRow(d)) });
+}
+async function deleteTicketDurationRow(id) {
+  await sbFetch(`wifi_ticket_durations?id=eq.${id}`, { method: "DELETE" });
 }
 
 // -------------------- Small reusable bits --------------------
@@ -809,7 +834,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, onSend
 
 // -------------------- Client view --------------------
 
-function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onDownloadTicket, onLogout }) {
+function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onDownloadTicket, onLogout }) {
   const [tab, setTab] = useState("home");
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Cash", note: "", codeSecret: "" });
@@ -820,9 +845,8 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const [sentComplaint, setSentComplaint] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locError, setLocError] = useState("");
-  const TICKET_DURATIONS = ["1h", "3h", "6h", "12h", "24h"];
-  const [ticketQuantities, setTicketQuantities] = useState({ "1h": "", "3h": "", "6h": "", "12h": "", "24h": "" });
-  const [sentTicketRequest, setSentTicketRequest] = useState(false);
+  const [ticketQuantities, setTicketQuantities] = useState({});
+  const [sentTicketLine, setSentTicketLine] = useState("");
   const [ticketError, setTicketError] = useState("");
 
   const pendingPaymentKey = `apespot-wifi-pending-payment-${client.id}`;
@@ -877,21 +901,18 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     .filter((m) => (m.clientNom || "").trim().toLowerCase() === freshClient.nom.trim().toLowerCase())
     .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 
-  const submitTicketRequest = async () => {
+  const requestTicketDuration = async (duree) => {
     setTicketError("");
-    const lines = TICKET_DURATIONS
-      .filter((d) => Number(ticketQuantities[d]) > 0)
-      .map((d) => `${d}: ${ticketQuantities[d]}`);
-    if (lines.length === 0) {
-      setTicketError("Indique la quantité pour au moins une durée.");
+    const qty = Number(ticketQuantities[duree]);
+    if (!qty || qty <= 0) {
+      setTicketError(`Indique une quantité pour ${duree}.`);
       return;
     }
-    const note = lines.join(" · ");
-    const ok = await onSubmitTicketRequest(freshClient.id, freshClient.nom, note);
+    const ok = await onSubmitTicketRequest(freshClient.id, freshClient.nom, `${duree}: ${qty}`);
     if (ok) {
-      setSentTicketRequest(true);
-      setTicketQuantities({ "1h": "", "3h": "", "6h": "", "12h": "", "24h": "" });
-      setTimeout(() => setSentTicketRequest(false), 2200);
+      setTicketQuantities({ ...ticketQuantities, [duree]: "" });
+      setSentTicketLine(duree);
+      setTimeout(() => setSentTicketLine((cur) => (cur === duree ? "" : cur)), 1800);
     }
   };
 
@@ -1275,32 +1296,31 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
         <div className="view active">
           <div className="chart-card">
             <div className="ctitle">DEMANDER DES TICKETS</div>
-            {sentTicketRequest ? (
-              <div style={{ textAlign: "center", padding: "20px 0", color: "var(--green)", fontWeight: 700 }}>Demande envoyée ✓</div>
-            ) : (
-              <>
-                <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 10 }}>
-                  Indique le nombre de tickets voulus pour chaque durée (laisse à 0 si tu n'en veux pas).
-                </div>
-                {TICKET_DURATIONS.map((d) => (
-                  <div className="ticket-duration-row" key={d}>
-                    <span className="ticket-duration-label">{d}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      placeholder="0"
-                      value={ticketQuantities[d]}
-                      onChange={(e) => setTicketQuantities({ ...ticketQuantities, [d]: e.target.value })}
-                    />
-                  </div>
-                ))}
-                {ticketError && <div className="login-error" style={{ textAlign: "left", margin: "10px 0" }}>{ticketError}</div>}
-                <button className="btn-add" style={{ width: "100%", justifyContent: "center", marginTop: 12 }} onClick={submitTicketRequest}>
-                  Envoyer la demande
+            <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 10 }}>
+              Indique une quantité et clique "Demander" pour chaque durée voulue.
+            </div>
+            {(ticketDurations || []).length === 0 && <div className="empty" style={{ padding: "16px 0" }}>Aucune durée disponible pour l'instant.</div>}
+            {(ticketDurations || []).map((d) => (
+              <div className="ticket-duration-row" key={d.id}>
+                <span className="ticket-duration-label">{d.label}</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  value={ticketQuantities[d.label] || ""}
+                  onChange={(e) => setTicketQuantities({ ...ticketQuantities, [d.label]: e.target.value })}
+                />
+                <button
+                  className="btn-add"
+                  style={{ padding: "8px 14px", fontSize: 12.5, flexShrink: 0 }}
+                  onClick={() => requestTicketDuration(d.label)}
+                >
+                  {sentTicketLine === d.label ? "Envoyé ✓" : "Demander"}
                 </button>
-              </>
-            )}
+              </div>
+            ))}
+            {ticketError && <div className="login-error" style={{ textAlign: "left", margin: "10px 0" }}>{ticketError}</div>}
           </div>
 
           <div className="chart-card">
@@ -1366,6 +1386,7 @@ export default function AlerteClientWifi() {
   const [users, setUsers] = useState([]);
   const [paymentRequests, setPaymentRequests] = useState([]);
   const [ticketRequests, setTicketRequests] = useState([]);
+  const [ticketDurations, setTicketDurations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -1377,12 +1398,14 @@ export default function AlerteClientWifi() {
       const demoComplaints = loadLocal(LOCAL_COMPLAINTS_KEY, []);
       const demoPaymentRequests = loadLocal(LOCAL_PAYMENT_REQUESTS_KEY, []);
       const demoTicketRequests = loadLocal(LOCAL_TICKET_REQUESTS_KEY, []);
+      const demoTicketDurations = loadLocal(LOCAL_TICKET_DURATIONS_KEY, null) || ["1h", "3h", "6h", "12h", "24h"].map((label, i) => ({ id: uid(), label, sortOrder: i }));
       const demoUsers = loadLocal(LOCAL_USERS_KEY, null) || [
         { id: uid(), nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN },
         { id: uid(), nom: "Technicien", role: "technicien", pin: DEFAULT_TECH_PIN },
       ];
       saveLocal(LOCAL_CLIENTS_KEY, demoClients);
       saveLocal(LOCAL_USERS_KEY, demoUsers);
+      saveLocal(LOCAL_TICKET_DURATIONS_KEY, demoTicketDurations);
       setClients(demoClients);
       setPayments(demoPayments);
       setMessages(demoMessages);
@@ -1390,12 +1413,13 @@ export default function AlerteClientWifi() {
       setUsers(demoUsers);
       setPaymentRequests(demoPaymentRequests);
       setTicketRequests(demoTicketRequests);
+      setTicketDurations(demoTicketDurations);
       setLoading(false);
       return;
     }
     (async () => {
       try {
-        const [c, p, m, cp, u, pr, tr] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -1403,6 +1427,7 @@ export default function AlerteClientWifi() {
           safeFetch("utilisateurs", fetchUsers),
           safeFetch("demandes de paiement", fetchPaymentRequests),
           safeFetch("demandes de tickets", fetchTicketRequests),
+          safeFetch("durées de tickets", fetchTicketDurations),
         ]);
         setClients(c);
         setPayments(p);
@@ -1411,6 +1436,7 @@ export default function AlerteClientWifi() {
         setUsers(u);
         setPaymentRequests(pr);
         setTicketRequests(tr);
+        setTicketDurations(td);
       } catch (e) {
         console.error(e);
         setLoadError("Connexion à Supabase impossible. Vérifie SUPABASE_URL / SUPABASE_ANON_KEY et les tables wifi_clients / wifi_payments / wifi_messages / wifi_complaints / wifi_users / wifi_payment_requests / wifi_ticket_requests.");
@@ -1426,7 +1452,7 @@ export default function AlerteClientWifi() {
     if (!SUPABASE_CONFIGURED) return;
     const t = setInterval(async () => {
       try {
-        const [c, p, m, cp, u, pr, tr] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -1434,6 +1460,7 @@ export default function AlerteClientWifi() {
           safeFetch("utilisateurs", fetchUsers),
           safeFetch("demandes de paiement", fetchPaymentRequests),
           safeFetch("demandes de tickets", fetchTicketRequests),
+          safeFetch("durées de tickets", fetchTicketDurations),
         ]);
         setClients(c);
         setPayments(p);
@@ -1442,6 +1469,7 @@ export default function AlerteClientWifi() {
         setUsers(u);
         setPaymentRequests(pr);
         setTicketRequests(tr);
+        setTicketDurations(td);
       } catch (e) {
         console.error("Rafraîchissement automatique échoué:", e);
       }
@@ -1471,6 +1499,9 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_TICKET_REQUESTS_KEY, ticketRequests);
   }, [ticketRequests, loading]);
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_TICKET_DURATIONS_KEY, ticketDurations);
+  }, [ticketDurations, loading]);
 
   // ---------- Session persistante (survit à une actualisation) + déconnexion après inactivité ----------
 
@@ -2127,6 +2158,44 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // ---------- Gestion des durées de tickets (éditables par l'admin) ----------
+  const addTicketDuration = async (label) => {
+    const clean = label.trim();
+    if (!clean) return;
+    const payload = { label: clean, sortOrder: ticketDurations.length };
+    try {
+      const created = SUPABASE_CONFIGURED ? await insertTicketDurationRow(payload) : { id: uid(), ...payload };
+      setTicketDurations((ds) => [...ds, created]);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'ajout de la durée.");
+    }
+  };
+
+  const editTicketDuration = async (id, label) => {
+    const clean = label.trim();
+    if (!clean) return;
+    const existing = ticketDurations.find((d) => d.id === id);
+    try {
+      if (SUPABASE_CONFIGURED) await updateTicketDurationRow(id, { label: clean, sortOrder: existing?.sortOrder ?? 0 });
+      setTicketDurations((ds) => ds.map((d) => (d.id === id ? { ...d, label: clean } : d)));
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de modification de la durée.");
+    }
+  };
+
+  const deleteTicketDuration = async (id) => {
+    if (!window.confirm("Supprimer cette durée ?")) return;
+    try {
+      if (SUPABASE_CONFIGURED) await deleteTicketDurationRow(id);
+      setTicketDurations((ds) => ds.filter((d) => d.id !== id));
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de suppression de la durée.");
+    }
+  };
+
   const updateComplaintStatusHandler = async (id, status) => {
     try {
       if (SUPABASE_CONFIGURED) await updateComplaintRow(id, { status });
@@ -2294,6 +2363,7 @@ export default function AlerteClientWifi() {
         complaints={complaints}
         messages={messages}
         ticketRequests={ticketRequests}
+        ticketDurations={ticketDurations}
         onSendMessage={sendMessageHandler}
         onAddComplaint={addComplaintHandler}
         onSubmitPaymentRequest={submitPaymentRequestHandler}
@@ -2643,6 +2713,46 @@ export default function AlerteClientWifi() {
 
       {tab === "tickets" && (
         <div className="view active">
+          <div className="chart-card">
+            <div className="ctitle">DURÉES DISPONIBLES</div>
+            {ticketDurations.map((d) => (
+              <div className="ticket-duration-row" key={d.id}>
+                <input
+                  defaultValue={d.label}
+                  onBlur={(e) => { if (e.target.value.trim() !== d.label) editTicketDuration(d.id, e.target.value); }}
+                  style={{ flex: 1, textAlign: "left" }}
+                />
+                <button className="icon-btn del" title="Supprimer" onClick={() => deleteTicketDuration(d.id)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+                </button>
+              </div>
+            ))}
+            <div className="ticket-duration-row" style={{ borderBottom: "none" }}>
+              <input
+                id="newTicketDurationInput"
+                placeholder="Ex: 2h, 1 semaine..."
+                style={{ flex: 1, textAlign: "left" }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    addTicketDuration(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+              />
+              <button
+                className="btn-add"
+                style={{ padding: "8px 14px", fontSize: 12.5 }}
+                onClick={() => {
+                  const input = document.getElementById("newTicketDurationInput");
+                  addTicketDuration(input.value);
+                  input.value = "";
+                }}
+              >
+                Ajouter
+              </button>
+            </div>
+          </div>
+
           <div className="toolbar">
             <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
               {ticketRequests.length} demande(s) au total · {pendingTicketRequests.length} en attente
@@ -3285,10 +3395,10 @@ const CSS = `
 .wifi-app .request-actions{display:flex;gap:8px;}
 .wifi-app .button-row{display:flex;gap:10px;margin-bottom:16px;}
 .wifi-app .call-reminder{background:var(--green-dim);border:1px solid var(--green);color:var(--green);padding:11px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px;line-height:1.4;}
-.wifi-app .ticket-duration-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);}
+.wifi-app .ticket-duration-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);}
 .wifi-app .ticket-duration-row:last-of-type{border-bottom:none;}
-.wifi-app .ticket-duration-label{font-family:var(--mono);font-weight:700;font-size:13.5px;color:var(--text);}
-.wifi-app .ticket-duration-row input{width:90px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg-card);color:var(--text);text-align:center;font-family:var(--sans);}
+.wifi-app .ticket-duration-label{font-family:var(--mono);font-weight:700;font-size:13.5px;color:var(--text);flex-shrink:0;}
+.wifi-app .ticket-duration-row input{width:64px;padding:8px 6px;border-radius:8px;border:1px solid var(--line);background:var(--bg-card);color:var(--text);text-align:center;font-family:var(--sans);flex-shrink:0;}
 .wifi-app .status-select{padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg-panel);color:var(--text);font-size:11.5px;font-weight:700;}
 .wifi-app .status-select.status-nouveau{color:var(--red);}
 .wifi-app .status-select.status-en_cours{color:var(--amber);}
