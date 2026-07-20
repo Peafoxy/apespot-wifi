@@ -690,7 +690,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onLogout, authUser }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogout, authUser }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -714,6 +714,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, onSend
   }, [messages]);
 
   const unansweredThreadsCount = threads.filter((t) => t.last?.sender === "client").length;
+  const pendingTicketRequests = (ticketRequests || []).filter((r) => r.status === "pending");
 
   const activeThread = threads.find((t) => t.nom === activeThreadClient);
 
@@ -741,6 +742,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, onSend
         </button>
         <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); setActiveThreadClient(null); }}>
           Messages{unansweredThreadsCount > 0 && <span className="tab-badge">{unansweredThreadsCount}</span>}
+        </button>
+        <button className={`tab ${tab === "tickets" ? "active" : ""}`} onClick={() => setTab("tickets")}>
+          Tickets{pendingTicketRequests.length > 0 && <span className="tab-badge">{pendingTicketRequests.length}</span>}
         </button>
         <button className={`tab ${tab === "clients" ? "active" : ""}`} onClick={() => setTab("clients")}>Clients</button>
       </div>
@@ -804,6 +808,47 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, onSend
         </div>
       )}
 
+      {tab === "tickets" && (
+        <div className="view active">
+          {(ticketRequests || []).length === 0 && <div className="empty">Aucune demande de tickets pour l'instant.</div>}
+          {[...(ticketRequests || [])].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).map((r) => (
+            <div className="complaint-card" key={r.id}>
+              <div className="complaint-top">
+                <div className="complaint-client">{r.clientNom}</div>
+                <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "ready" ? "OK" : "NA"}`}>
+                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : "Livré"}
+                </span>
+              </div>
+              {r.note && <div className="complaint-desc">{r.note}</div>}
+              <div className="complaint-date">{r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}</div>
+
+              {r.status === "pending" && (
+                <label className="btn-add" style={{ marginTop: 10, display: "inline-flex", cursor: "pointer" }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#08201C" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5-5 5 5" /><path d="M4 19h16" /></svg>
+                  Joindre le PDF
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) onUploadTicketFile(r, file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+              {r.status === "ready" && (
+                <div style={{ fontSize: 12, color: "var(--green)", marginTop: 8 }}>✓ {r.fileName} envoyé — en attente que le client le télécharge.</div>
+              )}
+              {r.status === "delivered" && (
+                <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 8 }}>Téléchargé par le client · fichier supprimé du stockage.</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {tab === "clients" && (
         <div className="view active">
           <div className="client-list-scroll" style={{ maxHeight: "62vh" }}>
@@ -834,7 +879,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, onSend
 
 // -------------------- Client view --------------------
 
-function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onDownloadTicket, onLogout }) {
+function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onLogout }) {
   const [tab, setTab] = useState("home");
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Cash", note: "", codeSecret: "" });
@@ -848,6 +893,8 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const [ticketQuantities, setTicketQuantities] = useState({});
   const [sentTicketLine, setSentTicketLine] = useState("");
   const [ticketError, setTicketError] = useState("");
+  const [editingTicketId, setEditingTicketId] = useState(null);
+  const [editingTicketNote, setEditingTicketNote] = useState("");
 
   const pendingPaymentKey = `apespot-wifi-pending-payment-${client.id}`;
 
@@ -1327,17 +1374,62 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
             <div className="ctitle">MES DEMANDES</div>
             {myTicketRequests.length === 0 && <div className="empty" style={{ padding: "20px 0" }}>Aucune demande pour l'instant.</div>}
             {myTicketRequests.map((r) => (
-              <div key={r.id} className="rah-item">
-                <span className="rah-date">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("fr-FR") : ""}</span>
-                <span>{r.note || "—"}</span>
-                {r.status === "ready" ? (
-                  <button className="btn-add" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={() => onDownloadTicket(r)}>
-                    Télécharger
-                  </button>
-                ) : (
-                  <span className={`badge ${r.status === "pending" ? "ATTENTION" : "NA"}`}>
-                    {r.status === "pending" ? "En attente" : "Livré"}
-                  </span>
+              <div key={r.id} className="ticket-request-row">
+                <div className="rah-item" style={{ borderBottom: "none", padding: "4px 0" }}>
+                  <span className="rah-date">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("fr-FR") : ""}</span>
+                  {editingTicketId !== r.id && <span>{r.note || "—"}</span>}
+                  {r.status === "ready" ? (
+                    <button className="btn-add" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={() => onDownloadTicket(r)}>
+                      Télécharger
+                    </button>
+                  ) : (
+                    <span className={`badge ${r.status === "pending" ? "ATTENTION" : "NA"}`}>
+                      {r.status === "pending" ? "En attente" : "Livré"}
+                    </span>
+                  )}
+                </div>
+
+                {r.status === "pending" && editingTicketId === r.id && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <input
+                      style={{ flex: 1 }}
+                      value={editingTicketNote}
+                      onChange={(e) => setEditingTicketNote(e.target.value)}
+                      autoFocus
+                    />
+                    <button
+                      className="btn-add"
+                      style={{ padding: "6px 12px", fontSize: 11.5, flexShrink: 0 }}
+                      onClick={async () => {
+                        const ok = await onEditTicketRequest(r.id, editingTicketNote);
+                        if (ok) setEditingTicketId(null);
+                      }}
+                    >
+                      Enregistrer
+                    </button>
+                    <button className="btn-cancel" style={{ padding: "6px 12px", fontSize: 11.5, flexShrink: 0 }} onClick={() => setEditingTicketId(null)}>
+                      Annuler
+                    </button>
+                  </div>
+                )}
+
+                {r.status === "pending" && editingTicketId !== r.id && (
+                  <div style={{ display: "flex", gap: 14, marginTop: 4 }}>
+                    <button
+                      className="gps-view-link"
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                      onClick={() => { setEditingTicketId(r.id); setEditingTicketNote(r.note || ""); }}
+                    >
+                      Modifier
+                    </button>
+                    <button
+                      className="gps-view-link"
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--red)" }}
+                      onClick={() => onDeleteTicketRequest(r.id)}
+                    >
+                      Annuler la demande
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -2107,6 +2199,29 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // Le client peut corriger ou annuler sa demande tant qu'elle n'a pas encore été traitée.
+  const editTicketRequestHandler = async (id, note) => {
+    try {
+      if (SUPABASE_CONFIGURED) await updateTicketRequestRow(id, { note });
+      setTicketRequests((rs) => rs.map((r) => (r.id === id ? { ...r, note } : r)));
+      return true;
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de modification de la demande.");
+      return false;
+    }
+  };
+
+  const deleteTicketRequestHandler = async (id) => {
+    try {
+      if (SUPABASE_CONFIGURED) await deleteTicketRequestRow(id);
+      setTicketRequests((rs) => rs.filter((r) => r.id !== id));
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de suppression de la demande.");
+    }
+  };
+
   // L'admin joint le PDF déjà prêt à la demande du client.
   const uploadTicketFileHandler = async (req, file) => {
     try {
@@ -2344,9 +2459,11 @@ export default function AlerteClientWifi() {
         enrichedClients={enrichedClients}
         messages={messages}
         complaints={complaints}
+        ticketRequests={ticketRequests}
         onSendMessage={sendMessageHandler}
         onUpdateComplaintStatus={updateComplaintStatusHandler}
         onMarkComplaintsRead={markComplaintsReadHandler}
+        onUploadTicketFile={uploadTicketFileHandler}
         onLogout={handleLogout}
         authUser={authUser}
       />
@@ -2368,6 +2485,8 @@ export default function AlerteClientWifi() {
         onAddComplaint={addComplaintHandler}
         onSubmitPaymentRequest={submitPaymentRequestHandler}
         onSubmitTicketRequest={submitTicketRequestHandler}
+        onEditTicketRequest={editTicketRequestHandler}
+        onDeleteTicketRequest={deleteTicketRequestHandler}
         onDownloadTicket={downloadAndDeleteTicketHandler}
         onLogout={handleLogout}
       />
@@ -3399,6 +3518,8 @@ const CSS = `
 .wifi-app .ticket-duration-row:last-of-type{border-bottom:none;}
 .wifi-app .ticket-duration-label{font-family:var(--mono);font-weight:700;font-size:13.5px;color:var(--text);flex-shrink:0;}
 .wifi-app .ticket-duration-row input{width:64px;padding:8px 6px;border-radius:8px;border:1px solid var(--line);background:var(--bg-card);color:var(--text);text-align:center;font-family:var(--sans);flex-shrink:0;}
+.wifi-app .ticket-request-row{padding:8px 0;border-bottom:1px solid var(--line);}
+.wifi-app .ticket-request-row:last-child{border-bottom:none;}
 .wifi-app .status-select{padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg-panel);color:var(--text);font-size:11.5px;font-weight:700;}
 .wifi-app .status-select.status-nouveau{color:var(--red);}
 .wifi-app .status-select.status-en_cours{color:var(--amber);}
