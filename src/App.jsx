@@ -590,6 +590,7 @@ async function saveSetting(key, value) {
 const rowToFuelExpense = (r) => ({
   id: r.id,
   complaintId: r.complaint_id,
+  technicienId: r.technicien_id,
   technicienNom: r.technicien_nom,
   clientNom: r.client_nom,
   distanceKm: r.distance_km,
@@ -607,6 +608,7 @@ async function insertFuelExpenseRow(e) {
     method: "POST",
     body: JSON.stringify({
       complaint_id: e.complaintId || null,
+      technicien_id: e.technicienId || null,
       technicien_nom: e.technicienNom,
       client_nom: e.clientNom || null,
       distance_km: e.distanceKm,
@@ -639,13 +641,13 @@ async function deleteExpenseLineRow(id) {
 }
 
 // ---- Perdiem ----
-const rowToPerdiem = (r) => ({ id: r.id, personneNom: r.personne_nom, montant: r.montant, note: r.note, status: r.status, createdAt: r.created_at, paidAt: r.paid_at });
+const rowToPerdiem = (r) => ({ id: r.id, personneId: r.personne_id, personneNom: r.personne_nom, montant: r.montant, note: r.note, status: r.status, createdAt: r.created_at, paidAt: r.paid_at });
 async function fetchPerdiem() {
   const data = await sbFetch("wifi_perdiem?select=*&order=created_at.desc");
   return (data || []).map(rowToPerdiem);
 }
 async function insertPerdiemRow(p) {
-  const data = await sbFetch("wifi_perdiem", { method: "POST", body: JSON.stringify({ personne_nom: p.personneNom, montant: p.montant, note: p.note || null, status: "a_payer" }) });
+  const data = await sbFetch("wifi_perdiem", { method: "POST", body: JSON.stringify({ personne_id: p.personneId || null, personne_nom: p.personneNom, montant: p.montant, note: p.note || null, status: "a_payer" }) });
   return rowToPerdiem(data[0]);
 }
 async function markPerdiemPaidRow(id) {
@@ -766,6 +768,67 @@ function SignalBars({ statut }) {
 
 function Badge({ statut }) {
   return <span className={`badge ${statut}`}>{statut === "NA" ? "N/A" : statut}</span>;
+}
+
+function MonArgentView({ authUser, fuelExpenses, perdiemExpenses }) {
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+
+  const myFuel = (fuelExpenses || []).filter(
+    (f) => authUser && (f.technicienId === authUser.id || f.technicienNom === authUser.nom) && f.createdAt && f.createdAt.startsWith(month)
+  );
+  const myPerdiem = (perdiemExpenses || []).filter(
+    (p) => authUser && (p.personneId === authUser.id || p.personneNom === authUser.nom) && p.createdAt && p.createdAt.startsWith(month)
+  );
+
+  const fuelTotal = myFuel.reduce((s, f) => s + f.montant, 0);
+  const perdiemTotal = myPerdiem.reduce((s, p) => s + p.montant, 0);
+  const total = fuelTotal + perdiemTotal;
+
+  const combined = [
+    ...myFuel.map((f) => ({ id: `f-${f.id}`, date: f.createdAt, motif: `🚗 Carburant → ${f.clientNom || "—"}`, montant: f.montant, status: f.status })),
+    ...myPerdiem.map((p) => ({ id: `p-${p.id}`, date: p.createdAt, motif: `💰 Perdiem${p.note ? ` · ${p.note}` : ""}`, montant: p.montant, status: p.status })),
+  ].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  const monthLabel = useMemo(() => {
+    const [y, m] = month.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  }, [month]);
+
+  return (
+    <div className="view active">
+      <div className="chart-card">
+        <div className="ctitle">MON ARGENT — {monthLabel.toUpperCase()}</div>
+        <div className="field">
+          <label>Choisir un mois</label>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            style={{ padding: "10px 12px", borderRadius: 9, border: "1px solid var(--line)", background: "var(--bg-card)", color: "var(--text)" }}
+          />
+        </div>
+        <div className="stats" style={{ marginTop: 14 }}>
+          <div className="stat ok"><div className="n">{fmtFCFA(total)}</div><div className="l">Total du mois</div></div>
+          <div className="stat attention"><div className="n">{fmtFCFA(fuelTotal)}</div><div className="l">Carburant ({myFuel.length})</div></div>
+          <div className="stat expire"><div className="n">{fmtFCFA(perdiemTotal)}</div><div className="l">Perdiem ({myPerdiem.length})</div></div>
+        </div>
+      </div>
+
+      <div className="chart-card">
+        <div className="ctitle">DÉTAIL DU MOIS ({combined.length})</div>
+        {combined.length === 0 && <div className="empty">Rien reçu ce mois-ci.</div>}
+        {combined.map((item) => (
+          <div key={item.id} className="rah-item">
+            <span className="rah-date">{item.date ? new Date(item.date).toLocaleDateString("fr-FR") : ""}</span>
+            <span>{item.motif}</span>
+            <span className={`badge ${item.status === "paye" ? "OK" : "ATTENTION"}`}>
+              {fmtFCFA(item.montant)} · {item.status === "paye" ? "Versé" : "En attente"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function WhatsAppIcon() {
@@ -918,7 +981,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -982,7 +1045,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   const logTour = () => {
     if (tourStops.length === 0) return;
     const clientNoms = tourStops.map((c) => c.clientNom).join(", ");
-    onLogFuelExpense({ id: null, clientNom: clientNoms, latitude: null, longitude: null, _tourDistanceKm: tourTotalKm }, authUser?.nom || "Technicien");
+    onLogFuelExpense({ id: null, clientNom: clientNoms, latitude: null, longitude: null, _tourDistanceKm: tourTotalKm }, authUser?.nom || "Technicien", authUser?.id);
     setTourLogged(true);
     setTimeout(() => setTourLogged(false), 2500);
   };
@@ -1016,6 +1079,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
           Tickets{pendingTicketRequests.length > 0 && <span className="tab-badge">{pendingTicketRequests.length}</span>}
         </button>
         <button className={`tab ${tab === "clients" ? "active" : ""}`} onClick={() => setTab("clients")}>Clients</button>
+        <button className={`tab ${tab === "money" ? "active" : ""}`} onClick={() => setTab("money")}>Mon argent</button>
       </div>
 
       {tab === "complaints" && (
@@ -1105,7 +1169,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                         {already ? (
                           <span className="fuel-logged">Déjà enregistré</span>
                         ) : (
-                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onLogFuelExpense(c, authUser?.nom || "Technicien")}>
+                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onLogFuelExpense(c, authUser?.nom || "Technicien", authUser?.id)}>
                             Enregistrer le déplacement
                           </button>
                         )}
@@ -1234,6 +1298,10 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
             )}
           </div>
         </div>
+      )}
+
+      {tab === "money" && (
+        <MonArgentView authUser={authUser} fuelExpenses={fuelExpenses} perdiemExpenses={perdiemExpenses} />
       )}
 
       <footer>Espace Technicien · liste clients en lecture seule</footer>
@@ -3093,7 +3161,7 @@ export default function AlerteClientWifi() {
     }
   };
 
-  const logFuelExpense = async (complaint, technicienNom) => {
+  const logFuelExpense = async (complaint, technicienNom, technicienId) => {
     if (!officeLocation) return;
     let distanceKm;
     if (complaint._tourDistanceKm != null) {
@@ -3108,7 +3176,7 @@ export default function AlerteClientWifi() {
     }
     const montant = Math.round(distanceKm * fuelRatePerKm);
     try {
-      const payload = { complaintId: complaint.id, technicienNom, clientNom: complaint.clientNom, distanceKm, montant };
+      const payload = { complaintId: complaint.id, technicienId: technicienId || null, technicienNom, clientNom: complaint.clientNom, distanceKm, montant };
       const created = SUPABASE_CONFIGURED
         ? await insertFuelExpenseRow(payload)
         : { id: uid(), ...payload, status: "a_payer", createdAt: new Date().toISOString() };
@@ -3195,7 +3263,10 @@ export default function AlerteClientWifi() {
       showToast("Nom et montant requis.");
       return;
     }
-    const payload = { personneNom: personneNom.trim(), montant: Number(montant), note: note || "" };
+    // Si le nom correspond à un compte enregistré (Admin/Technicien), le perdiem est rattaché
+    // automatiquement à ce compte pour qu'il apparaisse dans son onglet "Mon argent".
+    const matchedUser = users.find((u) => u.nom.trim().toLowerCase() === personneNom.trim().toLowerCase());
+    const payload = { personneId: matchedUser?.id || null, personneNom: personneNom.trim(), montant: Number(montant), note: note || "" };
     try {
       const created = SUPABASE_CONFIGURED
         ? await insertPerdiemRow(payload)
@@ -3533,6 +3604,7 @@ export default function AlerteClientWifi() {
         officeLocation={officeLocation}
         fuelExpenses={fuelExpenses}
         fuelRatePerKm={fuelRatePerKm}
+        perdiemExpenses={perdiemExpenses}
         onSendMessage={sendMessageHandler}
         onUpdateComplaintStatus={updateComplaintStatusHandler}
         onMarkComplaintsRead={markComplaintsReadHandler}
@@ -3634,6 +3706,9 @@ export default function AlerteClientWifi() {
         </button>
         <button className={`tab ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>
           Utilisateurs
+        </button>
+        <button className={`tab ${tab === "money" ? "active" : ""}`} onClick={() => setTab("money")}>
+          Mon argent
         </button>
       </div>
 
@@ -3984,7 +4059,7 @@ export default function AlerteClientWifi() {
                         {already ? (
                           <span className="fuel-logged">Déjà enregistré</span>
                         ) : (
-                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => logFuelExpense(c, authUser?.nom || "Technicien")}>
+                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => logFuelExpense(c, authUser?.nom || "Technicien", authUser?.id)}>
                             Enregistrer le déplacement
                           </button>
                         )}
@@ -4225,7 +4300,13 @@ export default function AlerteClientWifi() {
                 <div className="ctitle">NOUVEAU PERDIEM</div>
                 <div className="field">
                   <label>Personne</label>
-                  <input id="perdiemNomInput" placeholder="Nom de la personne" />
+                  <input id="perdiemNomInput" list="perdiemUsersList" placeholder="Tape ou choisis un nom" autoComplete="off" />
+                  <datalist id="perdiemUsersList">
+                    {users.map((u) => <option key={u.id} value={u.nom} />)}
+                  </datalist>
+                  <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
+                    Tape pour rechercher, ou clique sur le champ pour voir la liste des comptes enregistrés. Un nom qui correspond exactement à un compte s'y rattache automatiquement.
+                  </div>
                 </div>
                 <div className="field">
                   <label>Montant (FCFA)</label>
@@ -4392,6 +4473,10 @@ export default function AlerteClientWifi() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === "money" && (
+        <MonArgentView authUser={authUser} fuelExpenses={fuelExpenses} perdiemExpenses={perdiemExpenses} />
       )}
 
       {userModal && (
