@@ -417,7 +417,7 @@ const paymentToRow = (p) => ({
 const rowToMessage = (r) => ({ id: r.id, clientId: r.client_id, clientNom: r.client_nom, sender: r.sender, body: r.body, createdAt: r.created_at });
 const messageToRow = (m) => ({ client_id: m.clientId || null, client_nom: m.clientNom, sender: m.sender, body: m.body });
 
-const rowToUser = (r) => ({ id: r.id, nom: r.nom, role: r.role, pin: r.pin, createdAt: r.created_at });
+const rowToUser = (r) => ({ id: r.id, nom: r.nom, role: r.role, pin: r.pin, isPrincipal: r.is_principal ?? false, createdAt: r.created_at });
 const userToRow = (u) => ({ nom: u.nom, role: u.role, pin: u.pin });
 
 const rowToTicketDuration = (r) => ({ id: r.id, label: r.label, sortOrder: r.sort_order });
@@ -533,7 +533,7 @@ async function fetchUsers() {
 
   // Table vide : on crée un premier compte Admin et Technicien avec les codes par défaut.
   const seedRows = [
-    { nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN },
+    { nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN, is_principal: true },
     { nom: "Technicien", role: "technicien", pin: DEFAULT_TECH_PIN },
   ];
   const inserted = await sbFetch("wifi_users", { method: "POST", body: JSON.stringify(seedRows) });
@@ -1712,7 +1712,7 @@ export default function AlerteClientWifi() {
       const demoTicketRequests = loadLocal(LOCAL_TICKET_REQUESTS_KEY, []);
       const demoTicketDurations = loadLocal(LOCAL_TICKET_DURATIONS_KEY, null) || ["1h", "3h", "6h", "12h", "24h"].map((label, i) => ({ id: uid(), label, sortOrder: i }));
       const demoUsers = loadLocal(LOCAL_USERS_KEY, null) || [
-        { id: uid(), nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN, createdAt: new Date().toISOString() },
+        { id: uid(), nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN, isPrincipal: true, createdAt: new Date().toISOString() },
         { id: uid(), nom: "Technicien", role: "technicien", pin: DEFAULT_TECH_PIN, createdAt: new Date().toISOString() },
       ];
       saveLocal(LOCAL_CLIENTS_KEY, demoClients);
@@ -1999,12 +1999,39 @@ export default function AlerteClientWifi() {
     [ticketRequests]
   );
 
-  // L'admin "principal" est le tout premier compte Admin créé — seul lui peut réinitialiser l'app.
+  // L'admin "principal" est marqué explicitement (isPrincipal) — avec repli sur le tout premier
+  // compte Admin créé pour les installations antérieures à ce marquage.
   const principalAdminId = useMemo(() => {
-    const admins = users.filter((u) => u.role === "admin").sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
-    return admins[0]?.id || null;
+    const admins = users.filter((u) => u.role === "admin");
+    const flagged = admins.find((u) => u.isPrincipal);
+    if (flagged) return flagged.id;
+    const earliest = [...admins].sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""))[0];
+    return earliest?.id || null;
   }, [users]);
   const isPrincipalAdmin = authUser && authUser.id === principalAdminId;
+
+  const transferPrincipal = async (target) => {
+    if (!isPrincipalAdmin || target.id === authUser.id) return;
+    if (!window.confirm(`Transférer le rôle d'administrateur principal à "${target.nom}" ? Tu perdras immédiatement ce pouvoir (accès aux codes des autres, réinitialisation).`)) return;
+    try {
+      if (SUPABASE_CONFIGURED) {
+        await Promise.all([
+          sbFetch(`wifi_users?id=eq.${authUser.id}`, { method: "PATCH", body: JSON.stringify({ is_principal: false }) }),
+          sbFetch(`wifi_users?id=eq.${target.id}`, { method: "PATCH", body: JSON.stringify({ is_principal: true }) }),
+        ]);
+      }
+      setUsers((us) => us.map((u) => {
+        if (u.id === authUser.id) return { ...u, isPrincipal: false };
+        if (u.id === target.id) return { ...u, isPrincipal: true };
+        return u;
+      }));
+      setAuthUser((au) => (au ? { ...au, isPrincipal: false } : au));
+      showToast(`${target.nom} est maintenant l'administrateur principal.`);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de transfert du rôle principal.");
+    }
+  };
 
   const unresolvedComplaintsCount = useMemo(
     () => complaints.filter((c) => c.status !== "resolu").length,
@@ -3329,11 +3356,19 @@ export default function AlerteClientWifi() {
                   <div className="client-row-left">
                     <span className="client-row-name">{u.nom}</span>
                     <span className={`badge ${u.role === "admin" ? "OK" : "ATTENTION"}`}>{u.role === "admin" ? "Admin" : "Technicien"}</span>
+                    {u.isPrincipal && <span className="badge NA" style={{ color: "var(--cyan)" }}>Principal</span>}
                   </div>
                   <div className="row-actions">
-                    <button className="icon-btn" title="Modifier" onClick={() => openEditUser(u)}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                    </button>
+                    {isPrincipalAdmin && u.role === "admin" && u.id !== authUser.id && (
+                      <button className="icon-btn" title="Nommer administrateur principal" onClick={() => transferPrincipal(u)}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4Z" /></svg>
+                      </button>
+                    )}
+                    {(isPrincipalAdmin || u.id === authUser.id) && (
+                      <button className="icon-btn" title="Modifier" onClick={() => openEditUser(u)}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                      </button>
+                    )}
                     <button className="icon-btn del" title="Supprimer" onClick={() => deleteUser(u)}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
                     </button>
@@ -3341,7 +3376,11 @@ export default function AlerteClientWifi() {
                 </div>
                 <div className="client-row-meta">
                   <span>Code PIN : </span>
-                  <span style={{ fontWeight: 700, letterSpacing: 2, color: "var(--cyan)" }}>{u.pin}</span>
+                  {(isPrincipalAdmin || u.id === authUser.id) ? (
+                    <span style={{ fontWeight: 700, letterSpacing: 2, color: "var(--cyan)" }}>{u.pin}</span>
+                  ) : (
+                    <span style={{ fontWeight: 700, letterSpacing: 2, color: "var(--text-faint)" }} title="Visible uniquement par l'administrateur principal">••••</span>
+                  )}
                 </div>
               </div>
             ))}
