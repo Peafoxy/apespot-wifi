@@ -2348,6 +2348,12 @@ export default function AlerteClientWifi() {
     [enrichedClients]
   );
 
+  const pendingExpensesTotal = useMemo(() => {
+    const fuel = fuelExpenses.filter((f) => f.status === "a_payer").reduce((s, f) => s + f.montant, 0);
+    const perdiem = perdiemExpenses.filter((p) => p.status === "a_payer").reduce((s, p) => s + p.montant, 0);
+    return fuel + perdiem;
+  }, [fuelExpenses, perdiemExpenses]);
+
   const paymentStats = useMemo(() => {
     const now = new Date();
     const curMonthKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
@@ -3631,7 +3637,31 @@ export default function AlerteClientWifi() {
             </div>
           )}
 
-          {clientsToCutToday.length === 0 && pendingRequests.length === 0 && unresolvedComplaintsCount === 0 && (
+          {pendingExpensesTotal > 0 && (
+            <div className="chart-card" style={{ borderColor: "var(--red)" }}>
+              <div className="ctitle" style={{ color: "var(--red)" }}>DÉPENSES EN ATTENTE DE PAIEMENT</div>
+              <div style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 10 }}>
+                Carburant + Perdiem cumulés : <strong style={{ color: "var(--red)" }}>{fmtFCFA(pendingExpensesTotal)}</strong>
+              </div>
+              <button className="btn-cancel" style={{ width: "100%" }} onClick={() => setTab("fuel")}>Voir dans Dépenses →</button>
+            </div>
+          )}
+
+          {pendingTicketRequests.length > 0 && (
+            <div className="chart-card" style={{ borderColor: "var(--cyan)" }}>
+              <div className="ctitle" style={{ color: "var(--cyan)" }}>TICKETS EN ATTENTE ({pendingTicketRequests.length})</div>
+              {pendingTicketRequests.slice(0, 5).map((r) => (
+                <div key={r.id} className="rah-item">
+                  <span>{r.clientNom}</span>
+                  <span>{r.note || "—"}</span>
+                  <span className="badge ATTENTION">En attente</span>
+                </div>
+              ))}
+              <button className="btn-cancel" style={{ width: "100%", marginTop: 10 }} onClick={() => setTab("tickets")}>Voir dans Tickets →</button>
+            </div>
+          )}
+
+          {clientsToCutToday.length === 0 && pendingRequests.length === 0 && unresolvedComplaintsCount === 0 && pendingExpensesTotal === 0 && pendingTicketRequests.length === 0 && (
             <div className="empty">Rien à traiter pour l'instant — tout est à jour 🎉</div>
           )}
         </div>
