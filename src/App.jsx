@@ -31,6 +31,8 @@ const LOCAL_USERS_KEY = "bmi-wifi-users-demo";
 const LOCAL_PAYMENT_REQUESTS_KEY = "bmi-wifi-payment-requests-demo";
 const LOCAL_TICKET_REQUESTS_KEY = "bmi-wifi-ticket-requests-demo";
 const LOCAL_TICKET_DURATIONS_KEY = "bmi-wifi-ticket-durations-demo";
+const LOCAL_OFFICE_LOCATION_KEY = "bmi-wifi-office-location-demo";
+const LOCAL_FUEL_EXPENSES_KEY = "bmi-wifi-fuel-expenses-demo";
 
 function uid() {
   return "d_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -243,6 +245,17 @@ function fmtDate(dateExp) {
 function fmtFCFA(n) {
   return (Number(n) || 0).toLocaleString("fr-FR") + " F";
 }
+
+// Distance à vol d'oiseau entre deux points GPS (km) — approximation, pas un itinéraire routier réel.
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+const FUEL_RATE_PER_KM = 200; // FCFA/km
 
 // Génère un reçu PDF pour un paiement, retourné sous forme de Blob prêt à uploader.
 // fmtFCFA utilise l'espace insécable fine du format fr-FR, absente de la police PDF de base
@@ -550,6 +563,53 @@ async function fetchTicketRequests() {
   return (data || []).map(rowToTicketRequest);
 }
 
+async function fetchSettings() {
+  const data = await sbFetch("wifi_settings?select=*");
+  const map = {};
+  (data || []).forEach((r) => { map[r.key] = r.value; });
+  return map;
+}
+async function saveSetting(key, value) {
+  await sbFetch("wifi_settings", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+const rowToFuelExpense = (r) => ({
+  id: r.id,
+  complaintId: r.complaint_id,
+  technicienNom: r.technicien_nom,
+  clientNom: r.client_nom,
+  distanceKm: r.distance_km,
+  montant: r.montant,
+  status: r.status,
+  createdAt: r.created_at,
+  paidAt: r.paid_at,
+});
+async function fetchFuelExpenses() {
+  const data = await sbFetch("wifi_fuel_expenses?select=*&order=created_at.desc");
+  return (data || []).map(rowToFuelExpense);
+}
+async function insertFuelExpenseRow(e) {
+  const data = await sbFetch("wifi_fuel_expenses", {
+    method: "POST",
+    body: JSON.stringify({
+      complaint_id: e.complaintId || null,
+      technicien_nom: e.technicienNom,
+      client_nom: e.clientNom || null,
+      distance_km: e.distanceKm,
+      montant: e.montant,
+      status: "a_payer",
+    }),
+  });
+  return rowToFuelExpense(data[0]);
+}
+async function markFuelExpensePaidRow(id) {
+  await sbFetch(`wifi_fuel_expenses?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: "paye", paid_at: new Date().toISOString() }) });
+}
+
 async function fetchTicketDurations() {
   const data = await sbFetch("wifi_ticket_durations?select=*&order=sort_order.asc");
   if (data && data.length) return data.map(rowToTicketDuration);
@@ -802,7 +862,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, busyUploadId, onLogout, authUser }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, busyUploadId, onLogout, authUser }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -891,9 +951,28 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                 {c.localisation && <span> · {c.localisation}</span>}
               </div>
               {c.latitude && (
-                <a href={`https://www.google.com/maps?q=${c.latitude},${c.longitude}`} target="_blank" rel="noreferrer" className="gps-view-link complaint-map-link">
-                  📍 Voir la position sur la carte
-                </a>
+                <>
+                  <a href={`https://www.google.com/maps?q=${c.latitude},${c.longitude}`} target="_blank" rel="noreferrer" className="gps-view-link complaint-map-link">
+                    📍 Voir la position sur la carte
+                  </a>
+                  {officeLocation && (() => {
+                    const distanceKm = haversineKm(officeLocation.lat, officeLocation.lng, c.latitude, c.longitude) * 2;
+                    const montant = Math.round(distanceKm * FUEL_RATE_PER_KM);
+                    const already = fuelExpenses.some((f) => f.complaintId === c.id);
+                    return (
+                      <div className="fuel-estimate">
+                        🚗 {distanceKm.toFixed(1)} km (aller-retour) · {fmtFCFA(montant)}
+                        {already ? (
+                          <span className="fuel-logged">Déjà enregistré</span>
+                        ) : (
+                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onLogFuelExpense(c, authUser?.nom || "Technicien")}>
+                            Enregistrer le déplacement
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </>
               )}
               {c.description && <div className="complaint-desc">{c.description}</div>}
               <div className="complaint-date">{c.createdAt ? new Date(c.createdAt).toLocaleString("fr-FR") : ""}</div>
@@ -1699,6 +1778,8 @@ export default function AlerteClientWifi() {
   const [paymentRequests, setPaymentRequests] = useState([]);
   const [ticketRequests, setTicketRequests] = useState([]);
   const [ticketDurations, setTicketDurations] = useState([]);
+  const [officeLocation, setOfficeLocation] = useState(null); // { lat, lng } | null
+  const [fuelExpenses, setFuelExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -1711,6 +1792,8 @@ export default function AlerteClientWifi() {
       const demoPaymentRequests = loadLocal(LOCAL_PAYMENT_REQUESTS_KEY, []);
       const demoTicketRequests = loadLocal(LOCAL_TICKET_REQUESTS_KEY, []);
       const demoTicketDurations = loadLocal(LOCAL_TICKET_DURATIONS_KEY, null) || ["1h", "3h", "6h", "12h", "24h"].map((label, i) => ({ id: uid(), label, sortOrder: i }));
+      const demoOfficeLocation = loadLocal(LOCAL_OFFICE_LOCATION_KEY, null);
+      const demoFuelExpenses = loadLocal(LOCAL_FUEL_EXPENSES_KEY, []);
       const demoUsers = loadLocal(LOCAL_USERS_KEY, null) || [
         { id: uid(), nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN, isPrincipal: true, createdAt: new Date().toISOString() },
         { id: uid(), nom: "Technicien", role: "technicien", pin: DEFAULT_TECH_PIN, createdAt: new Date().toISOString() },
@@ -1726,12 +1809,14 @@ export default function AlerteClientWifi() {
       setPaymentRequests(demoPaymentRequests);
       setTicketRequests(demoTicketRequests);
       setTicketDurations(demoTicketDurations);
+      setOfficeLocation(demoOfficeLocation);
+      setFuelExpenses(demoFuelExpenses);
       setLoading(false);
       return;
     }
     (async () => {
       try {
-        const [c, p, m, cp, u, pr, tr, td] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td, st, fe] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -1740,6 +1825,8 @@ export default function AlerteClientWifi() {
           safeFetch("demandes de paiement", fetchPaymentRequests),
           safeFetch("demandes de tickets", fetchTicketRequests),
           safeFetch("durées de tickets", fetchTicketDurations),
+          safeFetch("paramètres", fetchSettings),
+          safeFetch("frais de carburant", fetchFuelExpenses),
         ]);
         setClients(c);
         setPayments(p);
@@ -1749,6 +1836,8 @@ export default function AlerteClientWifi() {
         setPaymentRequests(pr);
         setTicketRequests(tr);
         setTicketDurations(td);
+        if (st && st.office_lat && st.office_lng) setOfficeLocation({ lat: parseFloat(st.office_lat), lng: parseFloat(st.office_lng) });
+        setFuelExpenses(fe || []);
         expireOldTicketsHandler(tr);
         trimTicketRequestsHandler(tr);
       } catch (e) {
@@ -1766,7 +1855,7 @@ export default function AlerteClientWifi() {
     if (!SUPABASE_CONFIGURED) return;
     const t = setInterval(async () => {
       try {
-        const [c, p, m, cp, u, pr, tr, td] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td, st, fe] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -1775,6 +1864,8 @@ export default function AlerteClientWifi() {
           safeFetch("demandes de paiement", fetchPaymentRequests),
           safeFetch("demandes de tickets", fetchTicketRequests),
           safeFetch("durées de tickets", fetchTicketDurations),
+          safeFetch("paramètres", fetchSettings),
+          safeFetch("frais de carburant", fetchFuelExpenses),
         ]);
         setClients(c);
         setPayments(p);
@@ -1784,6 +1875,8 @@ export default function AlerteClientWifi() {
         setPaymentRequests(pr);
         setTicketRequests(tr);
         setTicketDurations(td);
+        if (st && st.office_lat && st.office_lng) setOfficeLocation({ lat: parseFloat(st.office_lat), lng: parseFloat(st.office_lng) });
+        setFuelExpenses(fe || []);
         expireOldTicketsHandler(tr);
         trimTicketRequestsHandler(tr);
       } catch (e) {
@@ -1818,6 +1911,12 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_TICKET_DURATIONS_KEY, ticketDurations);
   }, [ticketDurations, loading]);
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_OFFICE_LOCATION_KEY, officeLocation);
+  }, [officeLocation, loading]);
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_FUEL_EXPENSES_KEY, fuelExpenses);
+  }, [fuelExpenses, loading]);
 
   // ---------- Session persistante (survit à une actualisation) + déconnexion après inactivité ----------
 
@@ -1998,6 +2097,19 @@ export default function AlerteClientWifi() {
     () => ticketRequests.filter((r) => r.status === "pending"),
     [ticketRequests]
   );
+
+  const unpaidFuelCount = useMemo(
+    () => fuelExpenses.filter((f) => f.status === "a_payer").length,
+    [fuelExpenses]
+  );
+
+  const fuelTotalsByTechnicien = useMemo(() => {
+    const totals = {};
+    fuelExpenses.filter((f) => f.status === "a_payer").forEach((f) => {
+      totals[f.technicienNom] = (totals[f.technicienNom] || 0) + f.montant;
+    });
+    return totals;
+  }, [fuelExpenses]);
 
   // L'admin "principal" est marqué explicitement (isPrincipal) — avec repli sur le tout premier
   // compte Admin créé pour les installations antérieures à ce marquage.
@@ -2688,6 +2800,62 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // ---------- Carburant (frais de déplacement technicien) ----------
+  const captureOfficeLocation = () => {
+    if (!navigator.geolocation) {
+      showToast("La géolocalisation n'est pas disponible sur cet appareil.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        try {
+          if (SUPABASE_CONFIGURED) {
+            await Promise.all([
+              saveSetting("office_lat", String(loc.lat)),
+              saveSetting("office_lng", String(loc.lng)),
+            ]);
+          }
+          setOfficeLocation(loc);
+          showToast("Position du local enregistrée.");
+        } catch (e) {
+          console.error(e);
+          showToast("Erreur d'enregistrement de la position.");
+        }
+      },
+      () => showToast("Impossible de récupérer ta position. Vérifie que la localisation est activée."),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const logFuelExpense = async (complaint, technicienNom) => {
+    if (!officeLocation || complaint.latitude == null || complaint.longitude == null) return;
+    const oneWayKm = haversineKm(officeLocation.lat, officeLocation.lng, complaint.latitude, complaint.longitude);
+    const distanceKm = oneWayKm * 2; // aller-retour
+    const montant = Math.round(distanceKm * FUEL_RATE_PER_KM);
+    try {
+      const payload = { complaintId: complaint.id, technicienNom, clientNom: complaint.clientNom, distanceKm, montant };
+      const created = SUPABASE_CONFIGURED
+        ? await insertFuelExpenseRow(payload)
+        : { id: uid(), ...payload, status: "a_payer", createdAt: new Date().toISOString() };
+      setFuelExpenses((fs) => [created, ...fs]);
+      showToast(`Déplacement enregistré : ${distanceKm.toFixed(1)} km · ${fmtFCFA(montant)}`);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'enregistrement du déplacement.");
+    }
+  };
+
+  const markFuelExpensePaid = async (expense) => {
+    try {
+      if (SUPABASE_CONFIGURED) await markFuelExpensePaidRow(expense.id);
+      setFuelExpenses((fs) => fs.map((f) => (f.id === expense.id ? { ...f, status: "paye", paidAt: new Date().toISOString() } : f)));
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
+    }
+  };
+
   const updateComplaintStatusHandler = async (id, status) => {
     try {
       if (SUPABASE_CONFIGURED) await updateComplaintRow(id, { status });
@@ -2894,10 +3062,13 @@ export default function AlerteClientWifi() {
         messages={messages}
         complaints={complaints}
         ticketRequests={ticketRequests}
+        officeLocation={officeLocation}
+        fuelExpenses={fuelExpenses}
         onSendMessage={sendMessageHandler}
         onUpdateComplaintStatus={updateComplaintStatusHandler}
         onMarkComplaintsRead={markComplaintsReadHandler}
         onUploadTicketFile={uploadTicketFileHandler}
+        onLogFuelExpense={logFuelExpense}
         busyUploadId={busyUploadId}
         onLogout={handleLogout}
         authUser={authUser}
@@ -2975,6 +3146,9 @@ export default function AlerteClientWifi() {
         </button>
         <button className={`tab ${tab === "tickets" ? "active" : ""}`} onClick={() => setTab("tickets")}>
           Tickets{pendingTicketRequests.length > 0 && <span className="tab-badge">{pendingTicketRequests.length}</span>}
+        </button>
+        <button className={`tab ${tab === "fuel" ? "active" : ""}`} onClick={() => setTab("fuel")}>
+          Carburant{unpaidFuelCount > 0 && <span className="tab-badge">{unpaidFuelCount}</span>}
         </button>
         <button className={`tab ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>
           Utilisateurs
@@ -3266,9 +3440,28 @@ export default function AlerteClientWifi() {
                 {c.localisation && <span> · {c.localisation}</span>}
               </div>
               {c.latitude && (
-                <a href={`https://www.google.com/maps?q=${c.latitude},${c.longitude}`} target="_blank" rel="noreferrer" className="gps-view-link complaint-map-link">
-                  📍 Voir la position sur la carte
-                </a>
+                <>
+                  <a href={`https://www.google.com/maps?q=${c.latitude},${c.longitude}`} target="_blank" rel="noreferrer" className="gps-view-link complaint-map-link">
+                    📍 Voir la position sur la carte
+                  </a>
+                  {officeLocation && (() => {
+                    const distanceKm = haversineKm(officeLocation.lat, officeLocation.lng, c.latitude, c.longitude) * 2;
+                    const montant = Math.round(distanceKm * FUEL_RATE_PER_KM);
+                    const already = fuelExpenses.some((f) => f.complaintId === c.id);
+                    return (
+                      <div className="fuel-estimate">
+                        🚗 {distanceKm.toFixed(1)} km (aller-retour) · {fmtFCFA(montant)}
+                        {already ? (
+                          <span className="fuel-logged">Déjà enregistré</span>
+                        ) : (
+                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => logFuelExpense(c, authUser?.nom || "Technicien")}>
+                            Enregistrer le déplacement
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </>
               )}
               {c.description && <div className="complaint-desc">{c.description}</div>}
               <div className="complaint-date">{c.createdAt ? new Date(c.createdAt).toLocaleString("fr-FR") : ""}</div>
@@ -3333,6 +3526,56 @@ export default function AlerteClientWifi() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {tab === "fuel" && (
+        <div className="view active">
+          <div className="chart-card">
+            <div className="ctitle">POSITION DU LOCAL</div>
+            {officeLocation ? (
+              <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginBottom: 10 }}>
+                Position enregistrée ✓ ({officeLocation.lat.toFixed(5)}, {officeLocation.lng.toFixed(5)})
+              </div>
+            ) : (
+              <div style={{ fontSize: 12.5, color: "var(--amber)", marginBottom: 10 }}>
+                Aucune position enregistrée — le calcul du carburant ne peut pas se faire sans elle.
+              </div>
+            )}
+            <button className="btn-add" onClick={captureOfficeLocation}>
+              📍 {officeLocation ? "Mettre à jour ma position actuelle" : "Utiliser ma position actuelle"}
+            </button>
+          </div>
+
+          {Object.keys(fuelTotalsByTechnicien).length > 0 && (
+            <div className="chart-card">
+              <div className="ctitle">TOTAL À PAYER PAR TECHNICIEN</div>
+              {Object.entries(fuelTotalsByTechnicien).map(([nom, total]) => (
+                <div key={nom} className="rah-item">
+                  <span>{nom}</span>
+                  <span className="rah-amount">{fmtFCFA(total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="chart-card">
+            <div className="ctitle">DÉPLACEMENTS ENREGISTRÉS ({fuelExpenses.length})</div>
+            {fuelExpenses.length === 0 && <div className="empty">Aucun déplacement enregistré pour l'instant.</div>}
+            {fuelExpenses.map((f) => (
+              <div key={f.id} className="rah-item">
+                <span className="rah-date">{f.createdAt ? new Date(f.createdAt).toLocaleDateString("fr-FR") : ""}</span>
+                <span>{f.technicienNom} → {f.clientNom} ({f.distanceKm.toFixed(1)} km)</span>
+                {f.status === "a_payer" ? (
+                  <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markFuelExpensePaid(f)}>
+                    {fmtFCFA(f.montant)} · Marquer payé
+                  </button>
+                ) : (
+                  <span className="badge OK">{fmtFCFA(f.montant)} · Payé</span>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -4062,6 +4305,8 @@ const CSS = `
 .wifi-app .gps-dot{font-size:9px;}
 .wifi-app .gps-view-link{color:var(--cyan);font-size:11.5px;text-decoration:underline;font-weight:600;margin-left:4px;}
 .wifi-app .complaint-map-link{display:inline-block;margin-top:8px;font-size:12px;}
+.wifi-app .fuel-estimate{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;padding:8px 10px;border-radius:9px;background:var(--amber-dim);color:var(--amber);font-size:12px;font-weight:600;}
+.wifi-app .fuel-logged{font-size:11px;color:var(--green);font-weight:700;}
 .wifi-app .request-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap;}
 .wifi-app .request-row:first-of-type{border-top:none;}
 .wifi-app .request-client{font-weight:700;font-size:13.5px;}
