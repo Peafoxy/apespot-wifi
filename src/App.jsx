@@ -34,6 +34,9 @@ const LOCAL_TICKET_DURATIONS_KEY = "bmi-wifi-ticket-durations-demo";
 const LOCAL_OFFICE_LOCATION_KEY = "bmi-wifi-office-location-demo";
 const LOCAL_FUEL_RATE_KEY = "bmi-wifi-fuel-rate-demo";
 const LOCAL_FUEL_EXPENSES_KEY = "bmi-wifi-fuel-expenses-demo";
+const LOCAL_EXPENSE_LINES_KEY = "bmi-wifi-expense-lines-demo";
+const LOCAL_PERDIEM_KEY = "bmi-wifi-perdiem-demo";
+const LOCAL_OTHER_EXPENSES_KEY = "bmi-wifi-other-expenses-demo";
 
 function uid() {
   return "d_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -613,6 +616,52 @@ async function insertFuelExpenseRow(e) {
 }
 async function markFuelExpensePaidRow(id) {
   await sbFetch(`wifi_fuel_expenses?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: "paye", paid_at: new Date().toISOString() }) });
+}
+
+// ---- Lignes de dépenses récurrentes ----
+const rowToExpenseLine = (r) => ({ id: r.id, nom: r.nom, montant: r.montant, dateExp: r.date_exp, note: r.note, createdAt: r.created_at });
+const expenseLineToRow = (l) => ({ nom: l.nom, montant: l.montant, date_exp: l.dateExp || null, note: l.note || null });
+async function fetchExpenseLines() {
+  const data = await sbFetch("wifi_expense_lines?select=*&order=created_at.asc");
+  return (data || []).map(rowToExpenseLine);
+}
+async function insertExpenseLineRow(l) {
+  const data = await sbFetch("wifi_expense_lines", { method: "POST", body: JSON.stringify(expenseLineToRow(l)) });
+  return rowToExpenseLine(data[0]);
+}
+async function updateExpenseLineRow(id, l) {
+  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(expenseLineToRow(l)) });
+}
+async function deleteExpenseLineRow(id) {
+  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "DELETE" });
+}
+
+// ---- Perdiem ----
+const rowToPerdiem = (r) => ({ id: r.id, personneNom: r.personne_nom, montant: r.montant, note: r.note, status: r.status, createdAt: r.created_at, paidAt: r.paid_at });
+async function fetchPerdiem() {
+  const data = await sbFetch("wifi_perdiem?select=*&order=created_at.desc");
+  return (data || []).map(rowToPerdiem);
+}
+async function insertPerdiemRow(p) {
+  const data = await sbFetch("wifi_perdiem", { method: "POST", body: JSON.stringify({ personne_nom: p.personneNom, montant: p.montant, note: p.note || null, status: "a_payer" }) });
+  return rowToPerdiem(data[0]);
+}
+async function markPerdiemPaidRow(id) {
+  await sbFetch(`wifi_perdiem?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: "paye", paid_at: new Date().toISOString() }) });
+}
+
+// ---- Autres dépenses ----
+const rowToOtherExpense = (r) => ({ id: r.id, description: r.description, montant: r.montant, createdAt: r.created_at });
+async function fetchOtherExpenses() {
+  const data = await sbFetch("wifi_other_expenses?select=*&order=created_at.desc");
+  return (data || []).map(rowToOtherExpense);
+}
+async function insertOtherExpenseRow(e) {
+  const data = await sbFetch("wifi_other_expenses", { method: "POST", body: JSON.stringify({ description: e.description, montant: e.montant }) });
+  return rowToOtherExpense(data[0]);
+}
+async function deleteOtherExpenseRow(id) {
+  await sbFetch(`wifi_other_expenses?id=eq.${id}`, { method: "DELETE" });
 }
 
 async function fetchTicketDurations() {
@@ -1868,6 +1917,9 @@ export default function AlerteClientWifi() {
   const [officeLocation, setOfficeLocation] = useState(null); // { lat, lng } | null
   const [fuelRatePerKm, setFuelRatePerKm] = useState(DEFAULT_FUEL_RATE_PER_KM);
   const [fuelExpenses, setFuelExpenses] = useState([]);
+  const [expenseLines, setExpenseLines] = useState([]);
+  const [perdiemExpenses, setPerdiemExpenses] = useState([]);
+  const [otherExpenses, setOtherExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -1883,6 +1935,9 @@ export default function AlerteClientWifi() {
       const demoOfficeLocation = loadLocal(LOCAL_OFFICE_LOCATION_KEY, null);
       const demoFuelRate = loadLocal(LOCAL_FUEL_RATE_KEY, DEFAULT_FUEL_RATE_PER_KM);
       const demoFuelExpenses = loadLocal(LOCAL_FUEL_EXPENSES_KEY, []);
+      const demoExpenseLines = loadLocal(LOCAL_EXPENSE_LINES_KEY, []);
+      const demoPerdiem = loadLocal(LOCAL_PERDIEM_KEY, []);
+      const demoOtherExpenses = loadLocal(LOCAL_OTHER_EXPENSES_KEY, []);
       const demoUsers = loadLocal(LOCAL_USERS_KEY, null) || [
         { id: uid(), nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN, isPrincipal: true, createdAt: new Date().toISOString() },
         { id: uid(), nom: "Technicien", role: "technicien", pin: DEFAULT_TECH_PIN, createdAt: new Date().toISOString() },
@@ -1901,12 +1956,15 @@ export default function AlerteClientWifi() {
       setOfficeLocation(demoOfficeLocation);
       setFuelRatePerKm(demoFuelRate);
       setFuelExpenses(demoFuelExpenses);
+      setExpenseLines(demoExpenseLines);
+      setPerdiemExpenses(demoPerdiem);
+      setOtherExpenses(demoOtherExpenses);
       setLoading(false);
       return;
     }
     (async () => {
       try {
-        const [c, p, m, cp, u, pr, tr, td, st, fe] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -1917,6 +1975,9 @@ export default function AlerteClientWifi() {
           safeFetch("durées de tickets", fetchTicketDurations),
           safeFetch("paramètres", fetchSettings),
           safeFetch("frais de carburant", fetchFuelExpenses),
+          safeFetch("lignes de dépenses", fetchExpenseLines),
+          safeFetch("perdiem", fetchPerdiem),
+          safeFetch("autres dépenses", fetchOtherExpenses),
         ]);
         setClients(c);
         setPayments(p);
@@ -1925,6 +1986,9 @@ export default function AlerteClientWifi() {
         setUsers(u);
         setPaymentRequests(pr);
         setTicketRequests(tr);
+        setExpenseLines(el);
+        setPerdiemExpenses(pd);
+        setOtherExpenses(oe);
         setTicketDurations(td);
         if (st && st.office_lat && st.office_lng) setOfficeLocation({ lat: parseFloat(st.office_lat), lng: parseFloat(st.office_lng) });
         if (st && st.fuel_rate_per_km) setFuelRatePerKm(parseFloat(st.fuel_rate_per_km));
@@ -1946,7 +2010,7 @@ export default function AlerteClientWifi() {
     if (!SUPABASE_CONFIGURED) return;
     const t = setInterval(async () => {
       try {
-        const [c, p, m, cp, u, pr, tr, td, st, fe] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -1957,6 +2021,9 @@ export default function AlerteClientWifi() {
           safeFetch("durées de tickets", fetchTicketDurations),
           safeFetch("paramètres", fetchSettings),
           safeFetch("frais de carburant", fetchFuelExpenses),
+          safeFetch("lignes de dépenses", fetchExpenseLines),
+          safeFetch("perdiem", fetchPerdiem),
+          safeFetch("autres dépenses", fetchOtherExpenses),
         ]);
         setClients(c);
         setPayments(p);
@@ -1969,6 +2036,9 @@ export default function AlerteClientWifi() {
         if (st && st.office_lat && st.office_lng) setOfficeLocation({ lat: parseFloat(st.office_lat), lng: parseFloat(st.office_lng) });
         if (st && st.fuel_rate_per_km) setFuelRatePerKm(parseFloat(st.fuel_rate_per_km));
         setFuelExpenses(fe || []);
+        setExpenseLines(el || []);
+        setPerdiemExpenses(pd || []);
+        setOtherExpenses(oe || []);
         expireOldTicketsHandler(tr);
         trimTicketRequestsHandler(tr);
       } catch (e) {
@@ -2012,6 +2082,15 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_FUEL_EXPENSES_KEY, fuelExpenses);
   }, [fuelExpenses, loading]);
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_EXPENSE_LINES_KEY, expenseLines);
+  }, [expenseLines, loading]);
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_PERDIEM_KEY, perdiemExpenses);
+  }, [perdiemExpenses, loading]);
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_OTHER_EXPENSES_KEY, otherExpenses);
+  }, [otherExpenses, loading]);
 
   // ---------- Session persistante (survit à une actualisation) + déconnexion après inactivité ----------
 
@@ -2109,6 +2188,8 @@ export default function AlerteClientWifi() {
   const [clientModal, setClientModal] = useState(null); // null | { editingId, nom, offre, dateExp }
   const [userModal, setUserModal] = useState(null); // null | { editingId, nom, role, pin }
   const [deleteClientModal, setDeleteClientModal] = useState(null); // null | { client, code, input }
+  const [expenseLineModal, setExpenseLineModal] = useState(null); // null | { editingId, nom, montant, dateExp, note }
+  const [expenseSubTab, setExpenseSubTab] = useState("carburant"); // carburant | lignes | perdiem | autres
   const [busyUploadId, setBusyUploadId] = useState(null);
   const [rejectPaymentModal, setRejectPaymentModal] = useState(null); // null | { request, reason }
   const [resetAppModal, setResetAppModal] = useState(null); // null | { code, input }
@@ -2198,6 +2279,11 @@ export default function AlerteClientWifi() {
     [fuelExpenses]
   );
 
+  const unpaidPerdiemCount = useMemo(
+    () => perdiemExpenses.filter((p) => p.status === "a_payer").length,
+    [perdiemExpenses]
+  );
+
   const fuelTotalsByTechnicien = useMemo(() => {
     const totals = {};
     fuelExpenses.filter((f) => f.status === "a_payer").forEach((f) => {
@@ -2205,6 +2291,18 @@ export default function AlerteClientWifi() {
     });
     return totals;
   }, [fuelExpenses]);
+
+  const lignesTotal = useMemo(() => expenseLines.reduce((s, l) => s + (Number(l.montant) || 0), 0), [expenseLines]);
+
+  const perdiemTotalsByPersonne = useMemo(() => {
+    const totals = {};
+    perdiemExpenses.filter((p) => p.status === "a_payer").forEach((p) => {
+      totals[p.personneNom] = (totals[p.personneNom] || 0) + p.montant;
+    });
+    return totals;
+  }, [perdiemExpenses]);
+
+  const otherExpensesTotal = useMemo(() => otherExpenses.reduce((s, o) => s + (Number(o.montant) || 0), 0), [otherExpenses]);
 
   // L'admin "principal" est marqué explicitement (isPrincipal) — avec repli sur le tout premier
   // compte Admin créé pour les installations antérieures à ce marquage.
@@ -2581,8 +2679,24 @@ export default function AlerteClientWifi() {
     const nbExpire = enrichedClients.filter((c) => c.statut === "EXPIRE").length;
     const nbAttention = enrichedClients.filter((c) => c.statut === "ATTENTION").length;
     const nbOk = enrichedClients.filter((c) => c.statut === "OK").length;
-    return { total, count, avg, byMode, sorted, nbExpire, nbAttention, nbOk };
-  }, [payments, bilanMonth, enrichedClients]);
+    const monthFuelExpenses = fuelExpenses.filter((f) => f.createdAt && f.createdAt.startsWith(bilanMonth));
+    const fuelTotal = monthFuelExpenses.reduce((s, f) => s + (Number(f.montant) || 0), 0);
+    // Lignes = charge récurrente : le total de TOUTES les lignes actives se déduit chaque mois.
+    const lignesMonthTotal = expenseLines.reduce((s, l) => s + (Number(l.montant) || 0), 0);
+    const monthPerdiem = perdiemExpenses.filter((p) => p.createdAt && p.createdAt.startsWith(bilanMonth));
+    const perdiemMonthTotal = monthPerdiem.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const monthOtherExpenses = otherExpenses.filter((o) => o.createdAt && o.createdAt.startsWith(bilanMonth));
+    const autresMonthTotal = monthOtherExpenses.reduce((s, o) => s + (Number(o.montant) || 0), 0);
+    const netBenefit = total - fuelTotal - lignesMonthTotal - perdiemMonthTotal - autresMonthTotal;
+    return {
+      total, count, avg, byMode, sorted, nbExpire, nbAttention, nbOk,
+      fuelTotal, fuelCount: monthFuelExpenses.length,
+      lignesMonthTotal, lignesCount: expenseLines.length,
+      perdiemMonthTotal, perdiemCount: monthPerdiem.length,
+      autresMonthTotal, autresCount: monthOtherExpenses.length,
+      netBenefit,
+    };
+  }, [payments, bilanMonth, enrichedClients, fuelExpenses, expenseLines, perdiemExpenses, otherExpenses]);
 
   const bilanMonthLabel = useMemo(() => {
     const [y, m] = bilanMonth.split("-").map(Number);
@@ -3000,6 +3114,117 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // ---------- Lignes de dépenses récurrentes ----------
+  const saveExpenseLine = async (line) => {
+    if (!line.nom.trim() || !Number(line.montant)) {
+      showToast("Nom et montant requis.");
+      return;
+    }
+    const payload = { nom: line.nom.trim(), montant: Number(line.montant), dateExp: line.dateExp || null, note: line.note || "" };
+    try {
+      if (line.editingId) {
+        if (SUPABASE_CONFIGURED) await updateExpenseLineRow(line.editingId, payload);
+        setExpenseLines((ls) => ls.map((l) => (l.id === line.editingId ? { ...l, ...payload } : l)));
+      } else {
+        const created = SUPABASE_CONFIGURED ? await insertExpenseLineRow(payload) : { id: uid(), ...payload, createdAt: new Date().toISOString() };
+        setExpenseLines((ls) => [...ls, created]);
+      }
+      setExpenseLineModal(null);
+      showToast("Ligne enregistrée.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'enregistrement de la ligne.");
+    }
+  };
+
+  const deleteExpenseLine = async (line) => {
+    if (!window.confirm(`Supprimer la ligne "${line.nom}" ?`)) return;
+    try {
+      if (SUPABASE_CONFIGURED) await deleteExpenseLineRow(line.id);
+      setExpenseLines((ls) => ls.filter((l) => l.id !== line.id));
+      showToast("Ligne supprimée.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de suppression.");
+    }
+  };
+
+  // ---------- Perdiem ----------
+  const addPerdiem = async (personneNom, montant, note) => {
+    if (!personneNom.trim() || !Number(montant)) {
+      showToast("Nom et montant requis.");
+      return;
+    }
+    const payload = { personneNom: personneNom.trim(), montant: Number(montant), note: note || "" };
+    try {
+      const created = SUPABASE_CONFIGURED
+        ? await insertPerdiemRow(payload)
+        : { id: uid(), ...payload, status: "a_payer", createdAt: new Date().toISOString() };
+      setPerdiemExpenses((ps) => [created, ...ps]);
+      showToast("Perdiem enregistré.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'enregistrement.");
+    }
+  };
+
+  const markPerdiemPaid = async (p) => {
+    try {
+      if (SUPABASE_CONFIGURED) await markPerdiemPaidRow(p.id);
+      setPerdiemExpenses((ps) => ps.map((x) => (x.id === p.id ? { ...x, status: "paye", paidAt: new Date().toISOString() } : x)));
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
+    }
+  };
+
+  const markAllPerdiemPaid = async (personneNom) => {
+    const unpaid = perdiemExpenses.filter((p) => p.personneNom === personneNom && p.status === "a_payer");
+    if (unpaid.length === 0) return;
+    const total = unpaid.reduce((s, p) => s + p.montant, 0);
+    if (!window.confirm(`Confirmer le paiement de ${fmtFCFA(total)} à "${personneNom}" ?`)) return;
+    try {
+      if (SUPABASE_CONFIGURED) await Promise.all(unpaid.map((p) => markPerdiemPaidRow(p.id)));
+      const paidIds = new Set(unpaid.map((p) => p.id));
+      setPerdiemExpenses((ps) => ps.map((p) => (paidIds.has(p.id) ? { ...p, status: "paye", paidAt: new Date().toISOString() } : p)));
+      showToast(`${fmtFCFA(total)} payé à ${personneNom}.`);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
+    }
+  };
+
+  // ---------- Autres dépenses ----------
+  const addOtherExpense = async (description, montant) => {
+    if (!description.trim() || !Number(montant)) {
+      showToast("Description et montant requis.");
+      return;
+    }
+    const payload = { description: description.trim(), montant: Number(montant) };
+    try {
+      const created = SUPABASE_CONFIGURED
+        ? await insertOtherExpenseRow(payload)
+        : { id: uid(), ...payload, createdAt: new Date().toISOString() };
+      setOtherExpenses((os) => [created, ...os]);
+      showToast("Dépense ajoutée.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'ajout.");
+    }
+  };
+
+  const deleteOtherExpense = async (o) => {
+    if (!window.confirm(`Supprimer "${o.description}" ?`)) return;
+    try {
+      if (SUPABASE_CONFIGURED) await deleteOtherExpenseRow(o.id);
+      setOtherExpenses((os) => os.filter((x) => x.id !== o.id));
+      showToast("Dépense supprimée.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de suppression.");
+    }
+  };
+
 
   const updateComplaintStatusHandler = async (id, status) => {
     try {
@@ -3349,7 +3574,7 @@ export default function AlerteClientWifi() {
           Tickets{pendingTicketRequests.length > 0 && <span className="tab-badge">{pendingTicketRequests.length}</span>}
         </button>
         <button className={`tab ${tab === "fuel" ? "active" : ""}`} onClick={() => setTab("fuel")}>
-          Carburant{unpaidFuelCount > 0 && <span className="tab-badge">{unpaidFuelCount}</span>}
+          Dépenses{(unpaidFuelCount + unpaidPerdiemCount) > 0 && <span className="tab-badge">{unpaidFuelCount + unpaidPerdiemCount}</span>}
         </button>
         <button className={`tab ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>
           Utilisateurs
@@ -3761,6 +3986,18 @@ export default function AlerteClientWifi() {
 
       {tab === "fuel" && (
         <div className="view active">
+          <div className="chips" style={{ marginBottom: 14 }}>
+            {["carburant", "lignes", "perdiem", "autres"].map((s) => (
+              <button key={s} className={`chip ${expenseSubTab === s ? "active" : ""}`} onClick={() => setExpenseSubTab(s)}>
+                {s === "carburant" ? "Carburant" : s === "lignes" ? "Lignes" : s === "perdiem" ? "Perdiem" : "Autres"}
+                {s === "carburant" && unpaidFuelCount > 0 && <span className="tab-badge">{unpaidFuelCount}</span>}
+                {s === "perdiem" && unpaidPerdiemCount > 0 && <span className="tab-badge">{unpaidPerdiemCount}</span>}
+              </button>
+            ))}
+          </div>
+
+          {expenseSubTab === "carburant" && (
+            <>
           <div className="chart-card">
             <div className="ctitle">POSITION DU LOCAL</div>
             {officeLocation ? (
@@ -3840,6 +4077,165 @@ export default function AlerteClientWifi() {
               </div>
             ))}
           </div>
+            </>
+          )}
+
+          {expenseSubTab === "lignes" && (
+            <>
+              <div className="chart-card">
+                <div className="ctitle">LIGNES DE DÉPENSES RÉCURRENTES</div>
+                <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginBottom: 10 }}>
+                  Total mensuel déduit du bilan : <strong style={{ color: "var(--red)" }}>{fmtFCFA(lignesTotal)}</strong>
+                </div>
+                <button className="btn-add" onClick={() => setExpenseLineModal({ editingId: null, nom: "", montant: "", dateExp: "", note: "" })}>
+                  + Nouvelle ligne
+                </button>
+              </div>
+              <div className="table-shell client-list-shell">
+                {expenseLines.length === 0 && <div className="empty">Aucune ligne enregistrée.</div>}
+                {expenseLines.map((l) => {
+                  const { statut, action } = computeStatus(l.dateExp);
+                  return (
+                    <div className="client-row" key={l.id}>
+                      <div className="client-row-top">
+                        <div className="client-row-left">
+                          <SignalBars statut={statut} />
+                          <span className="client-row-name">{l.nom}</span>
+                        </div>
+                        <Badge statut={statut} />
+                      </div>
+                      <div className="client-row-meta">
+                        <span className="rah-amount">{fmtFCFA(l.montant)}</span>
+                        {l.dateExp && (
+                          <>
+                            <span className="dot">·</span>
+                            <span className="exp-date">{fmtDate(l.dateExp)}</span>
+                            <span className="dot">·</span>
+                            <span>{action}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="row-actions">
+                        <button className="icon-btn" title="Modifier" onClick={() => setExpenseLineModal({ editingId: l.id, nom: l.nom, montant: l.montant, dateExp: l.dateExp || "", note: l.note || "" })}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                        </button>
+                        <button className="icon-btn del" title="Supprimer" onClick={() => deleteExpenseLine(l)}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {expenseSubTab === "perdiem" && (
+            <>
+              <div className="chart-card">
+                <div className="ctitle">NOUVEAU PERDIEM</div>
+                <div className="field">
+                  <label>Personne</label>
+                  <input id="perdiemNomInput" placeholder="Nom de la personne" />
+                </div>
+                <div className="field">
+                  <label>Montant (FCFA)</label>
+                  <input id="perdiemMontantInput" type="number" min="0" placeholder="Ex: 5000" />
+                </div>
+                <div className="field">
+                  <label>Note (optionnel)</label>
+                  <input id="perdiemNoteInput" placeholder="Ex: mission du 20/07" />
+                </div>
+                <button
+                  className="btn-add"
+                  onClick={() => {
+                    const nom = document.getElementById("perdiemNomInput");
+                    const montant = document.getElementById("perdiemMontantInput");
+                    const note = document.getElementById("perdiemNoteInput");
+                    addPerdiem(nom.value, montant.value, note.value);
+                    nom.value = ""; montant.value = ""; note.value = "";
+                  }}
+                >
+                  Enregistrer
+                </button>
+              </div>
+
+              {Object.keys(perdiemTotalsByPersonne).length > 0 && (
+                <div className="chart-card">
+                  <div className="ctitle">TOTAL À PAYER PAR PERSONNE</div>
+                  {Object.entries(perdiemTotalsByPersonne).map(([nom, total]) => (
+                    <div key={nom} className="rah-item">
+                      <span>{nom}</span>
+                      <span className="rah-amount">{fmtFCFA(total)}</span>
+                      <button className="btn-add" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={() => markAllPerdiemPaid(nom)}>
+                        Valider le paiement
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="chart-card">
+                <div className="ctitle">PERDIEM ENREGISTRÉS ({perdiemExpenses.length})</div>
+                {perdiemExpenses.length === 0 && <div className="empty">Aucun perdiem enregistré pour l'instant.</div>}
+                {perdiemExpenses.map((p) => (
+                  <div key={p.id} className="rah-item">
+                    <span className="rah-date">{p.createdAt ? new Date(p.createdAt).toLocaleDateString("fr-FR") : ""}</span>
+                    <span>{p.personneNom}{p.note ? ` · ${p.note}` : ""}</span>
+                    {p.status === "a_payer" ? (
+                      <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markPerdiemPaid(p)}>
+                        {fmtFCFA(p.montant)} · Marquer payé
+                      </button>
+                    ) : (
+                      <span className="badge OK">{fmtFCFA(p.montant)} · Payé</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {expenseSubTab === "autres" && (
+            <>
+              <div className="chart-card">
+                <div className="ctitle">NOUVELLE DÉPENSE</div>
+                <div className="field">
+                  <label>Description</label>
+                  <input id="otherDescInput" placeholder="Ex: réparation imprimante" />
+                </div>
+                <div className="field">
+                  <label>Montant (FCFA)</label>
+                  <input id="otherMontantInput" type="number" min="0" placeholder="Ex: 15000" />
+                </div>
+                <button
+                  className="btn-add"
+                  onClick={() => {
+                    const desc = document.getElementById("otherDescInput");
+                    const montant = document.getElementById("otherMontantInput");
+                    addOtherExpense(desc.value, montant.value);
+                    desc.value = ""; montant.value = "";
+                  }}
+                >
+                  Ajouter
+                </button>
+              </div>
+
+              <div className="chart-card">
+                <div className="ctitle">AUTRES DÉPENSES ({otherExpenses.length}) — Total : {fmtFCFA(otherExpensesTotal)}</div>
+                {otherExpenses.length === 0 && <div className="empty">Aucune dépense enregistrée.</div>}
+                {otherExpenses.map((o) => (
+                  <div key={o.id} className="rah-item">
+                    <span className="rah-date">{o.createdAt ? new Date(o.createdAt).toLocaleDateString("fr-FR") : ""}</span>
+                    <span>{o.description}</span>
+                    <span className="rah-amount">{fmtFCFA(o.montant)}</span>
+                    <button className="icon-btn del" title="Supprimer" onClick={() => deleteOtherExpense(o)}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -4050,6 +4446,34 @@ export default function AlerteClientWifi() {
               >
                 Tout réinitialiser
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {expenseLineModal && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setExpenseLineModal(null)}>
+          <div className="modal">
+            <h2>{expenseLineModal.editingId ? "Modifier la ligne" : "Nouvelle ligne"}</h2>
+            <div className="field">
+              <label>Nom</label>
+              <input placeholder="Ex: Abonnement Fibre Togocom" value={expenseLineModal.nom} onChange={(e) => setExpenseLineModal({ ...expenseLineModal, nom: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Montant mensuel (FCFA)</label>
+              <input type="number" min="0" placeholder="Ex: 25000" value={expenseLineModal.montant} onChange={(e) => setExpenseLineModal({ ...expenseLineModal, montant: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Date d'échéance (optionnel)</label>
+              <DatePickerInput value={expenseLineModal.dateExp} onChange={(e) => setExpenseLineModal({ ...expenseLineModal, dateExp: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Note (optionnel)</label>
+              <input placeholder="Ex: numéro de compte, référence..." value={expenseLineModal.note} onChange={(e) => setExpenseLineModal({ ...expenseLineModal, note: e.target.value })} />
+            </div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={() => setExpenseLineModal(null)}>Annuler</button>
+              <button className="btn-save" onClick={() => saveExpenseLine(expenseLineModal)}>Enregistrer</button>
             </div>
           </div>
         </div>
@@ -4304,6 +4728,36 @@ export default function AlerteClientWifi() {
                       <td style={{ textAlign: "right" }}>100%</td>
                     </tr>
                   )}
+                </tbody>
+              </table>
+
+              <h3>Charges & bénéfice net</h3>
+              <table>
+                <tbody>
+                  <tr>
+                    <td>Total encaissé (abonnements)</td>
+                    <td style={{ textAlign: "right" }}>{fmtFCFA(bilanData.total)}</td>
+                  </tr>
+                  <tr>
+                    <td>Carburant technicien ({bilanData.fuelCount} déplacement{bilanData.fuelCount > 1 ? "s" : ""})</td>
+                    <td style={{ textAlign: "right", color: "#B3261E" }}>− {fmtFCFA(bilanData.fuelTotal)}</td>
+                  </tr>
+                  <tr>
+                    <td>Lignes ({bilanData.lignesCount} ligne{bilanData.lignesCount > 1 ? "s" : ""} active{bilanData.lignesCount > 1 ? "s" : ""})</td>
+                    <td style={{ textAlign: "right", color: "#B3261E" }}>− {fmtFCFA(bilanData.lignesMonthTotal)}</td>
+                  </tr>
+                  <tr>
+                    <td>Perdiem ({bilanData.perdiemCount} versement{bilanData.perdiemCount > 1 ? "s" : ""})</td>
+                    <td style={{ textAlign: "right", color: "#B3261E" }}>− {fmtFCFA(bilanData.perdiemMonthTotal)}</td>
+                  </tr>
+                  <tr>
+                    <td>Autres dépenses ({bilanData.autresCount})</td>
+                    <td style={{ textAlign: "right", color: "#B3261E" }}>− {fmtFCFA(bilanData.autresMonthTotal)}</td>
+                  </tr>
+                  <tr className="bilan-total-row">
+                    <td>Bénéfice net du mois</td>
+                    <td style={{ textAlign: "right" }}>{fmtFCFA(bilanData.netBenefit)}</td>
+                  </tr>
                 </tbody>
               </table>
 
