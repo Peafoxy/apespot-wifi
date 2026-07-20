@@ -2935,6 +2935,12 @@ export default function AlerteClientWifi() {
         : { id: uid(), ...payload, status: "a_payer", createdAt: new Date().toISOString() };
       setFuelExpenses((fs) => [created, ...fs]);
       showToast(`Déplacement enregistré : ${distanceKm.toFixed(1)} km · ${fmtFCFA(montant)}`);
+
+      // Enregistrer le déplacement = le technicien démarre l'intervention.
+      if (complaint.id && complaint.status !== "resolu" && complaint.status !== "en_cours") {
+        if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { status: "en_cours" });
+        setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, status: "en_cours" } : c)));
+      }
     } catch (e) {
       console.error(e);
       showToast("Erreur d'enregistrement du déplacement.");
@@ -2994,9 +3000,14 @@ export default function AlerteClientWifi() {
 
   const setInterventionApproval = async (complaint, approvalStatus) => {
     try {
-      if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { approval_status: approvalStatus });
-      setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, approvalStatus } : c)));
-      showToast(approvalStatus === "approved" ? "Intervention approuvée." : "Intervention refusée.");
+      const patch = { approval_status: approvalStatus };
+      // Dès que l'admin autorise, la réclamation passe automatiquement "En cours".
+      if (approvalStatus === "approved" && complaint.status === "nouveau") {
+        patch.status = "en_cours";
+      }
+      if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, patch);
+      setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, approvalStatus, status: patch.status || c.status } : c)));
+      showToast(approvalStatus === "approved" ? "Intervention approuvée — passée en cours." : "Intervention refusée.");
     } catch (e) {
       console.error(e);
       showToast("Erreur de mise à jour.");
@@ -4501,7 +4512,7 @@ const CSS = `
 .wifi-app .gps-dot{font-size:9px;}
 .wifi-app .gps-view-link{color:var(--cyan);font-size:11.5px;text-decoration:underline;font-weight:600;margin-left:4px;}
 .wifi-app .complaint-map-link{display:inline-block;margin-top:8px;font-size:12px;}
-.wifi-app .fuel-estimate{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;padding:8px 10px;border-radius:9px;background:var(--amber-dim);color:var(--amber);font-size:12px;font-weight:600;}
+.wifi-app .fuel-estimate{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:8px;padding:8px 10px;border-radius:9px;background:var(--amber-dim);color:var(--amber);font-size:12px;font-weight:600;text-align:center;}
 .wifi-app .fuel-locked{background:var(--red-dim);color:var(--red);font-weight:600;}
 .wifi-app .approval-row{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:8px 0;text-align:center;}
 .wifi-app .approval-badge{font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:7px;}
