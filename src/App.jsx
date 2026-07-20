@@ -46,7 +46,9 @@ function uid() {
 // Une fois connecté, gère les comptes depuis l'onglet "Utilisateurs".
 const DEFAULT_ADMIN_PIN = "2580";
 const SESSION_KEY = "apespot-wifi-session";
-const INACTIVITY_LIMIT_MS = 2 * 60 * 1000; // déconnexion après 2 min d'inactivité
+const IS_MOBILE_DEVICE = typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const INACTIVITY_LIMIT_MS = (IS_MOBILE_DEVICE ? 3 : 15) * 60 * 1000; // 3 min sur téléphone, 15 min sur ordinateur
+const INACTIVITY_WARNING_MS = 15 * 1000; // avertissement 15s avant la déconnexion
 const DEFAULT_TECH_PIN = "1470";
 
 // Code client déterministe : 4 derniers chiffres du téléphone + 2 premières lettres du nom.
@@ -916,7 +918,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -995,6 +997,13 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         </div>
         <button className="logout-link" onClick={onLogout}>Déconnexion</button>
       </header>
+
+      {sessionWarningSeconds > 0 && (
+        <div className="session-warning">
+          ⏳ Déconnexion dans {sessionWarningSeconds}s pour inactivité
+          <button className="btn-add" onClick={onStayConnected}>Rester connecté</button>
+        </div>
+      )}
 
       <div className="tabs">
         <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => { setTab("complaints"); onMarkComplaintsRead(); }}>
@@ -1234,7 +1243,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
 // -------------------- Client view --------------------
 
-function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onLogout }) {
+function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onLogout, sessionWarningSeconds, onStayConnected }) {
   const [tab, setTab] = useState("home");
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Cash", note: "", codeSecret: "" });
@@ -1438,6 +1447,13 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
         </div>
         <button className="logout-link" onClick={onLogout}>Déconnexion</button>
       </header>
+
+      {sessionWarningSeconds > 0 && (
+        <div className="session-warning">
+          ⏳ Déconnexion dans {sessionWarningSeconds}s pour inactivité
+          <button className="btn-add" onClick={onStayConnected}>Rester connecté</button>
+        </div>
+      )}
 
       <div className="tabs">
         <button className={`tab ${tab === "home" ? "active" : ""}`} onClick={() => setTab("home")}>Mon compte</button>
@@ -1903,6 +1919,7 @@ export default function AlerteClientWifi() {
   const [authUser, setAuthUser] = useState(null); // compte connecté (rôle 'admin' ou 'technicien')
   const [sessionChecked, setSessionChecked] = useState(false); // évite un flash de l'écran de connexion pendant la restauration
   const lastActivityRef = useRef(Date.now());
+  const [sessionWarningSeconds, setSessionWarningSeconds] = useState(0); // > 0 = avertissement affiché
 
   const [tab, setTab] = useState("dashboard");
 
@@ -2148,6 +2165,7 @@ export default function AlerteClientWifi() {
 
     const bump = () => {
       lastActivityRef.current = Date.now();
+      setSessionWarningSeconds(0);
       try {
         const raw = localStorage.getItem(SESSION_KEY);
         if (raw) {
@@ -2164,13 +2182,19 @@ export default function AlerteClientWifi() {
     window.addEventListener("focus", bump, true);
 
     const interval = setInterval(() => {
-      if (Date.now() - lastActivityRef.current > INACTIVITY_LIMIT_MS) {
+      const elapsed = Date.now() - lastActivityRef.current;
+      if (elapsed > INACTIVITY_LIMIT_MS) {
         localStorage.removeItem(SESSION_KEY);
         setRole(null);
         setAuthUser(null);
         setAuthClient(null);
+        setSessionWarningSeconds(0);
+      } else if (elapsed > INACTIVITY_LIMIT_MS - INACTIVITY_WARNING_MS) {
+        setSessionWarningSeconds(Math.ceil((INACTIVITY_LIMIT_MS - elapsed) / 1000));
+      } else {
+        setSessionWarningSeconds(0);
       }
-    }, 5000);
+    }, 1000);
 
     return () => {
       events.forEach((ev) => window.removeEventListener(ev, bump));
@@ -3462,6 +3486,11 @@ export default function AlerteClientWifi() {
     }
   };
 
+  const stayConnected = () => {
+    lastActivityRef.current = Date.now();
+    setSessionWarningSeconds(0);
+  };
+
   const handleLogout = () => {
     localStorage.removeItem(SESSION_KEY);
     setRole(null);
@@ -3486,9 +3515,9 @@ export default function AlerteClientWifi() {
         clients={clients}
         users={users}
         complaints={complaints}
-        onAdminLogin={(u) => { setAuthUser(u); setRole("admin"); }}
-        onTechLogin={(u) => { setAuthUser(u); setRole("technicien"); }}
-        onClientLogin={(c) => { setAuthClient(c); setRole("client"); }}
+        onAdminLogin={(u) => { lastActivityRef.current = Date.now(); setAuthUser(u); setRole("admin"); }}
+        onTechLogin={(u) => { lastActivityRef.current = Date.now(); setAuthUser(u); setRole("technicien"); }}
+        onClientLogin={(c) => { lastActivityRef.current = Date.now(); setAuthClient(c); setRole("client"); }}
       />
     );
   }
@@ -3514,6 +3543,8 @@ export default function AlerteClientWifi() {
         busyUploadId={busyUploadId}
         onLogout={handleLogout}
         authUser={authUser}
+        sessionWarningSeconds={sessionWarningSeconds}
+        onStayConnected={stayConnected}
       />
     );
   }
@@ -3540,6 +3571,8 @@ export default function AlerteClientWifi() {
         onEditTicketDuration={editTicketDuration}
         onDeleteTicketDuration={deleteTicketDuration}
         onLogout={handleLogout}
+        sessionWarningSeconds={sessionWarningSeconds}
+        onStayConnected={stayConnected}
       />
     );
   }
@@ -3572,6 +3605,13 @@ export default function AlerteClientWifi() {
           <button className="logout-link logout-inline" onClick={handleLogout}>Déconnexion</button>
         </div>
       </header>
+
+      {sessionWarningSeconds > 0 && (
+        <div className="session-warning">
+          ⏳ Déconnexion dans {sessionWarningSeconds}s pour inactivité
+          <button className="btn-add" onClick={stayConnected}>Rester connecté</button>
+        </div>
+      )}
 
       <div className="tabs">
         <button className={`tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>
@@ -4049,7 +4089,7 @@ export default function AlerteClientWifi() {
                 Aucune position enregistrée — le calcul du carburant ne peut pas se faire sans elle.
               </div>
             )}
-            <button className="btn-add" onClick={captureOfficeLocation}>
+            <button className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={captureOfficeLocation}>
               📍 {officeLocation ? "Mettre à jour ma position actuelle" : "Utiliser ma position actuelle"}
             </button>
           </div>
@@ -4883,6 +4923,8 @@ const CSS = `
 .wifi-app .tab{padding:10px 12px;margin-bottom:-1px;background:none;border:none;color:var(--text-faint);font-size:13.5px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
+.wifi-app .session-warning{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--amber-dim);border:1px solid var(--amber);color:var(--amber);padding:10px 14px;border-radius:10px;font-size:12.5px;font-weight:600;margin-bottom:16px;}
+.wifi-app .session-warning button{flex-shrink:0;padding:6px 14px;font-size:11.5px;}
 .wifi-app .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;}
 .wifi-app .stat{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden;}
 .wifi-app .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;}
