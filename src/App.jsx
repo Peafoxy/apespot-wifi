@@ -229,6 +229,22 @@ function todayMidnight() {
   return d;
 }
 
+// Ajoute 1 mois à une date (YYYY-MM-DD) en respectant le calendrier : si le jour n'existe pas
+// dans le mois suivant (ex: 31 janvier), on se cale sur le dernier jour de ce mois-là plutôt
+// que de déborder sur le mois d'après.
+function addOneMonthClamped(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDate();
+  const totalMonths = d.getFullYear() * 12 + d.getMonth() + 1;
+  const targetYear = Math.floor(totalMonths / 12);
+  const targetMonth = totalMonths % 12;
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const newDay = Math.min(day, lastDayOfTargetMonth);
+  const newDate = new Date(targetYear, targetMonth, newDay);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${newDate.getFullYear()}-${pad(newDate.getMonth() + 1)}-${pad(newDate.getDate())}`;
+}
+
 function computeStatus(dateExp) {
   if (!dateExp) return { jours: null, statut: "NA", action: "—" };
   const exp = new Date(dateExp + "T00:00:00");
@@ -639,8 +655,8 @@ async function updateExpenseLineRow(id, l) {
 async function deleteExpenseLineRow(id) {
   await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "DELETE" });
 }
-async function markLinePaidRow(id, month) {
-  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: month }) });
+async function markLinePaidRow(id, month, newDateExp) {
+  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: month, date_exp: newDateExp || null }) });
 }
 
 // ---- Perdiem ----
@@ -2457,7 +2473,13 @@ export default function AlerteClientWifi() {
     const fuel = fuelExpenses.filter((f) => f.status === "a_payer").reduce((s, f) => s + f.montant, 0);
     const perdiem = perdiemExpenses.filter((p) => p.status === "a_payer").reduce((s, p) => s + p.montant, 0);
     const currentMonth = new Date().toISOString().slice(0, 7);
-    const lignes = expenseLines.filter((l) => l.lastPaidMonth !== currentMonth).reduce((s, l) => s + (Number(l.montant) || 0), 0);
+    const lignes = expenseLines
+      .filter((l) => {
+        const { statut } = computeStatus(l.dateExp);
+        if (statut !== "ATTENTION" && statut !== "EXPIRE") return false; // pas encore en zone d'échéance : pas une dépense pour l'instant
+        return l.lastPaidMonth !== currentMonth; // déjà réglée pour ce cycle ?
+      })
+      .reduce((s, l) => s + (Number(l.montant) || 0), 0);
     return fuel + perdiem + lignes;
   }, [fuelExpenses, perdiemExpenses, expenseLines]);
 
@@ -3264,10 +3286,11 @@ export default function AlerteClientWifi() {
 
   const markExpenseLinePaid = async (line) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
+    const newDateExp = line.dateExp ? addOneMonthClamped(line.dateExp) : null;
     try {
-      if (SUPABASE_CONFIGURED) await markLinePaidRow(line.id, currentMonth);
-      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: currentMonth } : l)));
-      showToast(`"${line.nom}" marquée payée pour ce mois.`);
+      if (SUPABASE_CONFIGURED) await markLinePaidRow(line.id, currentMonth, newDateExp);
+      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: currentMonth, dateExp: newDateExp || l.dateExp } : l)));
+      showToast(newDateExp ? `"${line.nom}" payée — prochaine échéance le ${fmtDate(newDateExp)}.` : `"${line.nom}" marquée payée pour ce mois.`);
     } catch (e) {
       console.error(e);
       showToast("Erreur de mise à jour.");
@@ -4268,6 +4291,7 @@ export default function AlerteClientWifi() {
                 {expenseLines.map((l) => {
                   const { statut, action } = computeStatus(l.dateExp);
                   const currentMonth = new Date().toISOString().slice(0, 7);
+                  const isDueSoon = statut === "ATTENTION" || statut === "EXPIRE";
                   const paidThisMonth = l.lastPaidMonth === currentMonth;
                   return (
                     <div className="client-row" key={l.id}>
@@ -4298,18 +4322,20 @@ export default function AlerteClientWifi() {
                           📋 {l.note}
                         </button>
                       )}
-                      <div className="approval-row" style={{ justifyContent: "flex-start", marginTop: 8 }}>
-                        {paidThisMonth ? (
-                          <span className="approval-badge ok">✓ Payé ce mois-ci (FAI réglé)</span>
-                        ) : (
-                          <>
-                            <span className="approval-badge pending">⏳ Pas encore payé ce mois-ci</span>
-                            <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markExpenseLinePaid(l)}>
-                              Marquer payé
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {isDueSoon && (
+                        <div className="approval-row" style={{ justifyContent: "flex-start", marginTop: 8 }}>
+                          {paidThisMonth ? (
+                            <span className="approval-badge ok">✓ Payé ce mois-ci (FAI réglé)</span>
+                          ) : (
+                            <>
+                              <span className="approval-badge pending">⏳ Échéance proche — à payer</span>
+                              <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markExpenseLinePaid(l)}>
+                                Marquer payé
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                       <div className="row-actions">
                         <button className="icon-btn" title="Modifier" onClick={() => setExpenseLineModal({ editingId: l.id, nom: l.nom, montant: l.montant, dateExp: l.dateExp || "", note: l.note || "" })}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
