@@ -439,8 +439,8 @@ function saveLocal(key, value) {
 }
 
 // ---- Supabase mapping helpers (DB uses snake_case, app state uses camelCase) ----
-const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, dateExp: r.date_exp, accessCode: r.access_code });
-const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, date_exp: c.dateExp || null, access_code: c.accessCode || null });
+const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, accessCode: r.access_code });
+const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, access_code: c.accessCode || null });
 
 const rowToPayment = (r) => ({
   id: r.id,
@@ -654,7 +654,7 @@ async function markFuelExpensePaidRow(id) {
 }
 
 // ---- Lignes de dépenses récurrentes ----
-const rowToExpenseLine = (r) => ({ id: r.id, nom: r.nom, montant: r.montant, dateExp: r.date_exp, note: r.note, lastPaidMonth: r.last_paid_month, createdAt: r.created_at });
+const rowToExpenseLine = (r) => ({ id: r.id, nom: r.nom, montant: r.montant, dateExp: r.date_exp, note: r.note, lastPaidMonth: r.last_paid_month, previousDateExp: r.previous_date_exp, createdAt: r.created_at });
 const expenseLineToRow = (l) => ({ nom: l.nom, montant: l.montant, date_exp: l.dateExp || null, note: l.note || null });
 async function fetchExpenseLines() {
   const data = await sbFetch("wifi_expense_lines?select=*&order=created_at.asc");
@@ -670,8 +670,11 @@ async function updateExpenseLineRow(id, l) {
 async function deleteExpenseLineRow(id) {
   await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "DELETE" });
 }
-async function markLinePaidRow(id, month, newDateExp) {
-  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: month, date_exp: newDateExp || null }) });
+async function markLinePaidRow(id, month, newDateExp, previousDateExp) {
+  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: month, date_exp: newDateExp || null, previous_date_exp: previousDateExp || null }) });
+}
+async function undoLinePaymentRow(id, previousDateExp) {
+  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: null, date_exp: previousDateExp, previous_date_exp: null }) });
 }
 
 // ---- Perdiem ----
@@ -2629,15 +2632,33 @@ export default function AlerteClientWifi() {
   };
 
   const renewClientSubscription = async (client) => {
+    const previousDateExp = client.dateExp || null;
     const newDateExp = computeRenewedExpiration(client.dateExp);
-    const updated = { ...client, dateExp: newDateExp };
+    const updated = { ...client, dateExp: newDateExp, previousDateExp };
     try {
       if (SUPABASE_CONFIGURED) await updateClientRow(client.id, updated);
       setClients((cs) => cs.map((c) => (c.id === client.id ? updated : c)));
       showToast(`"${client.nom}" réabonné — nouvelle échéance le ${fmtDate(newDateExp)}.`);
+      return updated;
     } catch (e) {
       console.error(e);
       showToast("Erreur de mise à jour.");
+      return null;
+    }
+  };
+
+  const undoClientRenewal = async (client) => {
+    if (!window.confirm(`Annuler le réabonnement de "${client.nom}" ? L'échéance reviendra au ${fmtDate(client.previousDateExp)}.`)) return null;
+    const restored = { ...client, dateExp: client.previousDateExp, previousDateExp: null };
+    try {
+      if (SUPABASE_CONFIGURED) await updateClientRow(client.id, restored);
+      setClients((cs) => cs.map((c) => (c.id === client.id ? restored : c)));
+      showToast(`Réabonnement annulé pour "${client.nom}".`);
+      return restored;
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'annulation.");
+      return null;
     }
   };
 
@@ -3314,14 +3335,27 @@ export default function AlerteClientWifi() {
 
   const markExpenseLinePaid = async (line) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
+    const previousDateExp = line.dateExp || null;
     const newDateExp = line.dateExp ? computeRenewedExpiration(line.dateExp) : null;
     try {
-      if (SUPABASE_CONFIGURED) await markLinePaidRow(line.id, currentMonth, newDateExp);
-      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: currentMonth, dateExp: newDateExp || l.dateExp } : l)));
+      if (SUPABASE_CONFIGURED) await markLinePaidRow(line.id, currentMonth, newDateExp, previousDateExp);
+      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: currentMonth, dateExp: newDateExp || l.dateExp, previousDateExp } : l)));
       showToast(newDateExp ? `"${line.nom}" payée — prochaine échéance le ${fmtDate(newDateExp)}.` : `"${line.nom}" marquée payée pour ce mois.`);
     } catch (e) {
       console.error(e);
       showToast("Erreur de mise à jour.");
+    }
+  };
+
+  const undoLinePayment = async (line) => {
+    if (!window.confirm(`Annuler le paiement de "${line.nom}" ? L'échéance reviendra au ${fmtDate(line.previousDateExp)}.`)) return;
+    try {
+      if (SUPABASE_CONFIGURED) await undoLinePaymentRow(line.id, line.previousDateExp);
+      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: null, dateExp: line.previousDateExp, previousDateExp: null } : l)));
+      showToast(`Paiement annulé pour "${line.nom}".`);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'annulation.");
     }
   };
 
@@ -4364,6 +4398,14 @@ export default function AlerteClientWifi() {
                           )}
                         </div>
                       )}
+                      {l.previousDateExp && (
+                        <div className="approval-row" style={{ justifyContent: "flex-start", marginTop: 6 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Payé par erreur ?</span>
+                          <button className="btn-cancel" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => undoLinePayment(l)}>
+                            Annuler ce paiement
+                          </button>
+                        </div>
+                      )}
                       <div className="row-actions">
                         <button className="icon-btn" title="Modifier" onClick={() => setExpenseLineModal({ editingId: l.id, nom: l.nom, montant: l.montant, dateExp: l.dateExp || "", note: l.note || "" })}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
@@ -4895,10 +4937,22 @@ export default function AlerteClientWifi() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                 Modifier
               </button>
-              <button className="row-action-btn" onClick={() => { const c = rowActionsClient; setRowActionsClient(null); renewClientSubscription(c); }}>
+              <button className="row-action-btn" onClick={async () => {
+                const updated = await renewClientSubscription(rowActionsClient);
+                if (updated) setRowActionsClient(updated);
+              }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
                 Réabonné
               </button>
+              {rowActionsClient.previousDateExp && (
+                <button className="row-action-btn" onClick={async () => {
+                  const restored = await undoClientRenewal(rowActionsClient);
+                  if (restored) setRowActionsClient(restored);
+                }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M3 12h18" /><path d="M3 18h18" /></svg>
+                  Annuler le réabonnement
+                </button>
+              )}
               <button className="row-action-btn del" onClick={() => { const c = rowActionsClient; setRowActionsClient(null); deleteClient(c); }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
                 Supprimer
