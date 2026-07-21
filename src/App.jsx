@@ -3310,6 +3310,10 @@ export default function AlerteClientWifi() {
 
   // ---------- Lignes de dépenses récurrentes ----------
   const saveExpenseLine = async (line) => {
+    if (line.editingId && !isPrincipalAdmin) {
+      showToast("Seul l'administrateur principal peut modifier une ligne.");
+      return;
+    }
     if (!line.nom.trim() || !Number(line.montant)) {
       showToast("Nom et montant requis.");
       return;
@@ -4425,10 +4429,19 @@ export default function AlerteClientWifi() {
                           </button>
                         </div>
                       )}
+                      {l.previousDateExp && !isPrincipalAdmin && (
+                        <div className="approval-row" style={{ justifyContent: "flex-start", marginTop: 6 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                            Pour annuler ce paiement, contacte l'administrateur principal.
+                          </span>
+                        </div>
+                      )}
                       <div className="row-actions">
-                        <button className="icon-btn" title="Modifier" onClick={() => setExpenseLineModal({ editingId: l.id, nom: l.nom, montant: l.montant, dateExp: l.dateExp || "", note: l.note || "" })}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                        </button>
+                        {isPrincipalAdmin && (
+                          <button className="icon-btn" title="Modifier" onClick={() => setExpenseLineModal({ editingId: l.id, nom: l.nom, montant: l.montant, dateExp: l.dateExp || "", note: l.note || "" })}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                          </button>
+                        )}
                         <button className="icon-btn del" title="Supprimer" onClick={() => deleteExpenseLine(l)}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
                         </button>
