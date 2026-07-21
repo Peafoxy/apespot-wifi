@@ -257,6 +257,21 @@ function computeStatus(dateExp) {
   return { jours, statut: "OK", action: "ok" };
 }
 
+// Règle commune de renouvellement (clients ET lignes de dépenses) : si l'échéance n'est pas
+// encore dépassée, on prolonge d'1 mois à partir d'elle. Si elle est déjà expirée, on repart
+// d'1 mois à partir d'aujourd'hui (date du réabonnement), pas de l'ancienne échéance dépassée.
+function computeRenewedExpiration(currentDateExp) {
+  const todayStr = (() => {
+    const t = todayMidnight();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  })();
+  if (!currentDateExp) return addOneMonthClamped(todayStr);
+  const { statut } = computeStatus(currentDateExp);
+  const base = statut === "EXPIRE" ? todayStr : currentDateExp;
+  return addOneMonthClamped(base);
+}
+
 function fmtDate(dateExp) {
   if (!dateExp) return "—";
   const d = new Date(dateExp + "T00:00:00");
@@ -2613,6 +2628,19 @@ export default function AlerteClientWifi() {
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
+  const renewClientSubscription = async (client) => {
+    const newDateExp = computeRenewedExpiration(client.dateExp);
+    const updated = { ...client, dateExp: newDateExp };
+    try {
+      if (SUPABASE_CONFIGURED) await updateClientRow(client.id, updated);
+      setClients((cs) => cs.map((c) => (c.id === client.id ? updated : c)));
+      showToast(`"${client.nom}" réabonné — nouvelle échéance le ${fmtDate(newDateExp)}.`);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
+    }
+  };
+
   const deleteClient = (c) => {
     const code = String(Math.floor(1000 + Math.random() * 9000));
     setDeleteClientModal({ client: c, code, input: "" });
@@ -3286,7 +3314,7 @@ export default function AlerteClientWifi() {
 
   const markExpenseLinePaid = async (line) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
-    const newDateExp = line.dateExp ? addOneMonthClamped(line.dateExp) : null;
+    const newDateExp = line.dateExp ? computeRenewedExpiration(line.dateExp) : null;
     try {
       if (SUPABASE_CONFIGURED) await markLinePaidRow(line.id, currentMonth, newDateExp);
       setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: currentMonth, dateExp: newDateExp || l.dateExp } : l)));
@@ -4866,6 +4894,10 @@ export default function AlerteClientWifi() {
               <button className="row-action-btn" onClick={() => { const c = rowActionsClient; setRowActionsClient(null); openEditClient(c); }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                 Modifier
+              </button>
+              <button className="row-action-btn" onClick={() => { const c = rowActionsClient; setRowActionsClient(null); renewClientSubscription(c); }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
+                Réabonné
               </button>
               <button className="row-action-btn del" onClick={() => { const c = rowActionsClient; setRowActionsClient(null); deleteClient(c); }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
