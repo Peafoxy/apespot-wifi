@@ -2569,6 +2569,7 @@ export default function AlerteClientWifi() {
 
   const saveClientModal = async () => {
     const { editingId, nom, offre, telephone, dateExp, accessCode } = clientModal;
+    if (editingId && !isPrincipalAdmin) return showToast("Seul l'administrateur principal peut modifier un client.");
     if (!nom.trim()) return showToast("Le nom du client est requis.");
     const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase() };
     try {
@@ -2673,6 +2674,10 @@ export default function AlerteClientWifi() {
   };
 
   const deleteClient = (c) => {
+    if (!isPrincipalAdmin) {
+      showToast("Seul l'administrateur principal peut supprimer un client.");
+      return;
+    }
     const code = String(Math.floor(1000 + Math.random() * 9000));
     setDeleteClientModal({ client: c, code, input: "" });
   };
@@ -4977,7 +4982,12 @@ export default function AlerteClientWifi() {
                 <WhatsAppIcon />
                 Envoyer sur WhatsApp
               </button>
-              <button className="row-action-btn" onClick={() => { const c = rowActionsClient; setRowActionsClient(null); openEditClient(c); }}>
+              <button
+                className="row-action-btn"
+                disabled={!isPrincipalAdmin}
+                title={isPrincipalAdmin ? "" : "Réservé à l'administrateur principal"}
+                onClick={() => { const c = rowActionsClient; setRowActionsClient(null); openEditClient(c); }}
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                 Modifier
               </button>
@@ -4997,7 +5007,12 @@ export default function AlerteClientWifi() {
                   Annuler le réabonnement
                 </button>
               )}
-              <button className="row-action-btn del" onClick={() => { const c = rowActionsClient; setRowActionsClient(null); deleteClient(c); }}>
+              <button
+                className="row-action-btn del"
+                disabled={!isPrincipalAdmin}
+                title={isPrincipalAdmin ? "" : "Réservé à l'administrateur principal"}
+                onClick={() => { const c = rowActionsClient; setRowActionsClient(null); deleteClient(c); }}
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
                 Supprimer
               </button>
