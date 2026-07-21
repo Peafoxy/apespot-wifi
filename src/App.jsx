@@ -691,6 +691,9 @@ async function insertPerdiemRow(p) {
 async function markPerdiemPaidRow(id) {
   await sbFetch(`wifi_perdiem?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: "paye", paid_at: new Date().toISOString() }) });
 }
+async function updatePerdiemRow(id, p) {
+  await sbFetch(`wifi_perdiem?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ personne_id: p.personneId || null, personne_nom: p.personneNom, montant: p.montant, note: p.note || null }) });
+}
 
 // ---- Autres dépenses ----
 const rowToOtherExpense = (r) => ({ id: r.id, description: r.description, montant: r.montant, createdAt: r.created_at });
@@ -701,6 +704,9 @@ async function fetchOtherExpenses() {
 async function insertOtherExpenseRow(e) {
   const data = await sbFetch("wifi_other_expenses", { method: "POST", body: JSON.stringify({ description: e.description, montant: e.montant }) });
   return rowToOtherExpense(data[0]);
+}
+async function updateOtherExpenseRow(id, e) {
+  await sbFetch(`wifi_other_expenses?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ description: e.description, montant: e.montant }) });
 }
 async function deleteOtherExpenseRow(id) {
   await sbFetch(`wifi_other_expenses?id=eq.${id}`, { method: "DELETE" });
@@ -2319,6 +2325,8 @@ export default function AlerteClientWifi() {
   const [userModal, setUserModal] = useState(null); // null | { editingId, nom, role, pin }
   const [deleteClientModal, setDeleteClientModal] = useState(null); // null | { client, code, input }
   const [expenseLineModal, setExpenseLineModal] = useState(null); // null | { editingId, nom, montant, dateExp, note }
+  const [perdiemModal, setPerdiemModal] = useState(null); // null | { editingId, personneNom, personneId, montant, note }
+  const [otherExpenseModal, setOtherExpenseModal] = useState(null); // null | { editingId, description, montant }
   const [expenseSubTab, setExpenseSubTab] = useState("carburant"); // carburant | lignes | perdiem | autres
   const [busyUploadId, setBusyUploadId] = useState(null);
   const [rejectPaymentModal, setRejectPaymentModal] = useState(null); // null | { request, reason }
@@ -2454,6 +2462,7 @@ export default function AlerteClientWifi() {
     return earliest?.id || null;
   }, [users]);
   const isPrincipalAdmin = authUser && authUser.id === principalAdminId;
+  const canModifyEntry = (createdAt) => isPrincipalAdmin || (createdAt && Date.now() - new Date(createdAt).getTime() < 24 * 60 * 60 * 1000);
 
   const transferPrincipal = async (target) => {
     if (!isPrincipalAdmin || target.id === authUser.id) return;
@@ -3423,6 +3432,30 @@ export default function AlerteClientWifi() {
     }
   };
 
+  const savePerdiemEdit = async () => {
+    const { editingId, personneNom, montant, note } = perdiemModal;
+    const original = perdiemExpenses.find((p) => p.id === editingId);
+    if (original && !canModifyEntry(original.createdAt)) {
+      showToast("Passé 24h, seul l'administrateur principal peut modifier un perdiem.");
+      return;
+    }
+    if (!personneNom.trim() || !Number(montant)) {
+      showToast("Nom et montant requis.");
+      return;
+    }
+    const matchedUser = users.find((u) => u.nom.trim().toLowerCase() === personneNom.trim().toLowerCase());
+    const payload = { personneId: matchedUser?.id || null, personneNom: personneNom.trim(), montant: Number(montant), note: note || "" };
+    try {
+      if (SUPABASE_CONFIGURED) await updatePerdiemRow(editingId, payload);
+      setPerdiemExpenses((ps) => ps.map((p) => (p.id === editingId ? { ...p, ...payload } : p)));
+      setPerdiemModal(null);
+      showToast("Perdiem modifié.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
+    }
+  };
+
   const markAllPerdiemPaid = async (personneNom) => {
     const unpaid = perdiemExpenses.filter((p) => p.personneNom === personneNom && p.status === "a_payer");
     if (unpaid.length === 0) return;
@@ -3455,6 +3488,29 @@ export default function AlerteClientWifi() {
     } catch (e) {
       console.error(e);
       showToast("Erreur d'ajout.");
+    }
+  };
+
+  const saveOtherExpenseEdit = async () => {
+    const { editingId, description, montant } = otherExpenseModal;
+    const original = otherExpenses.find((o) => o.id === editingId);
+    if (original && !canModifyEntry(original.createdAt)) {
+      showToast("Passé 24h, seul l'administrateur principal peut modifier cette dépense.");
+      return;
+    }
+    if (!description.trim() || !Number(montant)) {
+      showToast("Description et montant requis.");
+      return;
+    }
+    const payload = { description: description.trim(), montant: Number(montant) };
+    try {
+      if (SUPABASE_CONFIGURED) await updateOtherExpenseRow(editingId, payload);
+      setOtherExpenses((os) => os.map((o) => (o.id === editingId ? { ...o, ...payload } : o)));
+      setOtherExpenseModal(null);
+      showToast("Dépense modifiée.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
     }
   };
 
@@ -4447,17 +4503,18 @@ export default function AlerteClientWifi() {
                       )}
                       <div className="row-actions">
                         <button
-                          className="icon-btn"
+                          className={`icon-btn ${isPrincipalAdmin ? "" : "locked"}`}
                           title={isPrincipalAdmin ? "Modifier" : "Réservé à l'administrateur principal"}
-                          disabled={!isPrincipalAdmin}
-                          onClick={() => setExpenseLineModal({ editingId: l.id, nom: l.nom, montant: l.montant, dateExp: l.dateExp || "", note: l.note || "" })}
+                          onClick={() => {
+                            if (!isPrincipalAdmin) { showToast("Si besoin de modification, contacte l'administrateur principal."); return; }
+                            setExpenseLineModal({ editingId: l.id, nom: l.nom, montant: l.montant, dateExp: l.dateExp || "", note: l.note || "" });
+                          }}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                         </button>
                         <button
-                          className="icon-btn del"
+                          className={`icon-btn del ${isPrincipalAdmin ? "" : "locked"}`}
                           title={isPrincipalAdmin ? "Supprimer" : "Réservé à l'administrateur principal"}
-                          disabled={!isPrincipalAdmin}
                           onClick={() => deleteExpenseLine(l)}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
@@ -4535,6 +4592,16 @@ export default function AlerteClientWifi() {
                     ) : (
                       <span className="badge OK">{fmtFCFA(p.montant)} · Payé</span>
                     )}
+                    <button
+                      className={`icon-btn ${canModifyEntry(p.createdAt) ? "" : "locked"}`}
+                      title={canModifyEntry(p.createdAt) ? "Modifier" : "Passé 24h — réservé à l'administrateur principal"}
+                      onClick={() => {
+                        if (!canModifyEntry(p.createdAt)) { showToast("Si besoin de modification, contacte l'administrateur principal."); return; }
+                        setPerdiemModal({ editingId: p.id, personneNom: p.personneNom, personneId: p.personneId, montant: p.montant, note: p.note || "" });
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                    </button>
                   </div>
                 ))}
               </div>
@@ -4574,6 +4641,16 @@ export default function AlerteClientWifi() {
                     <span className="rah-date">{o.createdAt ? new Date(o.createdAt).toLocaleDateString("fr-FR") : ""}</span>
                     <span>{o.description}</span>
                     <span className="rah-amount">{fmtFCFA(o.montant)}</span>
+                    <button
+                      className={`icon-btn ${canModifyEntry(o.createdAt) ? "" : "locked"}`}
+                      title={canModifyEntry(o.createdAt) ? "Modifier" : "Passé 24h — réservé à l'administrateur principal"}
+                      onClick={() => {
+                        if (!canModifyEntry(o.createdAt)) { showToast("Si besoin de modification, contacte l'administrateur principal."); return; }
+                        setOtherExpenseModal({ editingId: o.id, description: o.description, montant: o.montant });
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                    </button>
                     <button className="icon-btn del" title="Supprimer" onClick={() => deleteOtherExpense(o)}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
                     </button>
@@ -4829,6 +4906,50 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
+      {perdiemModal && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setPerdiemModal(null)}>
+          <div className="modal">
+            <h2>Modifier le perdiem</h2>
+            <div className="field">
+              <label>Personne</label>
+              <input list="perdiemUsersList" value={perdiemModal.personneNom} onChange={(e) => setPerdiemModal({ ...perdiemModal, personneNom: e.target.value })} autoComplete="off" />
+            </div>
+            <div className="field">
+              <label>Montant (FCFA)</label>
+              <input type="number" min="0" value={perdiemModal.montant} onChange={(e) => setPerdiemModal({ ...perdiemModal, montant: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Note (optionnel)</label>
+              <input value={perdiemModal.note} onChange={(e) => setPerdiemModal({ ...perdiemModal, note: e.target.value })} />
+            </div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={() => setPerdiemModal(null)}>Annuler</button>
+              <button className="btn-save" onClick={savePerdiemEdit}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {otherExpenseModal && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setOtherExpenseModal(null)}>
+          <div className="modal">
+            <h2>Modifier la dépense</h2>
+            <div className="field">
+              <label>Description</label>
+              <input value={otherExpenseModal.description} onChange={(e) => setOtherExpenseModal({ ...otherExpenseModal, description: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Montant (FCFA)</label>
+              <input type="number" min="0" value={otherExpenseModal.montant} onChange={(e) => setOtherExpenseModal({ ...otherExpenseModal, montant: e.target.value })} />
+            </div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={() => setOtherExpenseModal(null)}>Annuler</button>
+              <button className="btn-save" onClick={saveOtherExpenseEdit}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <footer>Les données sont enregistrées automatiquement sur cet appareil · calcul des jours restants en temps réel</footer>
 
       {/* ---- Client modal ---- */}
@@ -4983,10 +5104,12 @@ export default function AlerteClientWifi() {
                 Envoyer sur WhatsApp
               </button>
               <button
-                className="row-action-btn"
-                disabled={!isPrincipalAdmin}
+                className={`row-action-btn ${isPrincipalAdmin ? "" : "locked"}`}
                 title={isPrincipalAdmin ? "" : "Réservé à l'administrateur principal"}
-                onClick={() => { const c = rowActionsClient; setRowActionsClient(null); openEditClient(c); }}
+                onClick={() => {
+                  if (!isPrincipalAdmin) { showToast("Si besoin de modification, contacte l'administrateur principal."); return; }
+                  const c = rowActionsClient; setRowActionsClient(null); openEditClient(c);
+                }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                 Modifier
@@ -5008,8 +5131,7 @@ export default function AlerteClientWifi() {
                 </button>
               )}
               <button
-                className="row-action-btn del"
-                disabled={!isPrincipalAdmin}
+                className={`row-action-btn del ${isPrincipalAdmin ? "" : "locked"}`}
                 title={isPrincipalAdmin ? "" : "Réservé à l'administrateur principal"}
                 onClick={() => { const c = rowActionsClient; setRowActionsClient(null); deleteClient(c); }}
               >
@@ -5287,6 +5409,7 @@ const CSS = `
 .wifi-app .action-text.warn{color:var(--amber);font-weight:600;}
 .wifi-app .row-actions{display:flex;gap:6px;justify-content:flex-end;}
 .wifi-app .icon-btn{width:28px;height:28px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--text-faint);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.wifi-app .icon-btn.locked, .wifi-app .row-action-btn.locked{opacity:.4;}
 .wifi-app .copy-chip{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:#2A3747;color:var(--text-dim);font-size:12px;font-family:var(--mono);cursor:pointer;}
 .wifi-app .copy-chip:hover{background:#33455A;color:var(--text);}
 .wifi-app .copy-chip:active{background:var(--cyan-dim);color:var(--cyan);}
