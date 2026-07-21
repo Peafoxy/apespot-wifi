@@ -623,7 +623,7 @@ async function markFuelExpensePaidRow(id) {
 }
 
 // ---- Lignes de dépenses récurrentes ----
-const rowToExpenseLine = (r) => ({ id: r.id, nom: r.nom, montant: r.montant, dateExp: r.date_exp, note: r.note, createdAt: r.created_at });
+const rowToExpenseLine = (r) => ({ id: r.id, nom: r.nom, montant: r.montant, dateExp: r.date_exp, note: r.note, lastPaidMonth: r.last_paid_month, createdAt: r.created_at });
 const expenseLineToRow = (l) => ({ nom: l.nom, montant: l.montant, date_exp: l.dateExp || null, note: l.note || null });
 async function fetchExpenseLines() {
   const data = await sbFetch("wifi_expense_lines?select=*&order=created_at.asc");
@@ -638,6 +638,9 @@ async function updateExpenseLineRow(id, l) {
 }
 async function deleteExpenseLineRow(id) {
   await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "DELETE" });
+}
+async function markLinePaidRow(id, month) {
+  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: month }) });
 }
 
 // ---- Perdiem ----
@@ -2453,8 +2456,10 @@ export default function AlerteClientWifi() {
   const pendingExpensesTotal = useMemo(() => {
     const fuel = fuelExpenses.filter((f) => f.status === "a_payer").reduce((s, f) => s + f.montant, 0);
     const perdiem = perdiemExpenses.filter((p) => p.status === "a_payer").reduce((s, p) => s + p.montant, 0);
-    return fuel + perdiem;
-  }, [fuelExpenses, perdiemExpenses]);
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const lignes = expenseLines.filter((l) => l.lastPaidMonth !== currentMonth).reduce((s, l) => s + (Number(l.montant) || 0), 0);
+    return fuel + perdiem + lignes;
+  }, [fuelExpenses, perdiemExpenses, expenseLines]);
 
   const paymentStats = useMemo(() => {
     const now = new Date();
@@ -3257,6 +3262,18 @@ export default function AlerteClientWifi() {
     }
   };
 
+  const markExpenseLinePaid = async (line) => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    try {
+      if (SUPABASE_CONFIGURED) await markLinePaidRow(line.id, currentMonth);
+      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: currentMonth } : l)));
+      showToast(`"${line.nom}" marquée payée pour ce mois.`);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
+    }
+  };
+
   // ---------- Perdiem ----------
   const addPerdiem = async (personneNom, montant, note) => {
     if (!personneNom.trim() || !Number(montant)) {
@@ -3766,7 +3783,7 @@ export default function AlerteClientWifi() {
             <div className="chart-card" style={{ borderColor: "var(--red)" }}>
               <div className="ctitle" style={{ color: "var(--red)" }}>DÉPENSES EN ATTENTE DE PAIEMENT</div>
               <div style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 10 }}>
-                Carburant + Perdiem cumulés : <strong style={{ color: "var(--red)" }}>{fmtFCFA(pendingExpensesTotal)}</strong>
+                Carburant + Perdiem + Lignes non payées ce mois : <strong style={{ color: "var(--red)" }}>{fmtFCFA(pendingExpensesTotal)}</strong>
               </div>
               <button className="btn-cancel" style={{ width: "100%" }} onClick={() => setTab("fuel")}>Voir dans Dépenses →</button>
             </div>
@@ -4250,6 +4267,8 @@ export default function AlerteClientWifi() {
                 {expenseLines.length === 0 && <div className="empty">Aucune ligne enregistrée.</div>}
                 {expenseLines.map((l) => {
                   const { statut, action } = computeStatus(l.dateExp);
+                  const currentMonth = new Date().toISOString().slice(0, 7);
+                  const paidThisMonth = l.lastPaidMonth === currentMonth;
                   return (
                     <div className="client-row" key={l.id}>
                       <div className="client-row-top">
@@ -4279,6 +4298,18 @@ export default function AlerteClientWifi() {
                           📋 {l.note}
                         </button>
                       )}
+                      <div className="approval-row" style={{ justifyContent: "flex-start", marginTop: 8 }}>
+                        {paidThisMonth ? (
+                          <span className="approval-badge ok">✓ Payé ce mois-ci (FAI réglé)</span>
+                        ) : (
+                          <>
+                            <span className="approval-badge pending">⏳ Pas encore payé ce mois-ci</span>
+                            <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markExpenseLinePaid(l)}>
+                              Marquer payé
+                            </button>
+                          </>
+                        )}
+                      </div>
                       <div className="row-actions">
                         <button className="icon-btn" title="Modifier" onClick={() => setExpenseLineModal({ editingId: l.id, nom: l.nom, montant: l.montant, dateExp: l.dateExp || "", note: l.note || "" })}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
