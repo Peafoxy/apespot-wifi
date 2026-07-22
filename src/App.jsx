@@ -1025,7 +1025,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -1144,8 +1144,8 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
               <div style={{ fontSize: 12, color: "var(--text-dim)", margin: "10px 0" }}>
                 Distance totale estimée (avec retour au local à la fin) : <strong style={{ color: "var(--cyan)" }}>{tourTotalKm.toFixed(1)} km</strong> · {fmtFCFA(Math.round(tourTotalKm * fuelRatePerKm))}
               </div>
-              <button className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={logTour}>
-                {tourLogged ? "Tournée enregistrée ✓" : "Enregistrer la tournée"}
+              <button className="btn-add" style={{ width: "100%", justifyContent: "center" }} disabled={busyFuelId === "tour"} onClick={logTour}>
+                {busyFuelId === "tour" ? "Enregistrement..." : tourLogged ? "Tournée enregistrée ✓" : "Enregistrer la tournée"}
               </button>
             </div>
           )}
@@ -1213,8 +1213,8 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                         {already ? (
                           <span className="fuel-logged">Déjà enregistré</span>
                         ) : (
-                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onLogFuelExpense(c, authUser?.nom || "Technicien", authUser?.id)}>
-                            Enregistrer le déplacement
+                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} disabled={busyFuelId === c.id} onClick={() => onLogFuelExpense(c, authUser?.nom || "Technicien", authUser?.id)}>
+                            {busyFuelId === c.id ? "Enregistrement..." : "Enregistrer le déplacement"}
                           </button>
                         )}
                       </div>
@@ -2329,6 +2329,13 @@ export default function AlerteClientWifi() {
   const [otherExpenseModal, setOtherExpenseModal] = useState(null); // null | { editingId, description, montant }
   const [expenseSubTab, setExpenseSubTab] = useState("carburant"); // carburant | lignes | perdiem | autres
   const [busyUploadId, setBusyUploadId] = useState(null);
+  const [busyFuelId, setBusyFuelId] = useState(null); // id de la réclamation en cours d'enregistrement, ou "tour"
+  const [busyPerdiem, setBusyPerdiem] = useState(false);
+  const [busyOtherExpense, setBusyOtherExpense] = useState(false);
+  const [busySaveExpenseLine, setBusySaveExpenseLine] = useState(false);
+  const [busySaveClient, setBusySaveClient] = useState(false);
+  const [busySaveUser, setBusySaveUser] = useState(false);
+  const [busySavePayment, setBusySavePayment] = useState(false);
   const [rejectPaymentModal, setRejectPaymentModal] = useState(null); // null | { request, reason }
   const [resetAppModal, setResetAppModal] = useState(null); // null | { code, input }
   const [rowActionsClient, setRowActionsClient] = useState(null); // client currently shown in the row-actions sheet
@@ -2463,6 +2470,13 @@ export default function AlerteClientWifi() {
   }, [users]);
   const isPrincipalAdmin = authUser && authUser.id === principalAdminId;
   const canModifyEntry = (createdAt) => isPrincipalAdmin || (createdAt && Date.now() - new Date(createdAt).getTime() < 24 * 60 * 60 * 1000);
+  const RENEW_COOLDOWN_MS = 60 * 60 * 1000; // 1h avant de pouvoir réabonner à nouveau (sauf admin principal)
+  const canRenewClient = (client) => isPrincipalAdmin || !client.renewedAt || Date.now() - new Date(client.renewedAt).getTime() >= RENEW_COOLDOWN_MS;
+  const renewCooldownMinutesLeft = (client) => {
+    if (!client.renewedAt) return 0;
+    const remaining = RENEW_COOLDOWN_MS - (Date.now() - new Date(client.renewedAt).getTime());
+    return Math.max(0, Math.ceil(remaining / 60000));
+  };
 
   const transferPrincipal = async (target) => {
     if (!isPrincipalAdmin || target.id === authUser.id) return;
@@ -2577,9 +2591,11 @@ export default function AlerteClientWifi() {
   const closeClientModal = () => setClientModal(null);
 
   const saveClientModal = async () => {
+    if (busySaveClient) return;
     const { editingId, nom, offre, telephone, dateExp, accessCode } = clientModal;
     if (editingId && !isPrincipalAdmin) return showToast("Seul l'administrateur principal peut modifier un client.");
     if (!nom.trim()) return showToast("Le nom du client est requis.");
+    setBusySaveClient(true);
     const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase() };
     try {
       if (editingId) {
@@ -2600,6 +2616,8 @@ export default function AlerteClientWifi() {
     } catch (e) {
       console.error(e);
       showToast("Erreur d'enregistrement Supabase.");
+    } finally {
+      setBusySaveClient(false);
     }
   };
 
@@ -2643,6 +2661,10 @@ export default function AlerteClientWifi() {
   };
 
   const renewClientSubscription = async (client) => {
+    if (!canRenewClient(client)) {
+      showToast(`Attends encore ${renewCooldownMinutesLeft(client)} min avant de réabonner à nouveau, ou contacte l'administrateur principal.`);
+      return null;
+    }
     const previousDateExp = client.dateExp || null;
     const newDateExp = computeRenewedExpiration(client.dateExp);
     const renewedAt = new Date().toISOString();
@@ -2787,10 +2809,12 @@ export default function AlerteClientWifi() {
   };
 
   const savePaymentModal = async () => {
+    if (busySavePayment) return;
     const { editingId, clientNom, montant, mode, date, newExpiration, note } = paymentModal;
     if (!clientNom.trim()) return showToast("Le nom du client est requis.");
     if (!montant || Number(montant) <= 0) return showToast("Le montant doit être supérieur à 0.");
     if (!date) return showToast("La date du paiement est requise.");
+    setBusySavePayment(true);
 
     const payload = {
       clientNom: clientNom.trim(),
@@ -2833,6 +2857,8 @@ export default function AlerteClientWifi() {
     } catch (e) {
       console.error(e);
       showToast("Erreur d'enregistrement Supabase.");
+    } finally {
+      setBusySavePayment(false);
     }
   };
 
@@ -3262,12 +3288,15 @@ export default function AlerteClientWifi() {
   };
 
   const logFuelExpense = async (complaint, technicienNom, technicienId) => {
-    if (!officeLocation) return;
+    const busyKey = complaint._tourDistanceKm != null ? "tour" : complaint.id;
+    if (busyFuelId === busyKey) return;
+    setBusyFuelId(busyKey);
+    if (!officeLocation) { setBusyFuelId(null); return; }
     let distanceKm;
     if (complaint._tourDistanceKm != null) {
       distanceKm = complaint._tourDistanceKm; // tournée à plusieurs arrêts, déjà calculée (retour au point A inclus)
     } else {
-      if (complaint.latitude == null || complaint.longitude == null) return;
+      if (complaint.latitude == null || complaint.longitude == null) { setBusyFuelId(null); return; }
       // Priorité à la position réelle capturée par le technicien avant son départ, sinon le local.
       const origin = complaint.technicienStartLat != null && complaint.technicienStartLng != null
         ? { lat: complaint.technicienStartLat, lng: complaint.technicienStartLng }
@@ -3291,6 +3320,8 @@ export default function AlerteClientWifi() {
     } catch (e) {
       console.error(e);
       showToast("Erreur d'enregistrement du déplacement.");
+    } finally {
+      setBusyFuelId(null);
     }
   };
 
@@ -3324,6 +3355,7 @@ export default function AlerteClientWifi() {
 
   // ---------- Lignes de dépenses récurrentes ----------
   const saveExpenseLine = async (line) => {
+    if (busySaveExpenseLine) return;
     if (line.editingId && !isPrincipalAdmin) {
       showToast("Seul l'administrateur principal peut modifier une ligne.");
       return;
@@ -3332,6 +3364,7 @@ export default function AlerteClientWifi() {
       showToast("Nom et montant requis.");
       return;
     }
+    setBusySaveExpenseLine(true);
     const payload = { nom: line.nom.trim(), montant: Number(line.montant), dateExp: line.dateExp || null, note: line.note || "" };
     try {
       if (line.editingId) {
@@ -3346,6 +3379,8 @@ export default function AlerteClientWifi() {
     } catch (e) {
       console.error(e);
       showToast("Erreur d'enregistrement de la ligne.");
+    } finally {
+      setBusySaveExpenseLine(false);
     }
   };
 
@@ -3402,10 +3437,12 @@ export default function AlerteClientWifi() {
 
   // ---------- Perdiem ----------
   const addPerdiem = async (personneNom, montant, note) => {
+    if (busyPerdiem) return;
     if (!personneNom.trim() || !Number(montant)) {
       showToast("Nom et montant requis.");
       return;
     }
+    setBusyPerdiem(true);
     // Si le nom correspond à un compte enregistré (Admin/Technicien), le perdiem est rattaché
     // automatiquement à ce compte pour qu'il apparaisse dans son onglet "Mon argent".
     const matchedUser = users.find((u) => u.nom.trim().toLowerCase() === personneNom.trim().toLowerCase());
@@ -3419,6 +3456,8 @@ export default function AlerteClientWifi() {
     } catch (e) {
       console.error(e);
       showToast("Erreur d'enregistrement.");
+    } finally {
+      setBusyPerdiem(false);
     }
   };
 
@@ -3474,10 +3513,12 @@ export default function AlerteClientWifi() {
 
   // ---------- Autres dépenses ----------
   const addOtherExpense = async (description, montant) => {
+    if (busyOtherExpense) return;
     if (!description.trim() || !Number(montant)) {
       showToast("Description et montant requis.");
       return;
     }
+    setBusyOtherExpense(true);
     const payload = { description: description.trim(), montant: Number(montant) };
     try {
       const created = SUPABASE_CONFIGURED
@@ -3488,6 +3529,8 @@ export default function AlerteClientWifi() {
     } catch (e) {
       console.error(e);
       showToast("Erreur d'ajout.");
+    } finally {
+      setBusyOtherExpense(false);
     }
   };
 
@@ -3669,9 +3712,11 @@ export default function AlerteClientWifi() {
   const closeUserModal = () => setUserModal(null);
 
   const saveUserModal = async () => {
+    if (busySaveUser) return;
     const { editingId, nom, role, pin } = userModal;
     if (!nom.trim()) return showToast("Le nom est requis.");
     if (!pin.trim()) return showToast("Le code PIN est requis.");
+    setBusySaveUser(true);
     const payload = { nom: nom.trim(), role, pin: pin.trim() };
     try {
       if (editingId) {
@@ -3687,6 +3732,8 @@ export default function AlerteClientWifi() {
     } catch (e) {
       console.error(e);
       showToast("Erreur d'enregistrement Supabase.");
+    } finally {
+      setBusySaveUser(false);
     }
   };
 
@@ -3794,6 +3841,7 @@ export default function AlerteClientWifi() {
         officeLocation={officeLocation}
         fuelExpenses={fuelExpenses}
         fuelRatePerKm={fuelRatePerKm}
+        busyFuelId={busyFuelId}
         perdiemExpenses={perdiemExpenses}
         onSendMessage={sendMessageHandler}
         onUpdateComplaintStatus={updateComplaintStatusHandler}
@@ -4249,8 +4297,8 @@ export default function AlerteClientWifi() {
                         {already ? (
                           <span className="fuel-logged">Déjà enregistré</span>
                         ) : (
-                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => logFuelExpense(c, authUser?.nom || "Technicien", authUser?.id)}>
-                            Enregistrer le déplacement
+                          <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} disabled={busyFuelId === c.id} onClick={() => logFuelExpense(c, authUser?.nom || "Technicien", authUser?.id)}>
+                            {busyFuelId === c.id ? "Enregistrement..." : "Enregistrer le déplacement"}
                           </button>
                         )}
                       </div>
@@ -4551,6 +4599,7 @@ export default function AlerteClientWifi() {
                 </div>
                 <button
                   className="btn-add"
+                  disabled={busyPerdiem}
                   onClick={() => {
                     const nom = document.getElementById("perdiemNomInput");
                     const montant = document.getElementById("perdiemMontantInput");
@@ -4559,7 +4608,7 @@ export default function AlerteClientWifi() {
                     nom.value = ""; montant.value = ""; note.value = "";
                   }}
                 >
-                  Enregistrer
+                  {busyPerdiem ? "Enregistrement..." : "Enregistrer"}
                 </button>
               </div>
 
@@ -4622,6 +4671,7 @@ export default function AlerteClientWifi() {
                 </div>
                 <button
                   className="btn-add"
+                  disabled={busyOtherExpense}
                   onClick={() => {
                     const desc = document.getElementById("otherDescInput");
                     const montant = document.getElementById("otherMontantInput");
@@ -4629,7 +4679,7 @@ export default function AlerteClientWifi() {
                     desc.value = ""; montant.value = "";
                   }}
                 >
-                  Ajouter
+                  {busyOtherExpense ? "Enregistrement..." : "Ajouter"}
                 </button>
               </div>
 
@@ -4762,7 +4812,7 @@ export default function AlerteClientWifi() {
             </div>
             <div className="modal-actions">
               <button className="btn-cancel" onClick={closeUserModal}>Annuler</button>
-              <button className="btn-save" onClick={saveUserModal}>Enregistrer</button>
+              <button className="btn-save" disabled={busySaveUser} onClick={saveUserModal}>{busySaveUser ? "Enregistrement..." : "Enregistrer"}</button>
             </div>
           </div>
         </div>
@@ -4900,7 +4950,7 @@ export default function AlerteClientWifi() {
             </div>
             <div className="modal-actions">
               <button className="btn-cancel" onClick={() => setExpenseLineModal(null)}>Annuler</button>
-              <button className="btn-save" onClick={() => saveExpenseLine(expenseLineModal)}>Enregistrer</button>
+              <button className="btn-save" disabled={busySaveExpenseLine} onClick={() => saveExpenseLine(expenseLineModal)}>{busySaveExpenseLine ? "Enregistrement..." : "Enregistrer"}</button>
             </div>
           </div>
         </div>
@@ -5014,7 +5064,7 @@ export default function AlerteClientWifi() {
             </div>
             <div className="modal-actions">
               <button className="btn-cancel" onClick={closeClientModal}>Annuler</button>
-              <button className="btn-save" onClick={saveClientModal}>Enregistrer</button>
+              <button className="btn-save" disabled={busySaveClient} onClick={saveClientModal}>{busySaveClient ? "Enregistrement..." : "Enregistrer"}</button>
             </div>
           </div>
         </div>
@@ -5065,7 +5115,7 @@ export default function AlerteClientWifi() {
             </div>
             <div className="modal-actions">
               <button className="btn-cancel" onClick={closePaymentModal}>Annuler</button>
-              <button className="btn-save" onClick={savePaymentModal}>Enregistrer</button>
+              <button className="btn-save" disabled={busySavePayment} onClick={savePaymentModal}>{busySavePayment ? "Enregistrement..." : "Enregistrer"}</button>
             </div>
           </div>
         </div>
@@ -5114,10 +5164,18 @@ export default function AlerteClientWifi() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                 Modifier
               </button>
-              <button className="row-action-btn" onClick={async () => {
-                const updated = await renewClientSubscription(rowActionsClient);
-                if (updated) setRowActionsClient(updated);
-              }}>
+              <button
+                className={`row-action-btn ${canRenewClient(rowActionsClient) ? "" : "locked"}`}
+                title={canRenewClient(rowActionsClient) ? "" : `Réessaie dans ${renewCooldownMinutesLeft(rowActionsClient)} min, ou contacte l'administrateur principal`}
+                onClick={async () => {
+                  if (!canRenewClient(rowActionsClient)) {
+                    showToast(`Attends encore ${renewCooldownMinutesLeft(rowActionsClient)} min avant de réabonner à nouveau, ou contacte l'administrateur principal.`);
+                    return;
+                  }
+                  const updated = await renewClientSubscription(rowActionsClient);
+                  if (updated) setRowActionsClient(updated);
+                }}
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
                 Réabonné
               </button>
