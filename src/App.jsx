@@ -481,7 +481,7 @@ const paymentToRow = (p) => ({
   receipt_name: p.receiptName || null,
 });
 
-const rowToMessage = (r) => ({ id: r.id, clientId: r.client_id, clientNom: r.client_nom, sender: r.sender, body: r.body, createdAt: r.created_at });
+const rowToMessage = (r) => ({ id: r.id, clientId: r.client_id, clientNom: r.client_nom, sender: r.sender, body: r.body, read: r.read ?? false, createdAt: r.created_at });
 const messageToRow = (m) => ({ client_id: m.clientId || null, client_nom: m.clientNom, sender: m.sender, body: m.body });
 
 const rowToUser = (r) => ({ id: r.id, nom: r.nom, role: r.role, pin: r.pin, isPrincipal: r.is_principal ?? false, createdAt: r.created_at });
@@ -763,6 +763,10 @@ async function deletePaymentRow(id) {
 async function insertMessageRow(m) {
   const data = await sbFetch("wifi_messages", { method: "POST", body: JSON.stringify(messageToRow(m)) });
   return rowToMessage(data[0]);
+}
+async function markClientMessagesReadRow(clientId, clientNom) {
+  const filter = clientId ? `client_id=eq.${clientId}` : `client_nom=eq.${encodeURIComponent(clientNom)}`;
+  await sbFetch(`wifi_messages?${filter}&sender=eq.company&read=eq.false`, { method: "PATCH", body: JSON.stringify({ read: true }) });
 }
 
 async function insertComplaintRow(c) {
@@ -1427,7 +1431,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
 // -------------------- Client view --------------------
 
-function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onLogout, sessionWarningSeconds, onStayConnected }) {
+function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onMarkMessagesRead, onLogout, sessionWarningSeconds, onStayConnected }) {
   const [tab, setTab] = useState("home");
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
@@ -1499,6 +1503,8 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const myMessages = messages
     .filter((m) => (m.clientNom || "").trim().toLowerCase() === freshClient.nom.trim().toLowerCase())
     .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+
+  const unreadMessagesCount = myMessages.filter((m) => m.sender === "company" && !m.read).length;
 
   const requestTicketDuration = async (duree) => {
     setTicketError("");
@@ -1641,7 +1647,9 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
 
       <div className="tabs">
         <button className={`tab ${tab === "home" ? "active" : ""}`} onClick={() => setTab("home")}>Mon compte</button>
-        <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => setTab("messages")}>Message</button>
+        <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); if (unreadMessagesCount > 0) onMarkMessagesRead(freshClient.id, freshClient.nom); }}>
+          Message{unreadMessagesCount > 0 && <span className="tab-badge">{unreadMessagesCount}</span>}
+        </button>
         <button className={`tab ${tab === "tickets" ? "active" : ""}`} onClick={() => setTab("tickets")}>
           Ticket{myTicketRequests.some((r) => r.status === "ready") && <span className="tab-badge">1</span>}
         </button>
@@ -3771,6 +3779,15 @@ export default function AlerteClientWifi() {
     }
   };
 
+  const markClientMessagesReadHandler = async (clientId, clientNom) => {
+    try {
+      if (SUPABASE_CONFIGURED) await markClientMessagesReadRow(clientId, clientNom);
+      setMessages((ms) => ms.map((m) => (m.clientNom === clientNom && m.sender === "company" ? { ...m, read: true } : m)));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // ---------- Demandes de paiement initiées par le client ----------
   const submitPaymentRequestHandler = async (clientId, clientNom, montant, mode, note) => {
     const payload = { clientId, clientNom, montant, mode, note, status: "pending" };
@@ -4005,6 +4022,7 @@ export default function AlerteClientWifi() {
         onAddTicketDuration={addTicketDuration}
         onEditTicketDuration={editTicketDuration}
         onDeleteTicketDuration={deleteTicketDuration}
+        onMarkMessagesRead={markClientMessagesReadHandler}
         onLogout={handleLogout}
         sessionWarningSeconds={sessionWarningSeconds}
         onStayConnected={stayConnected}
