@@ -4933,9 +4933,9 @@ export default function AlerteClientWifi() {
       )}
 
       {renewConfirmModal && (
-        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setRenewConfirmModal(null)}>
+        <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setRenewConfirmModal(null)}>
           <div className="modal renew-confirm-modal">
-            <h2>Réabonner "{renewConfirmModal.client.nom}" ?</h2>
+            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Réabonné "{renewConfirmModal.client.nom}"</h2>
             <div className="renew-confirm-box">
               Nouvelle échéance : <strong>{fmtDate(renewConfirmModal.previewDate)}</strong>
             </div>
