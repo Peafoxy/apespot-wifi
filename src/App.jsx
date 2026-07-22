@@ -273,6 +273,22 @@ function computeRenewedExpiration(currentDateExp) {
   return addOneMonthClamped(base);
 }
 
+// Recule une date d'un jour (format YYYY-MM-DD).
+function subtractOneDay(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() - 1);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Règle spécifique aux Lignes (abonnements FAI) : l'échéance suivante est 1 mois moins 1 jour,
+// pas 1 mois complet. Ne s'applique pas au réabonnement client, qui reste sur 1 mois plein.
+function computeRenewedExpirationLigne(currentDateExp) {
+  const { statut } = computeStatus(currentDateExp);
+  const renewed = computeRenewedExpiration(currentDateExp);
+  return statut === "EXPIRE" ? subtractOneDay(renewed) : renewed;
+}
+
 function fmtDate(dateExp) {
   if (!dateExp) return "—";
   const d = new Date(dateExp + "T00:00:00");
@@ -3406,7 +3422,7 @@ export default function AlerteClientWifi() {
   const markExpenseLinePaid = async (line) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const previousDateExp = line.dateExp || null;
-    const newDateExp = line.dateExp ? computeRenewedExpiration(line.dateExp) : null;
+    const newDateExp = line.dateExp ? computeRenewedExpirationLigne(line.dateExp) : null;
     const paidActionAt = new Date().toISOString();
     try {
       if (SUPABASE_CONFIGURED) await markLinePaidRow(line.id, currentMonth, newDateExp, previousDateExp);
@@ -4529,7 +4545,7 @@ export default function AlerteClientWifi() {
                             <span className="approval-badge ok">✓ Payé ce mois-ci (FAI réglé)</span>
                           ) : (
                             <>
-                              <span className="approval-badge pending">⏳ Échéance proche — à payer</span>
+                              <span className="approval-badge pending">⏳ {statut === "EXPIRE" ? "Échéance dépassée — à payer" : "Échéance proche — à payer"}</span>
                               <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markExpenseLinePaid(l)}>
                                 Marquer payé
                               </button>
