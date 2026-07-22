@@ -4698,7 +4698,14 @@ export default function AlerteClientWifi() {
               </div>
               <div className="table-shell client-list-shell">
                 {expenseLines.length === 0 && <div className="empty">Aucune ligne enregistrée.</div>}
-                {expenseLines.map((l) => {
+                {[...expenseLines]
+                  .sort((a, b) => {
+                    const order = { EXPIRE: 0, ATTENTION: 1, OK: 2, NA: 3 };
+                    const sa = computeStatus(a.dateExp).statut;
+                    const sb = computeStatus(b.dateExp).statut;
+                    return (order[sa] ?? 3) - (order[sb] ?? 3);
+                  })
+                  .map((l) => {
                   const { statut, action } = computeStatus(l.dateExp);
                   const currentMonth = new Date().toISOString().slice(0, 7);
                   const isDueSoon = statut === "ATTENTION" || statut === "EXPIRE";
