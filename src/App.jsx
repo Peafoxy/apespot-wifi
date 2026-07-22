@@ -2587,7 +2587,7 @@ export default function AlerteClientWifi() {
 
   const openAddClient = () => setClientModal({ editingId: null, nom: "", offre: "", telephone: "", dateExp: "", accessCode: "" });
   const openEditClient = (c) =>
-    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", dateExp: c.dateExp || "", accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || "") });
+    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", dateExp: c.dateExp || "", accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || ""), previousDateExp: c.previousDateExp || null, renewedAt: c.renewedAt || null });
   const closeClientModal = () => setClientModal(null);
 
   const saveClientModal = async () => {
@@ -2596,7 +2596,7 @@ export default function AlerteClientWifi() {
     if (editingId && !isPrincipalAdmin) return showToast("Seul l'administrateur principal peut modifier un client.");
     if (!nom.trim()) return showToast("Le nom du client est requis.");
     setBusySaveClient(true);
-    const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase() };
+    const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase(), previousDateExp: clientModal.previousDateExp || null, renewedAt: clientModal.renewedAt || null };
     try {
       if (editingId) {
         if (SUPABASE_CONFIGURED) await updateClientRow(editingId, payload);
@@ -2840,7 +2840,7 @@ export default function AlerteClientWifi() {
       if (newExpiration) {
         const c = findClientByName(clientNom);
         if (c) {
-          if (SUPABASE_CONFIGURED) await updateClientRow(c.id, { nom: c.nom, offre: c.offre, dateExp: newExpiration });
+          if (SUPABASE_CONFIGURED) await updateClientRow(c.id, { ...c, dateExp: newExpiration });
           setClients((cs) => cs.map((x) => (x.id === c.id ? { ...x, dateExp: newExpiration } : x)));
           showToast("Paiement enregistré · abonnement WiFi prolongé.");
         } else {
