@@ -5175,6 +5175,8 @@ export default function AlerteClientWifi() {
                     showToast(`Attends encore ${renewCooldownMinutesLeft(rowActionsClient)} min avant de réabonner à nouveau, ou contacte l'administrateur principal.`);
                     return;
                   }
+                  const previewDate = computeRenewedExpiration(rowActionsClient.dateExp);
+                  if (!window.confirm(`Réabonner "${rowActionsClient.nom}" ? Nouvelle échéance : ${fmtDate(previewDate)}.`)) return;
                   const updated = await renewClientSubscription(rowActionsClient);
                   if (updated) setRowActionsClient(updated);
                 }}
