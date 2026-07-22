@@ -980,18 +980,18 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
         {!selected && (
           <div className="login-roles">
-            <button className="login-role-btn" onClick={() => pick("admin")}>
+            <button className="login-role-btn role-admin" onClick={() => pick("admin")}>
               <div className="lr-title">
                 Admin
                 {newComplaintsCount > 0 && <span className="tab-badge" style={{ marginLeft: 8 }}>{newComplaintsCount}</span>}
               </div>
               <div className="lr-sub">Gestion complète</div>
             </button>
-            <button className="login-role-btn" onClick={() => pick("technicien")}>
+            <button className="login-role-btn role-technicien" onClick={() => pick("technicien")}>
               <div className="lr-title">Technicien</div>
               <div className="lr-sub">Messages & clients</div>
             </button>
-            <button className="login-role-btn" onClick={() => pick("client")}>
+            <button className="login-role-btn role-client" onClick={() => pick("client")}>
               <div className="lr-title">Client</div>
               <div className="lr-sub">Mon espace</div>
             </button>
@@ -5561,9 +5561,16 @@ const CSS = `
 /* LOGIN SCREEN */
 .wifi-app.login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
 .wifi-app .login-card{width:100%;max-width:360px;background:var(--bg-panel);border:1px solid var(--line);border-radius:18px;padding:32px 26px;}
-.wifi-app .login-roles{display:flex;flex-direction:column;gap:10px;}
-.wifi-app .login-role-btn{width:100%;padding:16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-card);cursor:pointer;text-align:left;font-family:var(--sans);}
-.wifi-app .login-role-btn:hover{border-color:var(--cyan);background:var(--cyan-dim);}
+.wifi-app .login-roles{display:flex;flex-direction:column;gap:20px;}
+.wifi-app .login-role-btn{width:100%;padding:16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-card);cursor:pointer;text-align:center;font-family:var(--sans);}
+.wifi-app .login-role-btn.role-admin{background:#3FD684;border-color:#3FD684;}
+.wifi-app .login-role-btn.role-technicien{background:#F5AC3C;border-color:#F5AC3C;}
+.wifi-app .login-role-btn.role-client{background:#38BDF8;border-color:#38BDF8;}
+.wifi-app .login-role-btn.role-admin:hover,.wifi-app .login-role-btn.role-technicien:hover,.wifi-app .login-role-btn.role-client:hover{filter:brightness(1.08);}
+.wifi-app .login-role-btn:not(.role-admin):not(.role-technicien):not(.role-client):hover{border-color:var(--cyan);background:var(--cyan-dim);}
+.wifi-app .login-role-btn.role-admin .lr-title,.wifi-app .login-role-btn.role-admin .lr-sub,
+.wifi-app .login-role-btn.role-technicien .lr-title,.wifi-app .login-role-btn.role-technicien .lr-sub,
+.wifi-app .login-role-btn.role-client .lr-title,.wifi-app .login-role-btn.role-client .lr-sub{color:#0E1520;}
 .wifi-app .login-role-btn .lr-title{font-size:14.5px;font-weight:700;color:var(--text);}
 .wifi-app .login-role-btn .lr-sub{font-size:11.5px;color:var(--text-dim);margin-top:2px;}
 .wifi-app .login-form label{font-size:12px;color:var(--text-dim);display:block;margin-bottom:8px;}
