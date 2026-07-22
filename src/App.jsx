@@ -4422,7 +4422,7 @@ export default function AlerteClientWifi() {
                 min="1"
                 step="1"
                 defaultValue={fuelRatePerKm}
-                style={{ width: 100, padding: "9px 10px", borderRadius: 9, border: "1px solid var(--line)", background: "var(--bg-card)", color: "var(--text)" }}
+                style={{ width: 100, padding: "10px 10px", borderRadius: 9, border: "1.5px solid #445269", background: "#222E40", color: "var(--text)" }}
               />
               <button
                 className="btn-add"
@@ -5513,9 +5513,11 @@ const CSS = `
 .wifi-app .modal h2{margin:0 0 18px;font-size:16px;}
 .wifi-app .field{margin-bottom:14px;}
 .wifi-app .field label{font-size:12px;color:var(--text-dim);display:block;margin-bottom:6px;letter-spacing:.2px;}
-.wifi-app .field input,.wifi-app .field select,.wifi-app .field textarea{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg-card);color:var(--text);font-size:13.5px;font-family:var(--sans);outline:none;}
+.wifi-app .field input,.wifi-app .field select,.wifi-app .field textarea{width:100%;padding:11px 12px;border-radius:9px;border:1.5px solid #445269;background:#222E40;color:var(--text);font-size:13.5px;font-family:var(--sans);outline:none;}
 .wifi-app .field textarea{resize:vertical;min-height:60px;}
-.wifi-app .field input:focus,.wifi-app .field select:focus,.wifi-app .field textarea:focus{border-color:var(--cyan);}
+.wifi-app .field input:focus,.wifi-app .field select:focus,.wifi-app .field textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 3px var(--cyan-dim);}
+.wifi-app .field input::placeholder,.wifi-app .field textarea::placeholder{color:#8A96A8;}
+.wifi-app .field select{background-image:linear-gradient(45deg, transparent 50%, #8A96A8 50%),linear-gradient(135deg, #8A96A8 50%, transparent 50%);background-position:calc(100% - 18px) center,calc(100% - 13px) center;background-size:5px 5px,5px 5px;background-repeat:no-repeat;appearance:none;-webkit-appearance:none;padding-right:36px;}
 .wifi-app .modal-actions{display:flex;gap:10px;margin-top:20px;}
 .wifi-app .modal-actions button{flex:1;padding:11px;border-radius:9px;border:1px solid var(--line);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--sans);}
 .wifi-app .btn-cancel{background:transparent;color:var(--text-dim);}
