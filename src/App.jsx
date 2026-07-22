@@ -1095,13 +1095,32 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   const activeThread = threads.find((t) => t.nom === activeThreadClient);
 
   const sendReply = () => {
-    if (!replyText.trim() || !activeThread) return;
-    const client = clients.find((c) => c.nom === activeThread.nom);
-    onSendMessage(client?.id, activeThread.nom, "company", replyText);
+    if (!replyText.trim() || !activeThreadClient) return;
+    const client = clients.find((c) => c.nom === activeThreadClient);
+    onSendMessage(client?.id, activeThreadClient, "company", replyText);
     setReplyText("");
   };
 
   const [tourLogged, setTourLogged] = useState(false);
+  const [complaintReplyDrafts, setComplaintReplyDrafts] = useState({});
+  const [newMsgClientNom, setNewMsgClientNom] = useState("");
+  const startNewConversation = () => {
+    const nom = newMsgClientNom.trim();
+    if (!nom) return;
+    const match = clients.find((c) => c.nom.trim().toLowerCase() === nom.toLowerCase());
+    setActiveThreadClient(match ? match.nom : nom);
+    setNewMsgClientNom("");
+  };
+  const [busyComplaintReplyId, setBusyComplaintReplyId] = useState(null);
+  const replyToComplaint = async (complaint) => {
+    const text = (complaintReplyDrafts[complaint.id] || "").trim();
+    if (!text || busyComplaintReplyId === complaint.id) return;
+    setBusyComplaintReplyId(complaint.id);
+    const client = clients.find((c) => c.nom === complaint.clientNom);
+    await onSendMessage(client?.id || complaint.clientId, complaint.clientNom, "company", text);
+    setComplaintReplyDrafts((d) => ({ ...d, [complaint.id]: "" }));
+    setBusyComplaintReplyId(null);
+  };
   const logTour = () => {
     if (tourStops.length === 0) return;
     const clientNoms = tourStops.map((c) => c.clientNom).join(", ");
@@ -1245,6 +1264,22 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
               )}
               {c.description && <div className="complaint-desc">{c.description}</div>}
               <div className="complaint-date">{c.createdAt ? new Date(c.createdAt).toLocaleString("fr-FR") : ""}</div>
+              <div className="complaint-reply-box">
+                <input
+                  placeholder="Répondre au client..."
+                  value={complaintReplyDrafts[c.id] || ""}
+                  onChange={(e) => setComplaintReplyDrafts((d) => ({ ...d, [c.id]: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") replyToComplaint(c); }}
+                />
+                <button
+                  className="btn-add"
+                  style={{ padding: "8px 14px", fontSize: 12 }}
+                  disabled={busyComplaintReplyId === c.id || !(complaintReplyDrafts[c.id] || "").trim()}
+                  onClick={() => replyToComplaint(c)}
+                >
+                  {busyComplaintReplyId === c.id ? "Envoi..." : "Répondre"}
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -1254,6 +1289,27 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         <div className="view active">
           {!activeThreadClient ? (
             <>
+              <div className="chart-card">
+                <div className="ctitle">NOUVEAU MESSAGE</div>
+                <div className="field">
+                  <label>Client</label>
+                  <input
+                    list="techMsgClientsList"
+                    placeholder="Tape ou choisis un client"
+                    autoComplete="off"
+                    value={newMsgClientNom}
+                    onChange={(e) => setNewMsgClientNom(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") startNewConversation(); }}
+                  />
+                  <datalist id="techMsgClientsList">
+                    {clients.map((c) => <option key={c.id} value={c.nom} />)}
+                  </datalist>
+                </div>
+                <button className="btn-add" disabled={!newMsgClientNom.trim()} onClick={startNewConversation}>
+                  Démarrer la conversation
+                </button>
+              </div>
+
               {threads.length === 0 && <div className="empty">Aucun message pour l'instant.</div>}
               {threads.map((t) => (
                 <div key={t.nom} className="thread-row" onClick={() => setActiveThreadClient(t.nom)}>
@@ -1266,9 +1322,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
             <div className="thread-view">
               <button className="btn-cancel" onClick={() => setActiveThreadClient(null)} style={{ marginBottom: 12 }}>← Retour</button>
               <div className="thread-messages">
-                {activeThread?.msgs.map((m) => (
+                {activeThread ? activeThread.msgs.map((m) => (
                   <div key={m.id} className={`msg-bubble ${m.sender === "company" ? "msg-out" : "msg-in"}`}>{m.body}</div>
-                ))}
+                )) : <div className="empty">Aucun message avec {activeThreadClient} pour l'instant — écris le premier ci-dessous.</div>}
               </div>
               <div className="thread-input">
                 <input placeholder="Répondre..." value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendReply()} />
@@ -2338,6 +2394,12 @@ export default function AlerteClientWifi() {
   const [busySaveUser, setBusySaveUser] = useState(false);
   const [busySavePayment, setBusySavePayment] = useState(false);
   const [rejectPaymentModal, setRejectPaymentModal] = useState(null); // null | { request, reason }
+  const [complaintReplyDrafts, setComplaintReplyDrafts] = useState({}); // { [complaintId]: text }
+  const [busyComplaintReplyId, setBusyComplaintReplyId] = useState(null);
+  const [activeThreadClient, setActiveThreadClient] = useState(null);
+  const [adminReplyText, setAdminReplyText] = useState("");
+  const [busyAdminMsg, setBusyAdminMsg] = useState(false);
+  const [newMsgClientNom, setNewMsgClientNom] = useState("");
   const [resetAppModal, setResetAppModal] = useState(null); // null | { code, input }
   const [rowActionsClient, setRowActionsClient] = useState(null); // client currently shown in the row-actions sheet
 
@@ -2424,6 +2486,44 @@ export default function AlerteClientWifi() {
     () => complaints.filter((c) => !c.read).length,
     [complaints]
   );
+
+  const threads = useMemo(() => {
+    const map = {};
+    messages.forEach((m) => {
+      const key = m.clientNom || "Inconnu";
+      if (!map[key]) map[key] = [];
+      map[key].push(m);
+    });
+    return Object.entries(map)
+      .map(([nom, msgs]) => {
+        const sorted = [...msgs].sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+        return { nom, msgs: sorted, last: sorted[sorted.length - 1] };
+      })
+      .sort((a, b) => (b.last?.createdAt || "").localeCompare(a.last?.createdAt || ""));
+  }, [messages]);
+  const unansweredThreadsCount = threads.filter((t) => t.last?.sender === "client").length;
+  const activeThread = threads.find((t) => t.nom === activeThreadClient) || null;
+
+  const openThreadWithClient = (nom) => {
+    setActiveThreadClient(nom);
+    setNewMsgClientNom("");
+  };
+
+  const sendAdminReply = async () => {
+    if (!adminReplyText.trim() || busyAdminMsg || !activeThreadClient) return;
+    setBusyAdminMsg(true);
+    const client = clients.find((c) => c.nom === activeThreadClient);
+    await sendMessageHandler(client?.id, activeThreadClient, "company", adminReplyText);
+    setAdminReplyText("");
+    setBusyAdminMsg(false);
+  };
+
+  const startNewConversation = () => {
+    const nom = newMsgClientNom.trim();
+    if (!nom) return;
+    const match = clients.find((c) => c.nom.trim().toLowerCase() === nom.toLowerCase());
+    openThreadWithClient(match ? match.nom : nom);
+  };
 
   const pendingTicketRequests = useMemo(
     () => ticketRequests.filter((r) => r.status === "pending"),
@@ -3585,6 +3685,27 @@ export default function AlerteClientWifi() {
   };
 
   // ---------- Accord admin avant intervention (condition du paiement du déplacement) ----------
+  const replyToComplaint = async (complaint) => {
+    const text = (complaintReplyDrafts[complaint.id] || "").trim();
+    if (!text || busyComplaintReplyId === complaint.id) return;
+    setBusyComplaintReplyId(complaint.id);
+    try {
+      const client = clients.find((c) => c.nom === complaint.clientNom);
+      const payload = { clientId: client?.id || complaint.clientId, clientNom: complaint.clientNom, sender: "company", body: text };
+      const created = SUPABASE_CONFIGURED
+        ? await insertMessageRow(payload)
+        : { id: uid(), ...payload, createdAt: new Date().toISOString() };
+      setMessages((ms) => [...ms, created]);
+      setComplaintReplyDrafts((d) => ({ ...d, [complaint.id]: "" }));
+      showToast("Réponse envoyée au client.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'envoi de la réponse.");
+    } finally {
+      setBusyComplaintReplyId(null);
+    }
+  };
+
   const requestInterventionApproval = async (complaint) => {
     try {
       if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { approval_status: "requested" });
@@ -3939,6 +4060,9 @@ export default function AlerteClientWifi() {
         </button>
         <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => { setTab("complaints"); markComplaintsReadHandler(); }}>
           Réclamations{newComplaintsCount > 0 && <span className="tab-badge">{newComplaintsCount}</span>}
+        </button>
+        <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); setActiveThreadClient(null); }}>
+          Messages{unansweredThreadsCount > 0 && <span className="tab-badge">{unansweredThreadsCount}</span>}
         </button>
         <button className={`tab ${tab === "tickets" ? "active" : ""}`} onClick={() => setTab("tickets")}>
           Tickets{pendingTicketRequests.length > 0 && <span className="tab-badge">{pendingTicketRequests.length}</span>}
@@ -4317,8 +4441,74 @@ export default function AlerteClientWifi() {
               )}
               {c.description && <div className="complaint-desc">{c.description}</div>}
               <div className="complaint-date">{c.createdAt ? new Date(c.createdAt).toLocaleString("fr-FR") : ""}</div>
+              <div className="complaint-reply-box">
+                <input
+                  placeholder="Répondre au client..."
+                  value={complaintReplyDrafts[c.id] || ""}
+                  onChange={(e) => setComplaintReplyDrafts((d) => ({ ...d, [c.id]: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") replyToComplaint(c); }}
+                />
+                <button
+                  className="btn-add"
+                  style={{ padding: "8px 14px", fontSize: 12 }}
+                  disabled={busyComplaintReplyId === c.id || !(complaintReplyDrafts[c.id] || "").trim()}
+                  onClick={() => replyToComplaint(c)}
+                >
+                  {busyComplaintReplyId === c.id ? "Envoi..." : "Répondre"}
+                </button>
+              </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {tab === "messages" && (
+        <div className="view active">
+          {!activeThreadClient ? (
+            <>
+              <div className="chart-card">
+                <div className="ctitle">NOUVEAU MESSAGE</div>
+                <div className="field">
+                  <label>Client</label>
+                  <input
+                    list="adminMsgClientsList"
+                    placeholder="Tape ou choisis un client"
+                    autoComplete="off"
+                    value={newMsgClientNom}
+                    onChange={(e) => setNewMsgClientNom(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") startNewConversation(); }}
+                  />
+                  <datalist id="adminMsgClientsList">
+                    {clients.map((c) => <option key={c.id} value={c.nom} />)}
+                  </datalist>
+                </div>
+                <button className="btn-add" disabled={!newMsgClientNom.trim()} onClick={startNewConversation}>
+                  Démarrer la conversation
+                </button>
+              </div>
+
+              {threads.length === 0 && <div className="empty">Aucun message pour l'instant.</div>}
+              {threads.map((t) => (
+                <div key={t.nom} className="thread-row" onClick={() => openThreadWithClient(t.nom)}>
+                  <div className="thread-name">{t.nom}</div>
+                  <div className="thread-preview">{t.last?.body}</div>
+                </div>
+              ))}
+            </>
+          ) : (
+            <div className="thread-view">
+              <button className="btn-cancel" onClick={() => setActiveThreadClient(null)} style={{ marginBottom: 12 }}>← Retour</button>
+              <div className="thread-messages">
+                {activeThread ? activeThread.msgs.map((m) => (
+                  <div key={m.id} className={`msg-bubble ${m.sender === "company" ? "msg-out" : "msg-in"}`}>{m.body}</div>
+                )) : <div className="empty">Aucun message avec {activeThreadClient} pour l'instant — écris le premier ci-dessous.</div>}
+              </div>
+              <div className="thread-input">
+                <input placeholder="Écrire un message..." value={adminReplyText} onChange={(e) => setAdminReplyText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendAdminReply()} />
+                <button className="btn-save" disabled={busyAdminMsg} onClick={sendAdminReply}>{busyAdminMsg ? "Envoi..." : "Envoyer"}</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -5619,6 +5809,8 @@ const CSS = `
 .wifi-app .complaint-reason{font-size:13px;color:var(--cyan);font-weight:600;}
 .wifi-app .complaint-meta{font-size:11.5px;color:var(--text-dim);margin-top:4px;font-family:var(--mono);}
 .wifi-app .complaint-desc{font-size:12.5px;color:var(--text-dim);margin-top:8px;line-height:1.4;}
+.wifi-app .complaint-reply-box{display:flex;gap:8px;margin-top:12px;}
+.wifi-app .complaint-reply-box input{flex:1;min-width:0;}
 .wifi-app .complaint-date{font-size:10.5px;color:var(--text-faint);margin-top:8px;}
 .wifi-app .gps-captured{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;border:1px solid var(--green);background:var(--green-dim);flex-wrap:wrap;}
 .wifi-app .gps-captured-info{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--green);font-weight:600;}
