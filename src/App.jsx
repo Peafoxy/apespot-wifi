@@ -2325,6 +2325,7 @@ export default function AlerteClientWifi() {
   const [userModal, setUserModal] = useState(null); // null | { editingId, nom, role, pin }
   const [deleteClientModal, setDeleteClientModal] = useState(null); // null | { client, code, input }
   const [expenseLineModal, setExpenseLineModal] = useState(null); // null | { editingId, nom, montant, dateExp, note }
+  const [renewConfirmModal, setRenewConfirmModal] = useState(null); // null | { client, previewDate }
   const [perdiemModal, setPerdiemModal] = useState(null); // null | { editingId, personneNom, personneId, montant, note }
   const [otherExpenseModal, setOtherExpenseModal] = useState(null); // null | { editingId, description, montant }
   const [expenseSubTab, setExpenseSubTab] = useState("carburant"); // carburant | lignes | perdiem | autres
@@ -4931,6 +4932,32 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
+      {renewConfirmModal && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setRenewConfirmModal(null)}>
+          <div className="modal renew-confirm-modal">
+            <h2>Réabonner "{renewConfirmModal.client.nom}" ?</h2>
+            <div className="renew-confirm-box">
+              Nouvelle échéance : <strong>{fmtDate(renewConfirmModal.previewDate)}</strong>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={() => setRenewConfirmModal(null)}>Annuler</button>
+              <button
+                className="btn-save"
+                style={{ background: "var(--green)", borderColor: "var(--green)", color: "#0E1520" }}
+                onClick={async () => {
+                  const { client } = renewConfirmModal;
+                  setRenewConfirmModal(null);
+                  const updated = await renewClientSubscription(client);
+                  if (updated) setRowActionsClient(updated);
+                }}
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {expenseLineModal && (
         <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setExpenseLineModal(null)}>
           <div className="modal">
@@ -5170,15 +5197,13 @@ export default function AlerteClientWifi() {
               <button
                 className={`row-action-btn ${canRenewClient(rowActionsClient) ? "" : "locked"}`}
                 title={canRenewClient(rowActionsClient) ? "" : `Réessaie dans ${renewCooldownMinutesLeft(rowActionsClient)} min, ou contacte l'administrateur principal`}
-                onClick={async () => {
+                onClick={() => {
                   if (!canRenewClient(rowActionsClient)) {
                     showToast(`Attends encore ${renewCooldownMinutesLeft(rowActionsClient)} min avant de réabonner à nouveau, ou contacte l'administrateur principal.`);
                     return;
                   }
                   const previewDate = computeRenewedExpiration(rowActionsClient.dateExp);
-                  if (!window.confirm(`Réabonner "${rowActionsClient.nom}" ? Nouvelle échéance : ${fmtDate(previewDate)}.`)) return;
-                  const updated = await renewClientSubscription(rowActionsClient);
-                  if (updated) setRowActionsClient(updated);
+                  setRenewConfirmModal({ client: rowActionsClient, previewDate });
                 }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
@@ -5396,6 +5421,7 @@ const CSS = `
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
 .wifi-app .session-warning{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--amber-dim);border:1px solid var(--amber);color:var(--amber);padding:10px 14px;border-radius:10px;font-size:12.5px;font-weight:600;margin-bottom:16px;}
+.wifi-app .renew-confirm-box{background:var(--green-dim);border:1px solid var(--green);color:var(--green);padding:14px 16px;border-radius:10px;font-size:14px;font-weight:600;text-align:center;margin:16px 0;}
 .wifi-app .session-warning button{flex-shrink:0;padding:6px 14px;font-size:11.5px;}
 .wifi-app .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;}
 .wifi-app .stat{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden;}
