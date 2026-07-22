@@ -1374,7 +1374,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onLogout, sessionWarningSeconds, onStayConnected }) {
   const [tab, setTab] = useState("home");
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
-  const [payForm, setPayForm] = useState({ montant: "", mode: "Cash", note: "", codeSecret: "" });
+  const [payForm, setPayForm] = useState({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
   const [sentPayRequest, setSentPayRequest] = useState(false);
   const [payError, setPayError] = useState("");
   const [dialed, setDialed] = useState(false);
@@ -1402,7 +1402,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
       if (raw) {
         const saved = JSON.parse(raw);
         if (saved && saved.dialed) {
-          setPayForm({ montant: saved.montant || "", mode: saved.mode || "Cash", note: saved.note || "", codeSecret: "" });
+          setPayForm({ montant: saved.montant || "", mode: saved.mode || "Flooz", note: saved.note || "", codeSecret: "" });
           setDialed(true);
         }
       }
@@ -1517,7 +1517,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     if (ok) {
       setSentPayRequest(true);
       setDialed(false);
-      setPayForm({ montant: "", mode: "Cash", note: "", codeSecret: "" });
+      setPayForm({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
       setTimeout(() => { setSentPayRequest(false); setTab("home"); }, 2200);
     }
   };
@@ -1531,7 +1531,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const needsMobileMoney = (mode) => mode === "Flooz" || mode === "Mix by Yas";
 
   const resetPaymentForm = () => {
-    setPayForm({ montant: "", mode: "Cash", note: "", codeSecret: "" });
+    setPayForm({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
     setDialed(false);
     setPayError("");
     setTab("home");
@@ -1711,12 +1711,12 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                 <div className="field">
                   <label>Mode de paiement</label>
                   <select value={payForm.mode} onChange={(e) => { setPayForm({ ...payForm, mode: e.target.value }); setDialed(false); setPayError(""); }} disabled={dialed}>
-                    <option value="Cash">Cash</option>
                     <option value="Mix by Yas">Mix by Yas</option>
                     <option value="Flooz">Flooz</option>
-                    <option value="Virement">Virement</option>
-                    <option value="Autre">Autre</option>
                   </select>
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: -8, marginBottom: 4 }}>
+                  Tu payes en Cash, par virement ou autrement ? Pas besoin de demande ici — APESPOT WI-FI t'enverra directement ton reçu après réception du paiement.
                 </div>
 
                 {needsMobileMoney(payForm.mode) && !dialed && (
@@ -1789,22 +1789,6 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                   </>
                 )}
 
-                {!needsMobileMoney(payForm.mode) && (
-                  <>
-                    <div className="field">
-                      <label>Référence / note (optionnel)</label>
-                      <input placeholder="Ex: référence de la transaction" value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} />
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 14 }}>
-                      Ta demande sera envoyée à APESPOT WI-FI pour validation. Ton abonnement sera prolongé dès acceptation.
-                    </div>
-                    {payError && <div className="login-error" style={{ textAlign: "left", marginBottom: 10 }}>{payError}</div>}
-                    <div className="modal-actions">
-                      <button className="btn-cancel" onClick={resetPaymentForm}>Annuler</button>
-                      <button className="btn-save" disabled={busyPayment} onClick={submitPayment}>{busyPayment ? "Envoi..." : "Envoyer la demande"}</button>
-                    </div>
-                  </>
-                )}
               </>
             )}
           </div>
@@ -4129,7 +4113,7 @@ export default function AlerteClientWifi() {
                 <div key={r.id} className="request-row">
                   <div>
                     <div className="request-client">{r.clientNom}</div>
-                    <div className="request-meta">{fmtFCFA(r.montant)} · {r.mode}{r.note ? ` · ${r.note}` : ""}</div>
+                    <div className="request-meta">{fmtFCFA(r.montant)} · {r.mode}{(r.mode === "Flooz" || r.mode === "Mix by Yas") && r.note ? ` · Réf: ${r.note}` : ""}</div>
                   </div>
                   <div className="request-actions">
                     <button className="row-action-btn del" style={{ padding: "8px 12px" }} onClick={() => rejectPaymentRequest(r)}>Refuser</button>
