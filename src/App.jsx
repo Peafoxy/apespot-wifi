@@ -2816,6 +2816,7 @@ export default function AlerteClientWifi() {
     if (!date) return showToast("La date du paiement est requise.");
     setBusySavePayment(true);
 
+    const original = editingId ? payments.find((p) => p.id === editingId) : null;
     const payload = {
       clientNom: clientNom.trim(),
       montant: Number(montant),
@@ -2823,6 +2824,8 @@ export default function AlerteClientWifi() {
       date,
       newExpiration: newExpiration || null,
       note: note.trim(),
+      receiptPath: original?.receiptPath || null,
+      receiptName: original?.receiptName || null,
     };
 
     try {
