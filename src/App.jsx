@@ -456,8 +456,8 @@ function saveLocal(key, value) {
 }
 
 // ---- Supabase mapping helpers (DB uses snake_case, app state uses camelCase) ----
-const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, accessCode: r.access_code });
-const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, renewed_at: c.renewedAt || null, access_code: c.accessCode || null });
+const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, serveur: r.serveur, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, accessCode: r.access_code });
+const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, serveur: c.serveur || null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, renewed_at: c.renewedAt || null, access_code: c.accessCode || null });
 
 const rowToPayment = (r) => ({
   id: r.id,
@@ -2694,18 +2694,18 @@ export default function AlerteClientWifi() {
     return clients.find((c) => c.nom.trim().toLowerCase() === t) || null;
   };
 
-  const openAddClient = () => setClientModal({ editingId: null, nom: "", offre: "", telephone: "", dateExp: "", accessCode: "" });
+  const openAddClient = () => setClientModal({ editingId: null, nom: "", offre: "", telephone: "", serveur: "", dateExp: "", accessCode: "" });
   const openEditClient = (c) =>
-    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", dateExp: c.dateExp || "", accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || ""), previousDateExp: c.previousDateExp || null, renewedAt: c.renewedAt || null });
+    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", serveur: c.serveur || "", dateExp: c.dateExp || "", accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || ""), previousDateExp: c.previousDateExp || null, renewedAt: c.renewedAt || null });
   const closeClientModal = () => setClientModal(null);
 
   const saveClientModal = async () => {
     if (busySaveClient) return;
-    const { editingId, nom, offre, telephone, dateExp, accessCode } = clientModal;
+    const { editingId, nom, offre, telephone, serveur, dateExp, accessCode } = clientModal;
     if (editingId && !isPrincipalAdmin) return showToast("Seul l'administrateur principal peut modifier un client.");
     if (!nom.trim()) return showToast("Le nom du client est requis.");
     setBusySaveClient(true);
-    const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase(), previousDateExp: clientModal.previousDateExp || null, renewedAt: clientModal.renewedAt || null };
+    const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), serveur: (serveur || "").trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase(), previousDateExp: clientModal.previousDateExp || null, renewedAt: clientModal.renewedAt || null };
     try {
       if (editingId) {
         if (SUPABASE_CONFIGURED) await updateClientRow(editingId, payload);
@@ -4228,6 +4228,7 @@ export default function AlerteClientWifi() {
                           <SignalBars statut={c.statut} />
                           <span className="client-row-name">{c.nom}</span>
                         </div>
+                        {c.serveur && <span className="client-row-server">{c.serveur}</span>}
                         <Badge statut={c.statut} />
                       </div>
                       <div className="client-row-meta">
@@ -5283,6 +5284,10 @@ export default function AlerteClientWifi() {
               </div>
             </div>
             <div className="field">
+              <label>Serveur</label>
+              <input placeholder="Ex: Serveur 1" value={clientModal.serveur || ""} onChange={(e) => setClientModal({ ...clientModal, serveur: e.target.value })} />
+            </div>
+            <div className="field">
               <label>Date d'expiration</label>
               <DatePickerInput value={clientModal.dateExp} onChange={(e) => setClientModal({ ...clientModal, dateExp: e.target.value })} />
             </div>
@@ -5741,6 +5746,7 @@ const CSS = `
 .wifi-app .client-row:hover{background:var(--bg-hover);}
 .wifi-app .client-row-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .wifi-app .client-row-left{display:flex;align-items:center;gap:8px;min-width:0;}
+.wifi-app .client-row-server{flex:1;text-align:center;font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px;}
 .wifi-app .client-row-name{font-weight:600;font-size:13.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wifi-app .client-row-meta{display:flex;align-items:center;gap:6px;font-size:11.5px;font-family:var(--mono);color:var(--text-dim);flex-wrap:wrap;padding-left:22px;}
 .wifi-app .client-row-meta .dot{color:var(--text-faint);}
