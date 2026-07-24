@@ -834,6 +834,80 @@ function Badge({ statut }) {
   return <span className={`badge ${statut}`}>{statut === "NA" ? "N/A" : statut}</span>;
 }
 
+function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveClientModal, busySaveClient }) {
+  if (!clientModal) return null;
+  return (
+    <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && closeClientModal()}>
+      <div className="modal">
+        <h2>{clientModal.editingId ? "Modifier le client" : "Nouveau client"}</h2>
+        <div className="field">
+          <label>Nom du client</label>
+          <input
+            placeholder="Ex: KOFFI"
+            value={clientModal.nom}
+            onChange={(e) => {
+              const nom = e.target.value;
+              setClientModal((m) => ({ ...m, nom, accessCode: computeClientCode(nom, m.telephone) }));
+            }}
+          />
+        </div>
+        <div className="field">
+          <label>Offre / Prix (ou référence)</label>
+          <input placeholder="Ex: 30 Mbps/10 000F" value={clientModal.offre} onChange={(e) => setClientModal({ ...clientModal, offre: e.target.value })} />
+        </div>
+        <div className="field">
+          <label>Téléphone WhatsApp</label>
+          <input
+            type="tel"
+            placeholder="Ex: 90 12 34 56 ou +228 90 12 34 56"
+            value={clientModal.telephone}
+            onChange={(e) => {
+              const telephone = e.target.value;
+              setClientModal((m) => ({ ...m, telephone, accessCode: computeClientCode(m.nom, telephone) }));
+            }}
+          />
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
+            Le code d'accès du client est calculé à partir des 4 derniers chiffres de ce numéro.
+          </div>
+        </div>
+        <div className="field">
+          <label>Serveur</label>
+          <input placeholder="Ex: Serveur 1" value={clientModal.serveur || ""} onChange={(e) => setClientModal({ ...clientModal, serveur: e.target.value })} />
+        </div>
+        <div className="field">
+          <label>Date d'expiration</label>
+          <DatePickerInput value={clientModal.dateExp} onChange={(e) => setClientModal({ ...clientModal, dateExp: e.target.value })} />
+        </div>
+        <div className="field">
+          <label>Code d'accès client (espace personnel)</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              style={{ fontFamily: "var(--mono)", letterSpacing: 2, fontWeight: 700 }}
+              value={clientModal.accessCode}
+              onChange={(e) => setClientModal({ ...clientModal, accessCode: e.target.value.toUpperCase() })}
+            />
+            <button
+              type="button"
+              className="btn-cancel"
+              style={{ flex: "0 0 auto", padding: "0 14px" }}
+              onClick={() => setClientModal((m) => ({ ...m, accessCode: computeClientCode(m.nom, m.telephone) }))}
+            >
+              ↻
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
+            Calculé automatiquement (4 derniers chiffres du téléphone + 2 premières lettres du nom). Transmets-le au client par WhatsApp — modifiable si besoin.
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button className="btn-cancel" onClick={closeClientModal}>Annuler</button>
+          <button className="btn-save" disabled={busySaveClient} onClick={saveClientModal}>{busySaveClient ? "Enregistrement..." : "Enregistrer"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MonArgentView({ authUser, fuelExpenses, perdiemExpenses }) {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
 
@@ -1045,7 +1119,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -1389,6 +1463,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
       {tab === "clients" && (
         <div className="view active">
+          <button className="btn-add" style={{ marginBottom: 14 }} onClick={openAddClient}>
+            + Nouveau client
+          </button>
           <div className="chips" style={{ marginBottom: 14 }}>
             {["ALL", "EXPIRE", "ATTENTION", "OK"].map((f) => (
               <button key={f} className={`chip ${clientFilter === f ? "active" : ""}`} onClick={() => setClientFilter(f)}>
@@ -1425,7 +1502,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         <MonArgentView authUser={authUser} fuelExpenses={fuelExpenses} perdiemExpenses={perdiemExpenses} />
       )}
 
-      <footer>Espace Technicien · liste clients en lecture seule</footer>
+      <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
+
+      <footer>Espace Technicien · ajout de client possible, modification réservée à l'Admin</footer>
     </div>
   );
 }
@@ -3985,6 +4064,12 @@ export default function AlerteClientWifi() {
         fuelExpenses={fuelExpenses}
         fuelRatePerKm={fuelRatePerKm}
         busyFuelId={busyFuelId}
+        clientModal={clientModal}
+        setClientModal={setClientModal}
+        openAddClient={openAddClient}
+        closeClientModal={closeClientModal}
+        saveClientModal={saveClientModal}
+        busySaveClient={busySaveClient}
         perdiemExpenses={perdiemExpenses}
         onSendMessage={sendMessageHandler}
         onUpdateComplaintStatus={updateComplaintStatusHandler}
@@ -5250,76 +5335,7 @@ export default function AlerteClientWifi() {
       <footer>Les données sont enregistrées automatiquement sur cet appareil · calcul des jours restants en temps réel</footer>
 
       {/* ---- Client modal ---- */}
-      {clientModal && (
-        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && closeClientModal()}>
-          <div className="modal">
-            <h2>{clientModal.editingId ? "Modifier le client" : "Nouveau client"}</h2>
-            <div className="field">
-              <label>Nom du client</label>
-              <input
-                placeholder="Ex: KOFFI"
-                value={clientModal.nom}
-                onChange={(e) => {
-                  const nom = e.target.value;
-                  setClientModal((m) => ({ ...m, nom, accessCode: computeClientCode(nom, m.telephone) }));
-                }}
-              />
-            </div>
-            <div className="field">
-              <label>Offre / Prix (ou référence)</label>
-              <input placeholder="Ex: 30 Mbps/10 000F" value={clientModal.offre} onChange={(e) => setClientModal({ ...clientModal, offre: e.target.value })} />
-            </div>
-            <div className="field">
-              <label>Téléphone WhatsApp</label>
-              <input
-                type="tel"
-                placeholder="Ex: 90 12 34 56 ou +228 90 12 34 56"
-                value={clientModal.telephone}
-                onChange={(e) => {
-                  const telephone = e.target.value;
-                  setClientModal((m) => ({ ...m, telephone, accessCode: computeClientCode(m.nom, telephone) }));
-                }}
-              />
-              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
-                Le code d'accès du client est calculé à partir des 4 derniers chiffres de ce numéro.
-              </div>
-            </div>
-            <div className="field">
-              <label>Serveur</label>
-              <input placeholder="Ex: Serveur 1" value={clientModal.serveur || ""} onChange={(e) => setClientModal({ ...clientModal, serveur: e.target.value })} />
-            </div>
-            <div className="field">
-              <label>Date d'expiration</label>
-              <DatePickerInput value={clientModal.dateExp} onChange={(e) => setClientModal({ ...clientModal, dateExp: e.target.value })} />
-            </div>
-            <div className="field">
-              <label>Code d'accès client (espace personnel)</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  style={{ fontFamily: "var(--mono)", letterSpacing: 2, fontWeight: 700 }}
-                  value={clientModal.accessCode}
-                  onChange={(e) => setClientModal({ ...clientModal, accessCode: e.target.value.toUpperCase() })}
-                />
-                <button
-                  type="button"
-                  className="btn-cancel"
-                  style={{ flex: "0 0 auto", padding: "0 14px" }}
-                  onClick={() => setClientModal((m) => ({ ...m, accessCode: computeClientCode(m.nom, m.telephone) }))}
-                >
-                  ↻
-                </button>
-              </div>
-              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
-                Calculé automatiquement (4 derniers chiffres du téléphone + 2 premières lettres du nom). Transmets-le au client par WhatsApp — modifiable si besoin.
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button className="btn-cancel" onClick={closeClientModal}>Annuler</button>
-              <button className="btn-save" disabled={busySaveClient} onClick={saveClientModal}>{busySaveClient ? "Enregistrement..." : "Enregistrer"}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
 
       {/* ---- Payment modal ---- */}
       {paymentModal && (
