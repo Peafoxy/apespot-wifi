@@ -1404,6 +1404,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                     <SignalBars statut={c.statut} />
                     <span className="client-row-name">{c.nom}</span>
                   </div>
+                  {c.serveur && <span className="client-row-server">{c.serveur}</span>}
                   <Badge statut={c.statut} />
                 </div>
                 <div className="client-row-meta">
