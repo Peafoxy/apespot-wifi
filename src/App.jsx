@@ -1402,7 +1402,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                 <div className="client-row-top">
                   <div className="client-row-left">
                     <SignalBars statut={c.statut} />
-                    <span className="client-row-name">{c.nom}</span>
+                    <span className="client-row-name" style={{ color: "#0000FF" }}>{c.nom}</span>
                   </div>
                   {c.serveur && <span className="client-row-server">{c.serveur}</span>}
                   <Badge statut={c.statut} />
@@ -4227,7 +4227,7 @@ export default function AlerteClientWifi() {
                       <div className="client-row-top">
                         <div className="client-row-left">
                           <SignalBars statut={c.statut} />
-                          <span className="client-row-name">{c.nom}</span>
+                          <span className="client-row-name" style={{ color: "#0000FF" }}>{c.nom}</span>
                         </div>
                         {c.serveur && <span className="client-row-server">{c.serveur}</span>}
                         <Badge statut={c.statut} />
