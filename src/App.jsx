@@ -233,6 +233,41 @@ function todayMidnight() {
 // Ajoute 1 mois à une date (YYYY-MM-DD) en respectant le calendrier : si le jour n'existe pas
 // dans le mois suivant (ex: 31 janvier), on se cale sur le dernier jour de ce mois-là plutôt
 // que de déborder sur le mois d'après.
+// Ajoute un nombre de jours à une date (YYYY-MM-DD).
+function addDaysToDate(dateStr, days) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Ajoute N mois à une date, en respectant le calendrier (comme addOneMonthClamped, généralisé).
+function addMonthsClamped(dateStr, months) {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDate();
+  const totalMonths = d.getFullYear() * 12 + d.getMonth() + months;
+  const targetYear = Math.floor(totalMonths / 12);
+  const targetMonth = ((totalMonths % 12) + 12) % 12;
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const newDay = Math.min(day, lastDayOfTargetMonth);
+  const newDate = new Date(targetYear, targetMonth, newDay);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${newDate.getFullYear()}-${pad(newDate.getMonth() + 1)}-${pad(newDate.getDate())}`;
+}
+
+// Calcule la nouvelle échéance après un bonus (jours/semaines/mois), à partir de l'échéance
+// actuelle si elle n'est pas encore dépassée, sinon à partir d'aujourd'hui.
+function computeBonusExpiration(currentDateExp, amount, unit) {
+  const t = todayMidnight();
+  const pad = (n) => String(n).padStart(2, "0");
+  const todayStr = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  const base = !currentDateExp ? todayStr : (computeStatus(currentDateExp).statut === "EXPIRE" ? todayStr : currentDateExp);
+  if (unit === "jour") return addDaysToDate(base, amount);
+  if (unit === "semaine") return addDaysToDate(base, amount * 7);
+  if (unit === "mois") return addMonthsClamped(base, amount);
+  return base;
+}
+
 function addOneMonthClamped(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   const day = d.getDate();
@@ -2470,6 +2505,8 @@ export default function AlerteClientWifi() {
   const [deleteClientModal, setDeleteClientModal] = useState(null); // null | { client, code, input }
   const [expenseLineModal, setExpenseLineModal] = useState(null); // null | { editingId, nom, montant, dateExp, note }
   const [renewConfirmModal, setRenewConfirmModal] = useState(null); // null | { client, previewDate }
+  const [bonusStep, setBonusStep] = useState(null); // null | "unit" | { unit }
+  const [bonusAmount, setBonusAmount] = useState("");
   const [perdiemModal, setPerdiemModal] = useState(null); // null | { editingId, personneNom, personneId, montant, note }
   const [otherExpenseModal, setOtherExpenseModal] = useState(null); // null | { editingId, description, montant }
   const [expenseSubTab, setExpenseSubTab] = useState("carburant"); // carburant | lignes | perdiem | autres
@@ -2819,6 +2856,35 @@ export default function AlerteClientWifi() {
     }
     const msg = buildWaMessage(c);
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+  };
+
+  const applyBonus = async (client, unit, amountRaw) => {
+    const n = Number(amountRaw);
+    if (!n || n <= 0) {
+      showToast("Indique un nombre valide.");
+      return;
+    }
+    const newDateExp = computeBonusExpiration(client.dateExp, n, unit);
+    const updated = { ...client, dateExp: newDateExp };
+    try {
+      if (SUPABASE_CONFIGURED) await updateClientRow(client.id, updated);
+      setClients((cs) => cs.map((c) => (c.id === client.id ? updated : c)));
+      setRowActionsClient(updated);
+      const unitLabel = unit === "jour" ? (n > 1 ? "jours" : "jour") : unit === "semaine" ? (n > 1 ? "semaines" : "semaine") : (n > 1 ? "mois" : "mois");
+      showToast(`Bonus de ${n} ${unitLabel} appliqué — nouvelle échéance le ${fmtDate(newDateExp)}.`);
+      const phone = normalizePhone(client.telephone);
+      if (phone) {
+        const msg = `Bonjour ${client.nom}\n\nBonne nouvelle ! Tu as reçu ${n} ${unitLabel} de bonus de la part de APESPOT WI-FI. 🎁\n\nTa nouvelle échéance : ${fmtDate(newDateExp)}.`;
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+      } else {
+        showToast("Aucun numéro WhatsApp enregistré — le bonus est appliqué mais le client n'a pas été prévenu.");
+      }
+      setBonusStep(null);
+      setBonusAmount("");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'application du bonus.");
+    }
   };
 
   const buildWelcomeMessage = (c) => {
@@ -5390,7 +5456,7 @@ export default function AlerteClientWifi() {
 
       {/* ---- Row-actions sheet (WhatsApp / Modifier / Supprimer) ---- */}
       {rowActionsClient && (
-        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setRowActionsClient(null)}>
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && (setRowActionsClient(null), setBonusStep(null), setBonusAmount(""))}>
           <div className="modal row-actions-modal">
             <h2>{rowActionsClient.nom}</h2>
             <div className="row-actions-sub">{rowActionsClient.offre || "Sans offre"} · Expire le {fmtDate(rowActionsClient.dateExp)}</div>
@@ -5446,6 +5512,35 @@ export default function AlerteClientWifi() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
                 Réabonné
               </button>
+
+              {bonusStep === null && (
+                <button className="row-action-btn" onClick={() => setBonusStep("unit")}>
+                  🎁 Bonus
+                </button>
+              )}
+              {bonusStep === "unit" && (
+                <div className="bonus-unit-row">
+                  <button className="row-action-btn" onClick={() => setBonusStep({ unit: "jour" })}>Jour</button>
+                  <button className="row-action-btn" onClick={() => setBonusStep({ unit: "semaine" })}>Semaine</button>
+                  <button className="row-action-btn" onClick={() => setBonusStep({ unit: "mois" })}>Mois</button>
+                </div>
+              )}
+              {bonusStep && typeof bonusStep === "object" && (
+                <div className="bonus-amount-row">
+                  <input
+                    type="number"
+                    min="1"
+                    autoFocus
+                    placeholder={`Nombre de ${bonusStep.unit}(s)`}
+                    value={bonusAmount}
+                    onChange={(e) => setBonusAmount(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") applyBonus(rowActionsClient, bonusStep.unit, bonusAmount); }}
+                  />
+                  <button className="btn-add" onClick={() => applyBonus(rowActionsClient, bonusStep.unit, bonusAmount)}>Valider</button>
+                  <button className="btn-cancel" onClick={() => { setBonusStep(null); setBonusAmount(""); }}>Annuler</button>
+                </div>
+              )}
+
               {rowActionsClient.previousDateExp && isPrincipalAdmin && (!rowActionsClient.renewedAt || Date.now() - new Date(rowActionsClient.renewedAt).getTime() <= UNDO_PAYMENT_WINDOW_MS) && (
                 <button className="row-action-btn" onClick={async () => {
                   const restored = await undoClientRenewal(rowActionsClient);
@@ -5464,7 +5559,7 @@ export default function AlerteClientWifi() {
                 Supprimer
               </button>
             </div>
-            <button className="btn-cancel" style={{ width: "100%", marginTop: 14 }} onClick={() => setRowActionsClient(null)}>Fermer</button>
+            <button className="btn-cancel" style={{ width: "100%", marginTop: 14 }} onClick={() => { setRowActionsClient(null); setBonusStep(null); setBonusAmount(""); }}>Fermer</button>
           </div>
         </div>
       )}
@@ -5746,6 +5841,10 @@ const CSS = `
 .wifi-app .row-actions-sub{font-size:12.5px;color:var(--text-dim);margin-top:-10px;margin-bottom:16px;}
 .wifi-app .row-actions-list{display:flex;flex-direction:column;gap:8px;}
 .wifi-app .row-action-btn{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg-card);color:var(--text);font-size:13.5px;font-weight:600;cursor:pointer;font-family:var(--sans);text-align:left;}
+.wifi-app .bonus-unit-row{display:flex;gap:8px;}
+.wifi-app .bonus-unit-row .row-action-btn{justify-content:center;text-align:center;}
+.wifi-app .bonus-amount-row{display:flex;gap:8px;align-items:center;}
+.wifi-app .bonus-amount-row input{flex:1;min-width:0;padding:11px 12px;border-radius:9px;border:2px solid #6B7C99;background:#2C3B52;color:#FFFFFF;font-size:13.5px;outline:none;}
 .wifi-app .row-action-btn svg{width:16px;height:16px;flex-shrink:0;}
 .wifi-app .row-action-btn:hover{border-color:var(--text-faint);}
 .wifi-app .row-action-btn.wa{color:#25D366;}
