@@ -1640,6 +1640,10 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
 
   const submitComplaint = async () => {
     if (!complaintForm.reason || busyComplaint) return;
+    if (complaintForm.latitude == null || complaintForm.longitude == null) {
+      setLocError("Ta position est obligatoire — clique sur \"Utiliser ma position GPS\" avant d'envoyer.");
+      return;
+    }
     setBusyComplaint(true);
     const ok = await onAddComplaint({
       clientId: freshClient.id,
@@ -1702,7 +1706,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   // Codes USSD de paiement marchand — construits localement, jamais affichés ni envoyés à APESPOT WI-FI.
   const buildUssd = (mode, montant, codeSecret) => {
     if (mode === "Flooz") return `*155*1*1*99968488*99968488*${montant}*1*${codeSecret}#`;
-    if (mode === "Mix by Yas") return `*145*1*${montant}*1*${codeSecret}*92285325*1*${codeSecret}#`;
+    if (mode === "Mix by Yas") return `*145*1*1*${montant}*92285325*1*${codeSecret}#`;
     return "";
   };
   const needsMobileMoney = (mode) => mode === "Flooz" || mode === "Mix by Yas";
@@ -1997,7 +2001,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                   <DatePickerInput value={complaintForm.dateDebut} onChange={(e) => setComplaintForm({ ...complaintForm, dateDebut: e.target.value })} />
                 </div>
                 <div className="field">
-                  <label>Ta position</label>
+                  <label>Ta position (obligatoire)</label>
                   {complaintForm.latitude ? (
                     <div className="gps-captured">
                       <div className="gps-captured-info">
