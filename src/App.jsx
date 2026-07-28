@@ -1218,6 +1218,14 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   const [tourLogged, setTourLogged] = useState(false);
   const [complaintReplyDrafts, setComplaintReplyDrafts] = useState({});
   const [technicienCommentDrafts, setTechnicienCommentDrafts] = useState({});
+  const [savedCommentId, setSavedCommentId] = useState(null);
+  const saveCommentAndConfirm = async (c, text) => {
+    const ok = await onSaveTechnicienComment(c, text);
+    if (ok) {
+      setSavedCommentId(c.id);
+      setTimeout(() => setSavedCommentId((id) => (id === c.id ? null : id)), 2500);
+    }
+  };
   const [newMsgClientNom, setNewMsgClientNom] = useState("");
   const startNewConversation = () => {
     const nom = newMsgClientNom.trim();
@@ -1400,9 +1408,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                   <button
                     className="btn-add"
                     style={{ padding: "6px 12px", fontSize: 11.5 }}
-                    onClick={() => onSaveTechnicienComment(c, technicienCommentDrafts[c.id] ?? (c.technicienComment || ""))}
+                    onClick={() => saveCommentAndConfirm(c, technicienCommentDrafts[c.id] ?? (c.technicienComment || ""))}
                   >
-                    Enregistrer le commentaire
+                    {savedCommentId === c.id ? "Enregistré ✓" : "Enregistrer le commentaire"}
                   </button>
                 </div>
               )}
@@ -3978,9 +3986,11 @@ export default function AlerteClientWifi() {
       if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { technicien_comment: text });
       setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, technicienComment: text } : c)));
       showToast("Commentaire enregistré.");
+      return true;
     } catch (e) {
       console.error(e);
       showToast("Erreur d'enregistrement du commentaire.");
+      return false;
     }
   };
 
