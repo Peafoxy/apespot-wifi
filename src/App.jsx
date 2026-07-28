@@ -1219,8 +1219,10 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   const [complaintReplyDrafts, setComplaintReplyDrafts] = useState({});
   const [technicienCommentDrafts, setTechnicienCommentDrafts] = useState({});
   const [savedCommentId, setSavedCommentId] = useState(null);
-  const saveCommentAndConfirm = async (c, text) => {
-    const ok = await onSaveTechnicienComment(c, text);
+  const saveCommentAndConfirm = async (c, newText) => {
+    if (!newText.trim()) return;
+    const combined = c.technicienComment ? `${c.technicienComment}\n${newText.trim()}` : newText.trim();
+    const ok = await onSaveTechnicienComment(c, combined);
     if (ok) {
       setTechnicienCommentDrafts((d) => ({ ...d, [c.id]: "" }));
       setSavedCommentId(c.id);
@@ -1400,16 +1402,22 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
               {c.status !== "nouveau" && (
                 <div className="tech-comment-box">
                   <label>Commentaire / avis sur l'intervention</label>
+                  {c.technicienComment && (
+                    <div className="tech-comment-saved">
+                      <span className="tech-comment-saved-label">Déjà enregistré :</span> {c.technicienComment}
+                    </div>
+                  )}
                   <textarea
                     rows={2}
-                    placeholder="Ex: modem remplacé, câble abîmé réparé..."
-                    value={technicienCommentDrafts[c.id] ?? (c.technicienComment || "")}
+                    placeholder={c.technicienComment ? "Ajouter une nouvelle note..." : "Ex: modem remplacé, câble abîmé réparé..."}
+                    value={technicienCommentDrafts[c.id] ?? ""}
                     onChange={(e) => setTechnicienCommentDrafts((d) => ({ ...d, [c.id]: e.target.value }))}
                   />
                   <button
                     className="btn-add"
                     style={{ padding: "6px 12px", fontSize: 11.5 }}
-                    onClick={() => saveCommentAndConfirm(c, technicienCommentDrafts[c.id] ?? (c.technicienComment || ""))}
+                    disabled={!(technicienCommentDrafts[c.id] || "").trim()}
+                    onClick={() => saveCommentAndConfirm(c, technicienCommentDrafts[c.id] || "")}
                   >
                     {savedCommentId === c.id ? "Enregistré ✓" : "Enregistrer le commentaire"}
                   </button>
@@ -6063,7 +6071,9 @@ const CSS = `
 .wifi-app .tech-comment-box{margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--bg-panel);border:1px solid var(--line);}
 .wifi-app .tech-comment-box label{display:block;font-size:11px;color:var(--text-dim);margin-bottom:6px;}
 .wifi-app .tech-comment-box textarea{width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid #445269;background:#222E40;color:#FFFFFF;font-size:12.5px;font-family:var(--sans);resize:vertical;margin-bottom:8px;}
-.wifi-app .tech-comment-readonly div{font-size:12.5px;color:var(--text);line-height:1.4;}
+.wifi-app .tech-comment-saved{font-size:12px;color:var(--text-dim);line-height:1.5;white-space:pre-line;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--line);}
+.wifi-app .tech-comment-saved-label{color:var(--cyan);font-weight:600;}
+.wifi-app .tech-comment-readonly div{font-size:12.5px;color:var(--text);line-height:1.4;white-space:pre-line;}
 .wifi-app .complaint-reply-box input{flex:1;min-width:0;}
 .wifi-app .complaint-date{font-size:10.5px;color:var(--text-faint);margin-top:8px;}
 .wifi-app .gps-captured{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;border:1px solid var(--green);background:var(--green-dim);flex-wrap:wrap;}
