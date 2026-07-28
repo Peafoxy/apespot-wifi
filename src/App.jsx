@@ -828,6 +828,9 @@ async function markClientMessagesReadRow(clientId, clientNom) {
   const filter = clientId ? `client_id=eq.${clientId}` : `client_nom=eq.${encodeURIComponent(clientNom)}`;
   await sbFetch(`wifi_messages?${filter}&sender=eq.company&read=eq.false`, { method: "PATCH", body: JSON.stringify({ read: true }) });
 }
+async function markStaffMessagesReadRow(clientNom) {
+  await sbFetch(`wifi_messages?client_nom=eq.${encodeURIComponent(clientNom)}&sender=eq.client&read=eq.false`, { method: "PATCH", body: JSON.stringify({ read: true }) });
+}
 
 async function insertComplaintRow(c) {
   const data = await sbFetch("wifi_complaints", { method: "POST", body: JSON.stringify(complaintToRow(c)) });
@@ -1183,7 +1186,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V2.3</span>
+          <span className="app-version-badge">V2.4</span>
         </div>
 
         {!selected && (
@@ -1233,7 +1236,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -1290,7 +1293,10 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
       .sort((a, b) => (b.last?.createdAt || "").localeCompare(a.last?.createdAt || ""));
   }, [messages]);
 
-  const unansweredThreadsCount = threads.filter((t) => t.last?.sender === "client").length;
+  const unansweredThreadsCount = useMemo(() => {
+    const nomsWithUnread = new Set(messages.filter((m) => m.sender === "client" && !m.read).map((m) => m.clientNom));
+    return nomsWithUnread.size;
+  }, [messages]);
   const pendingTicketRequests = (ticketRequests || []).filter((r) => r.status === "pending");
 
   const activeThread = threads.find((t) => t.nom === activeThreadClient);
@@ -1567,7 +1573,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
               {threads.length === 0 && <div className="empty">Aucun message pour l'instant.</div>}
               {threads.map((t) => (
-                <div key={t.nom} className="thread-row" onClick={() => setActiveThreadClient(t.nom)}>
+                <div key={t.nom} className="thread-row" onClick={() => { setActiveThreadClient(t.nom); onMarkStaffRead(t.nom); }}>
                   <div className="thread-name">{t.nom}</div>
                   <div className="thread-preview">{t.last?.body}</div>
                 </div>
@@ -2821,12 +2827,27 @@ export default function AlerteClientWifi() {
       })
       .sort((a, b) => (b.last?.createdAt || "").localeCompare(a.last?.createdAt || ""));
   }, [messages]);
-  const unansweredThreadsCount = threads.filter((t) => t.last?.sender === "client").length;
+  const unansweredThreadsCount = useMemo(() => {
+    const nomsWithUnread = new Set(messages.filter((m) => m.sender === "client" && !m.read).map((m) => m.clientNom));
+    return nomsWithUnread.size;
+  }, [messages]);
   const activeThread = threads.find((t) => t.nom === activeThreadClient) || null;
+
+  const markStaffMessagesReadHandler = async (nom) => {
+    const hasUnread = messages.some((m) => m.clientNom === nom && m.sender === "client" && !m.read);
+    if (!hasUnread) return;
+    try {
+      if (SUPABASE_CONFIGURED) await markStaffMessagesReadRow(nom);
+      setMessages((ms) => ms.map((m) => (m.clientNom === nom && m.sender === "client" ? { ...m, read: true } : m)));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const openThreadWithClient = (nom) => {
     setActiveThreadClient(nom);
     setNewMsgClientNom("");
+    markStaffMessagesReadHandler(nom);
   };
 
   const sendAdminReply = async () => {
@@ -4454,6 +4475,7 @@ export default function AlerteClientWifi() {
         onCaptureStartPosition={captureTechnicienStartPosition}
         onSetClientLocation={captureClientLocationByTechnicien}
         onCaptureClientLocation={captureClientLocationDirect}
+        onMarkStaffRead={markStaffMessagesReadHandler}
         onSaveTechnicienComment={saveTechnicienComment}
         busyUploadId={busyUploadId}
         onLogout={handleLogout}
