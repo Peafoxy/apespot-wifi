@@ -281,6 +281,17 @@ function addOneMonthClamped(dateStr) {
   return `${newDate.getFullYear()}-${pad(newDate.getMonth() + 1)}-${pad(newDate.getDate())}`;
 }
 
+const ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // 1 semaine
+function isComplaintArchived(c) {
+  return c.status === "resolu" && c.resolvedAt && Date.now() - new Date(c.resolvedAt).getTime() > ARCHIVE_AFTER_MS;
+}
+function matchesComplaintFilter(c, complaintFilter) {
+  if (complaintFilter === "archived") return isComplaintArchived(c);
+  if (isComplaintArchived(c)) return false; // les réclamations archivées sortent des autres catégories
+  if (complaintFilter === "ALL") return true;
+  return c.status === complaintFilter;
+}
+
 function computeStatus(dateExp) {
   if (!dateExp) return { jours: null, statut: "NA", action: "—" };
   const exp = new Date(dateExp + "T00:00:00");
@@ -583,6 +594,7 @@ const rowToComplaint = (r) => ({
   technicienStartLat: r.technicien_start_lat,
   technicienStartLng: r.technicien_start_lng,
   technicienComment: r.technicien_comment,
+  resolvedAt: r.resolved_at,
   createdAt: r.created_at,
 });
 const complaintToRow = (c) => ({
@@ -1171,7 +1183,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V2.2</span>
+          <span className="app-version-badge">V2.3</span>
         </div>
 
         {!selected && (
@@ -1390,16 +1402,16 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
           )}
 
           <div className="chips" style={{ marginBottom: 14 }}>
-            {["ALL", "nouveau", "en_cours", "resolu"].map((f) => (
+            {["ALL", "nouveau", "en_cours", "resolu", "archived"].map((f) => (
               <button key={f} className={`chip ${complaintFilter === f ? "active" : ""}`} onClick={() => setComplaintFilter(f)}>
-                {f === "ALL" ? "Toutes" : f === "nouveau" ? "Nouveau" : f === "en_cours" ? "En cours" : "Résolu"}
+                {f === "ALL" ? "Toutes" : f === "nouveau" ? "Nouveau" : f === "en_cours" ? "En cours" : f === "resolu" ? "Résolu" : "Archivées"}
               </button>
             ))}
           </div>
-          {complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length === 0 && (
+          {complaintsSorted.filter((c) => matchesComplaintFilter(c, complaintFilter)).length === 0 && (
             <div className="empty">Aucune réclamation dans cette catégorie.</div>
           )}
-          {complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).slice(0, complaintPageSize).map((c) => (
+          {complaintsSorted.filter((c) => matchesComplaintFilter(c, complaintFilter)).slice(0, complaintPageSize).map((c) => (
             <div className="complaint-card" key={c.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{c.clientNom}</div>
@@ -1520,9 +1532,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
               </div>
             </div>
           ))}
-          {complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length > complaintPageSize && (
+          {complaintsSorted.filter((c) => matchesComplaintFilter(c, complaintFilter)).length > complaintPageSize && (
             <button className="btn-cancel" style={{ width: "100%", marginTop: 12 }} onClick={() => setComplaintPageSize((n) => n + 20)}>
-              Charger plus ({complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length - complaintPageSize} restants)
+              Charger plus ({complaintsSorted.filter((c) => matchesComplaintFilter(c, complaintFilter)).length - complaintPageSize} restants)
             </button>
           )}
         </div>
@@ -4049,9 +4061,11 @@ export default function AlerteClientWifi() {
 
 
   const updateComplaintStatusHandler = async (id, status) => {
+    const patch = { status };
+    if (status === "resolu") patch.resolved_at = new Date().toISOString();
     try {
-      if (SUPABASE_CONFIGURED) await updateComplaintRow(id, { status });
-      setComplaints((cs) => cs.map((c) => (c.id === id ? { ...c, status } : c)));
+      if (SUPABASE_CONFIGURED) await updateComplaintRow(id, patch);
+      setComplaints((cs) => cs.map((c) => (c.id === id ? { ...c, status, resolvedAt: patch.resolved_at || c.resolvedAt } : c)));
     } catch (e) {
       console.error(e);
       showToast("Erreur de mise à jour du statut.");
@@ -4848,16 +4862,16 @@ export default function AlerteClientWifi() {
             </button>
           </div>
           <div className="chips" style={{ marginBottom: 14 }}>
-            {["ALL", "nouveau", "en_cours", "resolu"].map((f) => (
+            {["ALL", "nouveau", "en_cours", "resolu", "archived"].map((f) => (
               <button key={f} className={`chip ${complaintFilter === f ? "active" : ""}`} onClick={() => setComplaintFilter(f)}>
-                {f === "ALL" ? "Toutes" : f === "nouveau" ? "Nouveau" : f === "en_cours" ? "En cours" : "Résolu"}
+                {f === "ALL" ? "Toutes" : f === "nouveau" ? "Nouveau" : f === "en_cours" ? "En cours" : f === "resolu" ? "Résolu" : "Archivées"}
               </button>
             ))}
           </div>
-          {complaints.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length === 0 && (
+          {complaints.filter((c) => matchesComplaintFilter(c, complaintFilter)).length === 0 && (
             <div className="empty">Aucune réclamation dans cette catégorie.</div>
           )}
-          {[...complaints].filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, adminComplaintPageSize).map((c) => (
+          {[...complaints].filter((c) => matchesComplaintFilter(c, complaintFilter)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, adminComplaintPageSize).map((c) => (
             <div className="complaint-card" key={c.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{c.clientNom}</div>
@@ -4951,9 +4965,9 @@ export default function AlerteClientWifi() {
               </div>
             </div>
           ))}
-          {[...complaints].filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length > adminComplaintPageSize && (
+          {[...complaints].filter((c) => matchesComplaintFilter(c, complaintFilter)).length > adminComplaintPageSize && (
             <button className="btn-cancel" style={{ width: "100%", marginTop: 12 }} onClick={() => setAdminComplaintPageSize((n) => n + 20)}>
-              Charger plus ({[...complaints].filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length - adminComplaintPageSize} restants)
+              Charger plus ({[...complaints].filter((c) => matchesComplaintFilter(c, complaintFilter)).length - adminComplaintPageSize} restants)
             </button>
           )}
         </div>
