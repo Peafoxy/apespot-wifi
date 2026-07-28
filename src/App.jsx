@@ -1171,7 +1171,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V2.0</span>
+          <span className="app-version-badge">V2.1</span>
         </div>
 
         {!selected && (
