@@ -882,6 +882,57 @@ function Badge({ statut }) {
   return <span className={`badge ${statut}`}>{statut === "NA" ? "N/A" : statut}</span>;
 }
 
+function NewComplaintModal({ newComplaintModal, setNewComplaintModal, clients, saveNewComplaint }) {
+  if (!newComplaintModal) return null;
+  const client = clients.find((c) => c.nom.trim().toLowerCase() === (newComplaintModal.clientNom || "").trim().toLowerCase());
+  return (
+    <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setNewComplaintModal(null)}>
+      <div className="modal">
+        <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Nouvelle réclamation</h2>
+        <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginBottom: 14 }}>
+          Pour une intervention signalée hors application (appel, en personne...).
+        </div>
+        <div className="field">
+          <label>Client</label>
+          <input
+            list="newComplaintClientsList"
+            placeholder="Tape ou choisis un client"
+            autoComplete="off"
+            value={newComplaintModal.clientNom || ""}
+            onChange={(e) => setNewComplaintModal({ ...newComplaintModal, clientNom: e.target.value })}
+          />
+          <datalist id="newComplaintClientsList">
+            {clients.map((c) => <option key={c.id} value={c.nom} />)}
+          </datalist>
+          {newComplaintModal.clientNom && (
+            <div style={{ fontSize: 11, color: client?.latitude != null ? "var(--green)" : "var(--amber)", marginTop: 6 }}>
+              {client
+                ? (client.latitude != null ? "✓ Position connue pour ce client" : "⚠ Aucune position connue — le carburant ne pourra pas être calculé sans elle")
+                : "Nouveau nom — aucune fiche client correspondante trouvée"}
+            </div>
+          )}
+        </div>
+        <div className="field">
+          <label>Motif</label>
+          <input placeholder="Ex: Connexion lente" value={newComplaintModal.reason || ""} onChange={(e) => setNewComplaintModal({ ...newComplaintModal, reason: e.target.value })} />
+        </div>
+        <div className="field">
+          <label>Depuis le (optionnel)</label>
+          <DatePickerInput value={newComplaintModal.dateDebut} onChange={(e) => setNewComplaintModal({ ...newComplaintModal, dateDebut: e.target.value })} />
+        </div>
+        <div className="field">
+          <label>Description (optionnel)</label>
+          <textarea rows={3} placeholder="Détails de l'intervention à prévoir..." value={newComplaintModal.description || ""} onChange={(e) => setNewComplaintModal({ ...newComplaintModal, description: e.target.value })} />
+        </div>
+        <div className="modal-actions">
+          <button className="btn-cancel" onClick={() => setNewComplaintModal(null)}>Annuler</button>
+          <button className="btn-save" onClick={saveNewComplaint}>Créer la réclamation</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveClientModal, busySaveClient }) {
   if (!clientModal) return null;
   return (
@@ -1118,7 +1169,10 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
           <img src={LOGO_DATA_URI} alt="Apé Spot WiFi" />
         </div>
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
-        <div className="sub" style={{ textAlign: "center", marginBottom: 26 }}>Choisis ton espace</div>
+        <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
+        <div style={{ textAlign: "center", marginBottom: 26 }}>
+          <span className="app-version-badge">V2.0</span>
+        </div>
 
         {!selected && (
           <div className="login-roles">
@@ -1167,12 +1221,13 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
   const [clientFilter, setClientFilter] = useState("ALL");
   const [techClientPageSize, setTechClientPageSize] = useState(40);
+  const [locClient, setLocClient] = useState(null); // client dont on montre l'action position rapide
   useEffect(() => {
     setTechClientPageSize(40);
   }, [clientFilter]);
@@ -1305,6 +1360,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
       {tab === "complaints" && (
         <div className="view active">
+          <button className="btn-add" style={{ marginBottom: 14 }} onClick={() => setNewComplaintModal({ clientNom: "", reason: "", dateDebut: "", description: "" })}>
+            + Nouvelle réclamation
+          </button>
           {tourStops.length > 1 && (
             <div className="chart-card" style={{ borderColor: "var(--cyan)" }}>
               <div className="ctitle" style={{ color: "var(--cyan)" }}>🗺️ MA TOURNÉE (DU PLUS PROCHE AU PLUS LOIN)</div>
@@ -1572,7 +1630,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
           </div>
           <div className="client-list-scroll" style={{ maxHeight: "58vh" }}>
             {enrichedClients.filter((c) => clientFilter === "ALL" || c.statut === clientFilter).slice(0, techClientPageSize).map((c) => (
-              <div className="client-row" key={c.id}>
+              <div className="client-row row-clickable" key={c.id} onClick={() => setLocClient(c)}>
                 <div className="client-row-top">
                   <div className="client-row-left">
                     <SignalBars statut={c.statut} />
@@ -1604,7 +1662,23 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         <MonArgentView authUser={authUser} fuelExpenses={fuelExpenses} perdiemExpenses={perdiemExpenses} />
       )}
 
+      {locClient && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setLocClient(null)}>
+          <div className="modal">
+            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>{locClient.nom}</h2>
+            <button
+              className="row-action-btn"
+              onClick={() => { onCaptureClientLocation(locClient); setLocClient(null); }}
+            >
+              📍 {locClient.latitude != null ? "Mettre à jour la position" : "Enregistrer la position du client"}
+            </button>
+            <button className="btn-cancel" style={{ width: "100%", marginTop: 14 }} onClick={() => setLocClient(null)}>Fermer</button>
+          </div>
+        </div>
+      )}
+
       <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
+      <NewComplaintModal newComplaintModal={newComplaintModal} setNewComplaintModal={setNewComplaintModal} clients={clients} saveNewComplaint={saveNewComplaint} />
 
       <footer>Espace Technicien · ajout de client possible, modification réservée à l'Admin</footer>
     </div>
@@ -2575,6 +2649,7 @@ export default function AlerteClientWifi() {
   const [clientPageSize, setClientPageSize] = useState(40);
   const [filter, setFilter] = useState("ALL");
   const [complaintFilter, setComplaintFilter] = useState("ALL");
+  const [newComplaintModal, setNewComplaintModal] = useState(null); // null | { clientNom, reason, dateDebut, description }
   const [sortKey, setSortKey] = useState("jours");
   const [sortDir, setSortDir] = useState(1);
   const [clientModal, setClientModal] = useState(null); // null | { editingId, nom, offre, dateExp }
@@ -3422,6 +3497,38 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // Pour une intervention signalée hors application (appel téléphonique, en personne...).
+  // Réutilise entièrement le circuit existant (accord admin → position → carburant) : seule
+  // la création de la réclamation change de point d'entrée.
+  const saveNewComplaint = async () => {
+    const { clientNom, reason, dateDebut, description } = newComplaintModal;
+    if (!clientNom || !clientNom.trim()) { showToast("Le nom du client est requis."); return; }
+    if (!reason || !reason.trim()) { showToast("Le motif est requis."); return; }
+    const client = clients.find((c) => c.nom.trim().toLowerCase() === clientNom.trim().toLowerCase());
+    const payload = {
+      clientId: client?.id || null,
+      clientNom: clientNom.trim(),
+      reason: reason.trim(),
+      dateDebut: dateDebut || null,
+      localisation: "",
+      latitude: client?.latitude ?? null,
+      longitude: client?.longitude ?? null,
+      description: description || "",
+      // Créée par un admin = accord déjà donné implicitement. Créée par un technicien = doit
+      // encore être approuvée, comme si le technicien venait de la demander.
+      approvalStatus: authUser?.role === "admin" ? "approved" : "requested",
+    };
+    const ok = await addComplaintHandler(payload);
+    if (ok) {
+      setNewComplaintModal(null);
+      if (!client?.latitude) {
+        showToast("Réclamation créée — aucune position connue pour ce client, pense à l'ajouter depuis sa fiche.");
+      } else {
+        showToast("Réclamation créée.");
+      }
+    }
+  };
+
   // ---------- Demandes de tickets (coupons revendeur) ----------
   const submitTicketRequestHandler = async (clientId, clientNom, note) => {
     const payload = { clientId, clientNom, note, status: "pending", filePath: null, fileName: null };
@@ -4037,6 +4144,24 @@ export default function AlerteClientWifi() {
     );
   };
 
+  // Capture directe, depuis la fiche client — utile quand le client n'a jamais fait de
+  // réclamation via l'app et qu'aucune position n'est donc mémorisée pour lui.
+  const captureClientLocationDirect = (client) => {
+    if (!navigator.geolocation) {
+      showToast("La géolocalisation n'est pas disponible sur cet appareil.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        await saveClientLocationHandler(client.id, lat, lng);
+        showToast(`Position de "${client.nom}" enregistrée.`);
+      },
+      () => showToast("Impossible de récupérer ta position. Vérifie que la localisation est activée."),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   const saveTechnicienComment = async (complaint, text) => {
     try {
       if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { technicien_comment: text });
@@ -4288,6 +4413,9 @@ export default function AlerteClientWifi() {
         closeClientModal={closeClientModal}
         saveClientModal={saveClientModal}
         busySaveClient={busySaveClient}
+        newComplaintModal={newComplaintModal}
+        setNewComplaintModal={setNewComplaintModal}
+        saveNewComplaint={saveNewComplaint}
         perdiemExpenses={perdiemExpenses}
         onSendMessage={sendMessageHandler}
         onUpdateComplaintStatus={updateComplaintStatusHandler}
@@ -4297,6 +4425,7 @@ export default function AlerteClientWifi() {
         onRequestApproval={requestInterventionApproval}
         onCaptureStartPosition={captureTechnicienStartPosition}
         onSetClientLocation={captureClientLocationByTechnicien}
+        onCaptureClientLocation={captureClientLocationDirect}
         onSaveTechnicienComment={saveTechnicienComment}
         busyUploadId={busyUploadId}
         onLogout={handleLogout}
@@ -4699,6 +4828,9 @@ export default function AlerteClientWifi() {
             <button className="btn-add btn-report" onClick={exportComplaintsCSV}>
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 19h16" /></svg>
               Export CSV
+            </button>
+            <button className="btn-add" onClick={() => setNewComplaintModal({ clientNom: "", reason: "", dateDebut: "", description: "" })}>
+              + Nouvelle réclamation
             </button>
           </div>
           <div className="chips" style={{ marginBottom: 14 }}>
@@ -5597,6 +5729,7 @@ export default function AlerteClientWifi() {
 
       {/* ---- Client modal ---- */}
       <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
+      <NewComplaintModal newComplaintModal={newComplaintModal} setNewComplaintModal={setNewComplaintModal} clients={clients} saveNewComplaint={saveNewComplaint} />
 
       {/* ---- Payment modal ---- */}
       {paymentModal && (
@@ -5706,6 +5839,10 @@ export default function AlerteClientWifi() {
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
                 Réabonné
+              </button>
+
+              <button className="row-action-btn" onClick={() => captureClientLocationDirect(rowActionsClient)}>
+                📍 {rowActionsClient.latitude != null ? "Mettre à jour la position" : "Enregistrer la position du client"}
               </button>
 
               {bonusStep === null && (
@@ -6123,6 +6260,7 @@ const CSS = `
 /* LOGIN SCREEN */
 .wifi-app.login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
 .wifi-app .login-card{width:100%;max-width:360px;background:var(--bg-panel);border:1px solid var(--line);border-radius:18px;padding:32px 26px;}
+.wifi-app .app-version-badge{display:inline-block;padding:3px 10px;border-radius:20px;background:var(--cyan-dim);color:var(--cyan);font-size:11px;font-weight:700;letter-spacing:.3px;}
 .wifi-app .login-roles{display:flex;flex-direction:column;gap:20px;}
 .wifi-app .login-role-btn{width:100%;padding:16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-card);cursor:pointer;text-align:center;font-family:var(--sans);}
 .wifi-app .login-role-btn.role-admin{background:#9FEAC1;border-color:#9FEAC1;}
