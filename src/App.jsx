@@ -491,8 +491,8 @@ function saveLocal(key, value) {
 }
 
 // ---- Supabase mapping helpers (DB uses snake_case, app state uses camelCase) ----
-const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, serveur: r.serveur, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, accessCode: r.access_code });
-const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, serveur: c.serveur || null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, renewed_at: c.renewedAt || null, access_code: c.accessCode || null });
+const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, serveur: r.serveur, latitude: r.latitude, longitude: r.longitude, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, accessCode: r.access_code });
+const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, serveur: c.serveur || null, latitude: c.latitude ?? null, longitude: c.longitude ?? null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, renewed_at: c.renewedAt || null, access_code: c.accessCode || null });
 
 const rowToPayment = (r) => ({
   id: r.id,
@@ -582,6 +582,7 @@ const rowToComplaint = (r) => ({
   approvalStatus: r.approval_status || "none", // none | requested | approved | refused
   technicienStartLat: r.technicien_start_lat,
   technicienStartLng: r.technicien_start_lng,
+  technicienComment: r.technicien_comment,
   createdAt: r.created_at,
 });
 const complaintToRow = (c) => ({
@@ -1154,7 +1155,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -1216,6 +1217,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
   const [tourLogged, setTourLogged] = useState(false);
   const [complaintReplyDrafts, setComplaintReplyDrafts] = useState({});
+  const [technicienCommentDrafts, setTechnicienCommentDrafts] = useState({});
   const [newMsgClientNom, setNewMsgClientNom] = useState("");
   const startNewConversation = () => {
     const nom = newMsgClientNom.trim();
@@ -1337,11 +1339,20 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                 </div>
               )}
 
+              {!c.latitude && (
+                <div className="fuel-estimate">
+                  📍 Position du client manquante
+                  <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onSetClientLocation(c)}>
+                    Ajouter la position du client
+                  </button>
+                </div>
+              )}
               {c.latitude && (
                 <>
                   <a href={`https://www.google.com/maps?q=${c.latitude},${c.longitude}`} target="_blank" rel="noreferrer" className="gps-view-link complaint-map-link">
                     📍 Voir la position sur la carte
                   </a>
+                  <button className="btn-cancel" style={{ padding: "5px 10px", fontSize: 11, marginLeft: 8 }} onClick={() => onSetClientLocation(c)}>Mettre à jour la position</button>
                   {officeLocation && c.approvalStatus === "approved" && c.technicienStartLat == null && (
                     <div className="fuel-estimate">
                       📍 Avant de partir, capture ta position de départ
@@ -1377,6 +1388,24 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
               )}
               {c.description && <div className="complaint-desc">{c.description}</div>}
               <div className="complaint-date">{c.createdAt ? new Date(c.createdAt).toLocaleString("fr-FR") : ""}</div>
+              {c.status !== "nouveau" && (
+                <div className="tech-comment-box">
+                  <label>Commentaire / avis sur l'intervention</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Ex: modem remplacé, câble abîmé réparé..."
+                    value={technicienCommentDrafts[c.id] ?? (c.technicienComment || "")}
+                    onChange={(e) => setTechnicienCommentDrafts((d) => ({ ...d, [c.id]: e.target.value }))}
+                  />
+                  <button
+                    className="btn-add"
+                    style={{ padding: "6px 12px", fontSize: 11.5 }}
+                    onClick={() => onSaveTechnicienComment(c, technicienCommentDrafts[c.id] ?? (c.technicienComment || ""))}
+                  >
+                    Enregistrer le commentaire
+                  </button>
+                </div>
+              )}
               <div className="complaint-reply-box">
                 <input
                   placeholder="Répondre au client..."
@@ -1546,9 +1575,9 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
 // -------------------- Client view --------------------
 
-function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onMarkMessagesRead, onLogout, sessionWarningSeconds, onStayConnected }) {
+function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onMarkMessagesRead, onSaveClientLocation, onLogout, sessionWarningSeconds, onStayConnected }) {
   const [tab, setTab] = useState("home");
-  const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
+  const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: client.latitude ?? null, longitude: client.longitude ?? null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
   const [sentPayRequest, setSentPayRequest] = useState(false);
   const [payError, setPayError] = useState("");
@@ -1658,7 +1687,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     setBusyComplaint(false);
     if (ok) {
       setSentComplaint(true);
-      setComplaintForm({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: null, longitude: null });
+      setComplaintForm({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: freshClient.latitude ?? null, longitude: freshClient.longitude ?? null });
       setLocError("");
       setTimeout(() => { setSentComplaint(false); setTab("home"); }, 2200);
     }
@@ -1727,8 +1756,10 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     setLocError("");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setComplaintForm((f) => ({ ...f, latitude: pos.coords.latitude, longitude: pos.coords.longitude }));
+        const { latitude, longitude } = pos.coords;
+        setComplaintForm((f) => ({ ...f, latitude, longitude }));
         setLocating(false);
+        onSaveClientLocation(freshClient.id, latitude, longitude);
       },
       (err) => {
         setLocating(false);
@@ -3915,6 +3946,44 @@ export default function AlerteClientWifi() {
     );
   };
 
+  const captureClientLocationByTechnicien = (complaint) => {
+    if (!navigator.geolocation) {
+      showToast("La géolocalisation n'est pas disponible sur cet appareil.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        try {
+          if (SUPABASE_CONFIGURED) {
+            await updateComplaintRow(complaint.id, { latitude: lat, longitude: lng });
+          }
+          setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, latitude: lat, longitude: lng } : c)));
+          // Mémorise aussi cette position sur la fiche client, pour ses prochaines réclamations.
+          const client = clients.find((cl) => cl.nom === complaint.clientNom);
+          if (client) await saveClientLocationHandler(client.id, lat, lng);
+          showToast("Position du client enregistrée et mémorisée.");
+        } catch (e) {
+          console.error(e);
+          showToast("Erreur d'enregistrement de la position.");
+        }
+      },
+      () => showToast("Impossible de récupérer ta position. Vérifie que la localisation est activée."),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const saveTechnicienComment = async (complaint, text) => {
+    try {
+      if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { technicien_comment: text });
+      setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, technicienComment: text } : c)));
+      showToast("Commentaire enregistré.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'enregistrement du commentaire.");
+    }
+  };
+
 
   const markComplaintsReadHandler = async () => {
     const unreadIds = complaints.filter((c) => !c.read).map((c) => c.id);
@@ -3933,6 +4002,16 @@ export default function AlerteClientWifi() {
     try {
       if (SUPABASE_CONFIGURED) await markClientMessagesReadRow(clientId, clientNom);
       setMessages((ms) => ms.map((m) => (m.clientNom === clientNom && m.sender === "company" ? { ...m, read: true } : m)));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const saveClientLocationHandler = async (clientId, latitude, longitude) => {
+    if (!clientId) return;
+    try {
+      if (SUPABASE_CONFIGURED) await sbFetch(`wifi_clients?id=eq.${clientId}`, { method: "PATCH", body: JSON.stringify({ latitude, longitude }) });
+      setClients((cs) => cs.map((c) => (c.id === clientId ? { ...c, latitude, longitude } : c)));
     } catch (e) {
       console.error(e);
     }
@@ -4148,6 +4227,8 @@ export default function AlerteClientWifi() {
         onLogFuelExpense={logFuelExpense}
         onRequestApproval={requestInterventionApproval}
         onCaptureStartPosition={captureTechnicienStartPosition}
+        onSetClientLocation={captureClientLocationByTechnicien}
+        onSaveTechnicienComment={saveTechnicienComment}
         busyUploadId={busyUploadId}
         onLogout={handleLogout}
         authUser={authUser}
@@ -4179,6 +4260,7 @@ export default function AlerteClientWifi() {
         onEditTicketDuration={editTicketDuration}
         onDeleteTicketDuration={deleteTicketDuration}
         onMarkMessagesRead={markClientMessagesReadHandler}
+        onSaveClientLocation={saveClientLocationHandler}
         onLogout={handleLogout}
         sessionWarningSeconds={sessionWarningSeconds}
         onStayConnected={stayConnected}
@@ -4616,6 +4698,12 @@ export default function AlerteClientWifi() {
               )}
               {c.description && <div className="complaint-desc">{c.description}</div>}
               <div className="complaint-date">{c.createdAt ? new Date(c.createdAt).toLocaleString("fr-FR") : ""}</div>
+              {c.technicienComment && (
+                <div className="tech-comment-box tech-comment-readonly">
+                  <label>Commentaire du technicien</label>
+                  <div>{c.technicienComment}</div>
+                </div>
+              )}
               <div className="complaint-reply-box">
                 <input
                   placeholder="Répondre au client..."
@@ -5961,6 +6049,10 @@ const CSS = `
 .wifi-app .complaint-meta{font-size:11.5px;color:var(--text-dim);margin-top:4px;font-family:var(--mono);}
 .wifi-app .complaint-desc{font-size:12.5px;color:var(--text-dim);margin-top:8px;line-height:1.4;}
 .wifi-app .complaint-reply-box{display:flex;gap:8px;margin-top:12px;}
+.wifi-app .tech-comment-box{margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--bg-panel);border:1px solid var(--line);}
+.wifi-app .tech-comment-box label{display:block;font-size:11px;color:var(--text-dim);margin-bottom:6px;}
+.wifi-app .tech-comment-box textarea{width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid #445269;background:#222E40;color:#FFFFFF;font-size:12.5px;font-family:var(--sans);resize:vertical;margin-bottom:8px;}
+.wifi-app .tech-comment-readonly div{font-size:12.5px;color:var(--text);line-height:1.4;}
 .wifi-app .complaint-reply-box input{flex:1;min-width:0;}
 .wifi-app .complaint-date{font-size:10.5px;color:var(--text-faint);margin-top:8px;}
 .wifi-app .gps-captured{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;border:1px solid var(--green);background:var(--green-dim);flex-wrap:wrap;}
