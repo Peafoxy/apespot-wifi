@@ -1222,6 +1222,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   const saveCommentAndConfirm = async (c, text) => {
     const ok = await onSaveTechnicienComment(c, text);
     if (ok) {
+      setTechnicienCommentDrafts((d) => ({ ...d, [c.id]: "" }));
       setSavedCommentId(c.id);
       setTimeout(() => setSavedCommentId((id) => (id === c.id ? null : id)), 2500);
     }
