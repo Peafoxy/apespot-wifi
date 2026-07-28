@@ -1171,7 +1171,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V2.1</span>
+          <span className="app-version-badge">V2.2</span>
         </div>
 
         {!selected && (
@@ -1232,6 +1232,10 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
     setTechClientPageSize(40);
   }, [clientFilter]);
   const [complaintFilter, setComplaintFilter] = useState("ALL");
+  const [complaintPageSize, setComplaintPageSize] = useState(20);
+  useEffect(() => {
+    setComplaintPageSize(20);
+  }, [complaintFilter]);
 
   const complaintsSorted = [...complaints].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const newComplaintsCount = complaints.filter((c) => !c.read).length;
@@ -1395,7 +1399,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
           {complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length === 0 && (
             <div className="empty">Aucune réclamation dans cette catégorie.</div>
           )}
-          {complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).map((c) => (
+          {complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).slice(0, complaintPageSize).map((c) => (
             <div className="complaint-card" key={c.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{c.clientNom}</div>
@@ -1516,6 +1520,11 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
               </div>
             </div>
           ))}
+          {complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length > complaintPageSize && (
+            <button className="btn-cancel" style={{ width: "100%", marginTop: 12 }} onClick={() => setComplaintPageSize((n) => n + 20)}>
+              Charger plus ({complaintsSorted.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length - complaintPageSize} restants)
+            </button>
+          )}
         </div>
       )}
 
@@ -2650,6 +2659,10 @@ export default function AlerteClientWifi() {
   const [clientPageSize, setClientPageSize] = useState(40);
   const [filter, setFilter] = useState("ALL");
   const [complaintFilter, setComplaintFilter] = useState("ALL");
+  const [adminComplaintPageSize, setAdminComplaintPageSize] = useState(20);
+  useEffect(() => {
+    setAdminComplaintPageSize(20);
+  }, [complaintFilter]);
   const [newComplaintModal, setNewComplaintModal] = useState(null); // null | { clientNom, reason, dateDebut, description }
   const [sortKey, setSortKey] = useState("jours");
   const [sortDir, setSortDir] = useState(1);
@@ -4844,7 +4857,7 @@ export default function AlerteClientWifi() {
           {complaints.filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length === 0 && (
             <div className="empty">Aucune réclamation dans cette catégorie.</div>
           )}
-          {[...complaints].filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).map((c) => (
+          {[...complaints].filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, adminComplaintPageSize).map((c) => (
             <div className="complaint-card" key={c.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{c.clientNom}</div>
@@ -4938,6 +4951,11 @@ export default function AlerteClientWifi() {
               </div>
             </div>
           ))}
+          {[...complaints].filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length > adminComplaintPageSize && (
+            <button className="btn-cancel" style={{ width: "100%", marginTop: 12 }} onClick={() => setAdminComplaintPageSize((n) => n + 20)}>
+              Charger plus ({[...complaints].filter((c) => complaintFilter === "ALL" || c.status === complaintFilter).length - adminComplaintPageSize} restants)
+            </button>
+          )}
         </div>
       )}
 
