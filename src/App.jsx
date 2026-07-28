@@ -1424,6 +1424,15 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                 </div>
               )}
 
+              {officeLocation && c.approvalStatus === "approved" && c.technicienStartLat == null && (
+                <div className="fuel-estimate">
+                  📍 Avant de partir, capture ta position de départ
+                  <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onCaptureStartPosition(c)}>
+                    Démarrer l'intervention
+                  </button>
+                </div>
+              )}
+
               {!c.latitude && (
                 <div className="fuel-estimate">
                   📍 Position du client manquante
@@ -1438,14 +1447,6 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                     📍 Voir la position sur la carte
                   </a>
                   <button className="btn-cancel" style={{ padding: "5px 10px", fontSize: 11, marginLeft: 8 }} onClick={() => onSetClientLocation(c)}>Mettre à jour la position</button>
-                  {officeLocation && c.approvalStatus === "approved" && c.technicienStartLat == null && (
-                    <div className="fuel-estimate">
-                      📍 Avant de partir, capture ta position de départ
-                      <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onCaptureStartPosition(c)}>
-                        Démarrer l'intervention
-                      </button>
-                    </div>
-                  )}
                   {officeLocation && c.approvalStatus === "approved" && c.technicienStartLat != null && (() => {
                     const origin = { lat: c.technicienStartLat, lng: c.technicienStartLng };
                     const distanceKm = haversineKm(origin.lat, origin.lng, c.latitude, c.longitude) * 2;
