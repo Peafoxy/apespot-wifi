@@ -1433,7 +1433,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                 </div>
               )}
 
-              {!c.latitude && (
+              {c.technicienStartLat != null && !c.latitude && (
                 <div className="fuel-estimate">
                   📍 Position du client manquante
                   <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => onSetClientLocation(c)}>
@@ -6326,6 +6326,7 @@ const CSS = `
 .wifi-app .ticket-request-row{padding:8px 0;border-bottom:1px solid var(--line);}
 .wifi-app .ticket-request-row:last-child{border-bottom:none;}
 .wifi-app .status-select{padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg-panel);color:var(--text);font-size:11.5px;font-weight:700;}
+.wifi-app .field select option,.wifi-app .status-select option{background:#2C3B52;color:#FFFFFF;}
 .wifi-app .status-select.status-nouveau{color:var(--red);}
 .wifi-app .status-select.status-en_cours{color:var(--amber);}
 .wifi-app .status-select.status-resolu{color:var(--green);}
