@@ -657,6 +657,18 @@ async function fetchTicketRequests() {
   return (data || []).map(rowToTicketRequest);
 }
 
+const rowToActivityLog = (r) => ({ id: r.id, actorNom: r.actor_nom, actorRole: r.actor_role, action: r.action, details: r.details, createdAt: r.created_at });
+async function fetchActivityLog(limit = 200) {
+  const data = await sbFetch(`wifi_activity_log?select=*&order=created_at.desc&limit=${limit}`);
+  return (data || []).map(rowToActivityLog);
+}
+async function insertActivityLogRow(entry) {
+  await sbFetch("wifi_activity_log", {
+    method: "POST",
+    body: JSON.stringify({ actor_nom: entry.actorNom || null, actor_role: entry.actorRole || null, action: entry.action, details: entry.details || null }),
+  });
+}
+
 async function fetchSettings() {
   const data = await sbFetch("wifi_settings?select=*");
   const map = {};
@@ -1160,6 +1172,10 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
   const [clientFilter, setClientFilter] = useState("ALL");
+  const [techClientPageSize, setTechClientPageSize] = useState(40);
+  useEffect(() => {
+    setTechClientPageSize(40);
+  }, [clientFilter]);
   const [complaintFilter, setComplaintFilter] = useState("ALL");
 
   const complaintsSorted = [...complaints].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
@@ -1555,7 +1571,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
             ))}
           </div>
           <div className="client-list-scroll" style={{ maxHeight: "58vh" }}>
-            {enrichedClients.filter((c) => clientFilter === "ALL" || c.statut === clientFilter).map((c) => (
+            {enrichedClients.filter((c) => clientFilter === "ALL" || c.statut === clientFilter).slice(0, techClientPageSize).map((c) => (
               <div className="client-row" key={c.id}>
                 <div className="client-row-top">
                   <div className="client-row-left">
@@ -1574,6 +1590,11 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
             ))}
             {enrichedClients.filter((c) => clientFilter === "ALL" || c.statut === clientFilter).length === 0 && (
               <div className="empty">Aucun client dans cette catégorie.</div>
+            )}
+            {enrichedClients.filter((c) => clientFilter === "ALL" || c.statut === clientFilter).length > techClientPageSize && (
+              <button className="btn-cancel" style={{ width: "100%", marginTop: 12 }} onClick={() => setTechClientPageSize((n) => n + 40)}>
+                Charger plus ({enrichedClients.filter((c) => clientFilter === "ALL" || c.statut === clientFilter).length - techClientPageSize} restants)
+              </button>
             )}
           </div>
         </div>
@@ -2280,6 +2301,7 @@ export default function AlerteClientWifi() {
   const [expenseLines, setExpenseLines] = useState([]);
   const [perdiemExpenses, setPerdiemExpenses] = useState([]);
   const [otherExpenses, setOtherExpenses] = useState([]);
+  const [activityLog, setActivityLog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -2324,7 +2346,7 @@ export default function AlerteClientWifi() {
     }
     (async () => {
       try {
-        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe, al] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -2338,6 +2360,7 @@ export default function AlerteClientWifi() {
           safeFetch("lignes de dépenses", fetchExpenseLines),
           safeFetch("perdiem", fetchPerdiem),
           safeFetch("autres dépenses", fetchOtherExpenses),
+          safeFetch("journal d'activité", fetchActivityLog),
         ]);
         setClients(c);
         setPayments(p);
@@ -2349,6 +2372,7 @@ export default function AlerteClientWifi() {
         setExpenseLines(el);
         setPerdiemExpenses(pd);
         setOtherExpenses(oe);
+        setActivityLog(al || []);
         setTicketDurations(td);
         if (st && st.office_lat && st.office_lng) setOfficeLocation({ lat: parseFloat(st.office_lat), lng: parseFloat(st.office_lng) });
         if (st && st.fuel_rate_per_km) setFuelRatePerKm(parseFloat(st.fuel_rate_per_km));
@@ -2548,6 +2572,7 @@ export default function AlerteClientWifi() {
 
   // ---- Alerts view state ----
   const [search, setSearch] = useState("");
+  const [clientPageSize, setClientPageSize] = useState(40);
   const [filter, setFilter] = useState("ALL");
   const [complaintFilter, setComplaintFilter] = useState("ALL");
   const [sortKey, setSortKey] = useState("jours");
@@ -2582,7 +2607,11 @@ export default function AlerteClientWifi() {
 
   // ---- Payments view state ----
   const [paySearch, setPaySearch] = useState("");
+  const [paymentPageSize, setPaymentPageSize] = useState(50);
   const [modeFilter, setModeFilter] = useState("ALL");
+  useEffect(() => {
+    setPaymentPageSize(50);
+  }, [modeFilter, paySearch]);
   const [sortKeyP, setSortKeyP] = useState("date");
   const [sortDirP, setSortDirP] = useState(-1);
   const [paymentModal, setPaymentModal] = useState(null); // null | {editingId, clientNom, montant, mode, date, newExpiration, note}
@@ -2599,6 +2628,15 @@ export default function AlerteClientWifi() {
     window.clearTimeout(showToast._t);
     showToast._t = window.setTimeout(() => setToast(""), 2400);
   }, []);
+
+  // Journal d'activité : ne bloque et ne casse jamais l'action en cours, même si l'écriture échoue.
+  const logActivity = (action, details) => {
+    const entry = { actorNom: authUser?.nom || "Système", actorRole: authUser?.role || null, action, details };
+    setActivityLog((l) => [{ id: uid(), ...entry, createdAt: new Date().toISOString() }, ...l]);
+    if (SUPABASE_CONFIGURED) {
+      insertActivityLogRow(entry).catch((e) => console.error("Erreur journal d'activité :", e));
+    }
+  };
 
   const copyToClipboard = async (text) => {
     try {
@@ -2625,6 +2663,10 @@ export default function AlerteClientWifi() {
     }),
     [enrichedClients]
   );
+
+  useEffect(() => {
+    setClientPageSize(40);
+  }, [filter, search]);
 
   const visibleClients = useMemo(() => {
     let rows = enrichedClients;
@@ -2772,6 +2814,7 @@ export default function AlerteClientWifi() {
         return u;
       }));
       setAuthUser((au) => (au ? { ...au, isPrincipal: false } : au));
+      logActivity("transfer_principal", `Statut d'administrateur principal transféré à "${target.nom}"`);
       showToast(`${target.nom} est maintenant l'administrateur principal.`);
     } catch (e) {
       console.error(e);
@@ -3002,6 +3045,7 @@ export default function AlerteClientWifi() {
     try {
       if (SUPABASE_CONFIGURED) await updateClientRow(client.id, restored);
       setClients((cs) => cs.map((c) => (c.id === client.id ? restored : c)));
+      logActivity("undo_renewal", `Réabonnement de "${client.nom}" annulé`);
       showToast(`Réabonnement annulé pour "${client.nom}".`);
       return restored;
     } catch (e) {
@@ -3051,6 +3095,7 @@ export default function AlerteClientWifi() {
       setTicketRequests((rs) => rs.filter((r) => (r.clientNom || "").trim().toLowerCase() !== nomKey));
 
       setDeleteClientModal(null);
+      logActivity("delete_client", `Client "${c.nom}" supprimé (avec tout son historique)`);
       showToast("Client et tout son historique supprimés.");
     } catch (e) {
       console.error(e);
@@ -3703,6 +3748,7 @@ export default function AlerteClientWifi() {
     try {
       if (SUPABASE_CONFIGURED) await deleteExpenseLineRow(line.id);
       setExpenseLines((ls) => ls.filter((l) => l.id !== line.id));
+      logActivity("delete_line", `Ligne de dépense "${line.nom}" supprimée`);
       showToast("Ligne supprimée.");
     } catch (e) {
       console.error(e);
@@ -3738,6 +3784,7 @@ export default function AlerteClientWifi() {
     try {
       if (SUPABASE_CONFIGURED) await undoLinePaymentRow(line.id, line.previousDateExp);
       setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: null, dateExp: line.previousDateExp, previousDateExp: null, paidActionAt: null } : l)));
+      logActivity("undo_line_payment", `Paiement de la ligne "${line.nom}" annulé`);
       showToast(`Paiement annulé pour "${line.nom}".`);
     } catch (e) {
       console.error(e);
@@ -4089,6 +4136,7 @@ export default function AlerteClientWifi() {
       setMessages((ms) => [...ms, createdMsg]);
 
       setRejectPaymentModal(null);
+      logActivity("reject_payment", `Demande de paiement de "${req.clientNom}" (${fmtFCFA(req.montant)}) refusée — motif : ${reason}`);
       showToast("Demande refusée, client notifié.");
     } catch (e) {
       console.error(e);
@@ -4136,6 +4184,7 @@ export default function AlerteClientWifi() {
       try {
         if (SUPABASE_CONFIGURED) await deleteUserRow(u.id);
         setUsers((us) => us.filter((x) => x.id !== u.id));
+        logActivity("delete_user", `Compte "${u.nom}" (${u.role}) supprimé`);
         showToast("Utilisateur supprimé.");
       } catch (e) {
         console.error(e);
@@ -4177,6 +4226,7 @@ export default function AlerteClientWifi() {
       setTicketRequests([]);
 
       setResetAppModal(null);
+      logActivity("reset_application", "Réinitialisation complète de l'application (paiements, messages, réclamations, demandes)");
       showToast("Application réinitialisée. Clients et comptes Admin/Technicien conservés.");
     } catch (e) {
       console.error(e);
@@ -4475,7 +4525,7 @@ export default function AlerteClientWifi() {
             </div>
             <div className="client-list-scroll">
               <div>
-                {visibleClients.map((c) => {
+                {visibleClients.slice(0, clientPageSize).map((c) => {
                   const jc = jourClass(c.jours, c.statut);
                   const actionCls = c.statut === "EXPIRE" ? "urgent" : c.statut === "ATTENTION" ? "warn" : "";
                   return (
@@ -4500,6 +4550,15 @@ export default function AlerteClientWifi() {
                 })}
               </div>
               {visibleClients.length === 0 && <div className="empty">Aucun client ne correspond à ce filtre.</div>}
+              {visibleClients.length > clientPageSize && (
+                <button
+                  className="btn-cancel"
+                  style={{ width: "100%", marginTop: 12 }}
+                  onClick={() => setClientPageSize((n) => n + 40)}
+                >
+                  Charger plus ({visibleClients.length - clientPageSize} restants)
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -4599,7 +4658,7 @@ export default function AlerteClientWifi() {
                 </tr>
               </thead>
               <tbody>
-                {visiblePayments.map((p) => (
+                {visiblePayments.slice(0, paymentPageSize).map((p) => (
                   <tr key={p.id}>
                     <td className="client-name">{p.clientNom || "—"}</td>
                     <td className="jours pos">{fmtFCFA(p.montant)}</td>
@@ -4622,6 +4681,11 @@ export default function AlerteClientWifi() {
               </tbody>
             </table>
             {visiblePayments.length === 0 && <div className="empty">Aucun paiement enregistré pour l'instant.</div>}
+            {visiblePayments.length > paymentPageSize && (
+              <button className="btn-cancel" style={{ width: "100%", marginTop: 12 }} onClick={() => setPaymentPageSize((n) => n + 50)}>
+                Charger plus ({visiblePayments.length - paymentPageSize} restants)
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -5244,6 +5308,26 @@ export default function AlerteClientWifi() {
               </div>
             ))}
           </div>
+
+          {isPrincipalAdmin && (
+            <div className="chart-card" style={{ marginTop: 20 }}>
+              <div className="ctitle">JOURNAL D'ACTIVITÉ</div>
+              <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12 }}>
+                Trace des actions sensibles (suppressions, réinitialisation, transferts, annulations...), les plus récentes en premier.
+              </div>
+              <div style={{ maxHeight: 320, overflowY: "auto" }}>
+                {activityLog.length === 0 && <div className="empty">Aucune activité enregistrée pour l'instant.</div>}
+                {activityLog.map((e) => (
+                  <div key={e.id} className="rah-item" style={{ alignItems: "flex-start" }}>
+                    <span className="rah-date">{e.createdAt ? new Date(e.createdAt).toLocaleString("fr-FR") : ""}</span>
+                    <span style={{ flex: 1 }}>
+                      <strong>{e.actorNom}</strong> — {e.details || e.action}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {isPrincipalAdmin && (
             <div className="chart-card" style={{ borderColor: "var(--red)", marginTop: 20 }}>
