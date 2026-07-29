@@ -137,21 +137,32 @@ async function subscribeToDailyReminder(user) {
     return { ok: false, message: "Les notifications ne sont pas prises en charge sur cet appareil/navigateur." };
   }
   try {
+    const registration = await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.ready;
+    const existingSub = await registration.pushManager.getSubscription();
+
+    // Déjà activé sur cet appareil → un second clic désactive.
+    if (existingSub) {
+      const endpoint = existingSub.endpoint;
+      await existingSub.unsubscribe();
+      try {
+        await sbFetch(`wifi_push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`, { method: "DELETE" });
+      } catch (e) {
+        console.error(e);
+      }
+      return { ok: true, active: false, message: "Rappel quotidien désactivé sur cet appareil." };
+    }
+
     const permission = await Notification.requestPermission();
     if (permission !== "granted") {
       return { ok: false, message: "Autorisation refusée — active les notifications dans les réglages du navigateur pour ce site." };
     }
-    const registration = await navigator.serviceWorker.register("/sw.js");
-    await navigator.serviceWorker.ready;
-    let sub = await registration.pushManager.getSubscription();
-    if (!sub) {
-      sub = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      });
-    }
+    const sub = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
     const json = sub.toJSON();
-    await sbFetch("wifi_push_subscriptions", {
+    await sbFetch("wifi_push_subscriptions?on_conflict=endpoint", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
       body: JSON.stringify({
@@ -162,7 +173,7 @@ async function subscribeToDailyReminder(user) {
         nom: user?.nom || null,
       }),
     });
-    return { ok: true, message: "Rappel quotidien de 8h activé sur cet appareil." };
+    return { ok: true, active: true, message: "Rappel quotidien de 8h activé sur cet appareil." };
   } catch (e) {
     console.error(e);
     return { ok: false, message: "Erreur lors de l'activation des rappels." };
@@ -1234,7 +1245,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V3.0</span>
+          <span className="app-version-badge">V3.2</span>
         </div>
 
         {!selected && (
@@ -1403,9 +1414,10 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         <div className="brand">
           <div className="brand-mark brand-mark-logo"><img src={LOGO_DATA_URI} alt="Apé Spot WiFi" /></div>
           <div><h1>APESPOT WI-FI</h1><div className="sub">Espace Technicien{authUser?.nom ? ` · ${authUser.nom}` : ""}</div></div>
+          <button className="logout-link reminder-btn-mobile" onClick={async () => { const r = await subscribeToDailyReminder(authUser); onShowToast(r.message); }}>🔔</button>
         </div>
         <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-          <button className="logout-link" onClick={async () => { const r = await subscribeToDailyReminder(authUser); onShowToast(r.message); }}>🔔 Rappels</button>
+          <button className="logout-link reminder-btn-desktop" onClick={async () => { const r = await subscribeToDailyReminder(authUser); onShowToast(r.message); }}>🔔 Rappels</button>
           <button className="logout-link" onClick={onLogout}>Déconnexion</button>
         </div>
       </header>
@@ -4587,13 +4599,14 @@ export default function AlerteClientWifi() {
             <h1>APESPOT WI-FI</h1>
             <div className="sub">Gestion des clients</div>
           </div>
+          <button className="logout-link reminder-btn-mobile" onClick={async () => { const r = await subscribeToDailyReminder(authUser); showToast(r.message); }}>🔔</button>
         </div>
         <div className="today-box">
           <span className="label">Aujourd'hui</span>
           <span className="val">
             {today.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
           </span>
-          <button className="logout-link logout-inline" onClick={async () => { const r = await subscribeToDailyReminder(authUser); showToast(r.message); }}>🔔 Rappels</button>
+          <button className="logout-link logout-inline reminder-btn-desktop" onClick={async () => { const r = await subscribeToDailyReminder(authUser); showToast(r.message); }}>🔔 Rappels</button>
           <button className="logout-link logout-inline" onClick={handleLogout}>Déconnexion</button>
         </div>
       </header>
@@ -6361,8 +6374,12 @@ const CSS = `
   .wifi-app .no-print{display:none !important;}
   @page{margin:16mm;}
 }
+.wifi-app .reminder-btn-mobile{display:none;}
+.wifi-app .reminder-btn-desktop{display:inline-flex;}
 @media(max-width:640px){
   .wifi-app .stats{grid-template-columns:repeat(2,1fr);}
+  .wifi-app .reminder-btn-mobile{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;padding:6px 10px;font-size:16px;}
+  .wifi-app .reminder-btn-desktop{display:none;}
 }
 
 /* LOGIN SCREEN */
