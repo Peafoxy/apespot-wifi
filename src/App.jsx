@@ -1245,7 +1245,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V3.2</span>
+          <span className="app-version-badge">V3.3</span>
         </div>
 
         {!selected && (
@@ -1532,14 +1532,14 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                     📍 Voir la position sur la carte
                   </a>
                   <button className="btn-cancel" style={{ padding: "5px 10px", fontSize: 11, marginLeft: 8 }} onClick={() => onSetClientLocation(c)}>Mettre à jour la position</button>
-                  {officeLocation && c.approvalStatus === "approved" && c.technicienStartLat != null && (() => {
-                    const origin = { lat: c.technicienStartLat, lng: c.technicienStartLng };
+                  {officeLocation && c.approvalStatus === "approved" && (() => {
+                    const origin = officeLocation;
                     const distanceKm = haversineKm(origin.lat, origin.lng, c.latitude, c.longitude) * 2;
                     const montant = Math.round(distanceKm * fuelRatePerKm);
                     const already = fuelExpenses.some((f) => f.complaintId === c.id);
                     return (
                       <div className="fuel-estimate">
-                        🚗 {distanceKm.toFixed(1)} km (aller-retour, depuis ta position de départ) · {fmtFCFA(montant)}
+                        🚗 {distanceKm.toFixed(1)} km (aller-retour, depuis le local) · {fmtFCFA(montant)}
                         {already ? (
                           <span className="fuel-logged">Déjà enregistré</span>
                         ) : (
@@ -3869,10 +3869,8 @@ export default function AlerteClientWifi() {
       distanceKm = complaint._tourDistanceKm; // tournée à plusieurs arrêts, déjà calculée (retour au point A inclus)
     } else {
       if (complaint.latitude == null || complaint.longitude == null) { setBusyFuelId(null); return; }
-      // Priorité à la position réelle capturée par le technicien avant son départ, sinon le local.
-      const origin = complaint.technicienStartLat != null && complaint.technicienStartLng != null
-        ? { lat: complaint.technicienStartLat, lng: complaint.technicienStartLng }
-        : officeLocation;
+      // Toujours depuis le local, quelle que soit la position réelle capturée par le technicien.
+      const origin = officeLocation;
       distanceKm = haversineKm(origin.lat, origin.lng, complaint.latitude, complaint.longitude) * 2; // aller-retour
     }
     const montant = Math.round(distanceKm * fuelRatePerKm);
@@ -5000,16 +4998,13 @@ export default function AlerteClientWifi() {
                     📍 Voir la position sur la carte
                   </a>
                   {officeLocation && c.approvalStatus === "approved" && (() => {
-                    const origin = c.technicienStartLat != null && c.technicienStartLng != null
-                      ? { lat: c.technicienStartLat, lng: c.technicienStartLng }
-                      : officeLocation;
+                    const origin = officeLocation;
                     const distanceKm = haversineKm(origin.lat, origin.lng, c.latitude, c.longitude) * 2;
                     const montant = Math.round(distanceKm * fuelRatePerKm);
                     const already = fuelExpenses.some((f) => f.complaintId === c.id);
-                    const fromStart = c.technicienStartLat != null;
                     return (
                       <div className="fuel-estimate">
-                        🚗 {distanceKm.toFixed(1)} km (aller-retour{fromStart ? ", depuis la position réelle du technicien" : ""}) · {fmtFCFA(montant)}
+                        🚗 {distanceKm.toFixed(1)} km (aller-retour, depuis le local) · {fmtFCFA(montant)}
                         {already ? (
                           <span className="fuel-logged">Déjà enregistré</span>
                         ) : (
