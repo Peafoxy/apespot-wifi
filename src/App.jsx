@@ -21,6 +21,7 @@ import jsPDF from "jspdf";
 
 const SUPABASE_URL = "https://jtjqvlcryaeljcnhhrpv.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0anF2bGNyeWFlbGpjbmhocnB2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1Mzg2NjEsImV4cCI6MjA5OTExNDY2MX0.GbOgFkjbb8Rik1NQikrUFqGLmHDE_IwDt0zVoO3FCcQ";
+const VAPID_PUBLIC_KEY = "BJR_OCj3YzQehhFRzZimm42AE9nvkTYb0JctOl7GM581isdDykE_qztnbtTOjKydXXB6COmzDkF12TMFLBf8_ew";
 const SUPABASE_CONFIGURED = Boolean(SUPABASE_ANON_KEY) && SUPABASE_ANON_KEY !== "COLLE_ICI_TA_CLE_ANON_PUBLIC";
 
 const LOCAL_CLIENTS_KEY = "bmi-wifi-clients-demo";
@@ -118,6 +119,53 @@ async function sbStorageDelete(path, bucket = TICKETS_BUCKET) {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Suppression échouée — ${res.status} ${text}`);
+  }
+}
+
+// ---- Rappel quotidien (notification push à 8h) ----
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function subscribeToDailyReminder(user) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return { ok: false, message: "Les notifications ne sont pas prises en charge sur cet appareil/navigateur." };
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      return { ok: false, message: "Autorisation refusée — active les notifications dans les réglages du navigateur pour ce site." };
+    }
+    const registration = await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.ready;
+    let sub = await registration.pushManager.getSubscription();
+    if (!sub) {
+      sub = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    const json = sub.toJSON();
+    await sbFetch("wifi_push_subscriptions", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify({
+        endpoint: json.endpoint,
+        p256dh: json.keys.p256dh,
+        auth: json.keys.auth,
+        role: user?.role || null,
+        nom: user?.nom || null,
+      }),
+    });
+    return { ok: true, message: "Rappel quotidien de 8h activé sur cet appareil." };
+  } catch (e) {
+    console.error(e);
+    return { ok: false, message: "Erreur lors de l'activation des rappels." };
   }
 }
 
@@ -1186,7 +1234,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V2.4</span>
+          <span className="app-version-badge">V3.0</span>
         </div>
 
         {!selected && (
@@ -1236,7 +1284,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint }) {
   const [tab, setTab] = useState("complaints");
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -1356,7 +1404,10 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
           <div className="brand-mark brand-mark-logo"><img src={LOGO_DATA_URI} alt="Apé Spot WiFi" /></div>
           <div><h1>APESPOT WI-FI</h1><div className="sub">Espace Technicien{authUser?.nom ? ` · ${authUser.nom}` : ""}</div></div>
         </div>
-        <button className="logout-link" onClick={onLogout}>Déconnexion</button>
+        <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+          <button className="logout-link" onClick={async () => { const r = await subscribeToDailyReminder(authUser); onShowToast(r.message); }}>🔔 Rappels</button>
+          <button className="logout-link" onClick={onLogout}>Déconnexion</button>
+        </div>
       </header>
 
       {sessionWarningSeconds > 0 && (
@@ -4476,6 +4527,7 @@ export default function AlerteClientWifi() {
         onSetClientLocation={captureClientLocationByTechnicien}
         onCaptureClientLocation={captureClientLocationDirect}
         onMarkStaffRead={markStaffMessagesReadHandler}
+        onShowToast={showToast}
         onSaveTechnicienComment={saveTechnicienComment}
         busyUploadId={busyUploadId}
         onLogout={handleLogout}
@@ -4541,6 +4593,7 @@ export default function AlerteClientWifi() {
           <span className="val">
             {today.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
           </span>
+          <button className="logout-link logout-inline" onClick={async () => { const r = await subscribeToDailyReminder(authUser); showToast(r.message); }}>🔔 Rappels</button>
           <button className="logout-link logout-inline" onClick={handleLogout}>Déconnexion</button>
         </div>
       </header>
