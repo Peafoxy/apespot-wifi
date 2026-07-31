@@ -1262,7 +1262,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V4.0</span>
+          <span className="app-version-badge">V4.1</span>
         </div>
 
         {!selected && (
@@ -1501,7 +1501,13 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
             <div className="complaint-card" key={c.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{c.clientNom}</div>
-                <select value={c.status} onChange={(e) => onUpdateComplaintStatus(c.id, e.target.value)} className={`status-select status-${c.status}`}>
+                <select
+                  value={c.status}
+                  disabled={c.status === "resolu"}
+                  title={c.status === "resolu" ? "Réclamation résolue — statut verrouillé, contacte un administrateur si besoin" : ""}
+                  onChange={(e) => onUpdateComplaintStatus(c.id, e.target.value)}
+                  className={`status-select status-${c.status}`}
+                >
                   <option value="nouveau">Nouveau</option>
                   <option value="en_cours">En cours</option>
                   <option value="resolu">Résolu</option>
@@ -6530,6 +6536,7 @@ const CSS = `
 .wifi-app .ticket-request-row{padding:8px 0;border-bottom:1px solid var(--line);}
 .wifi-app .ticket-request-row:last-child{border-bottom:none;}
 .wifi-app .status-select{padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg-panel);color:var(--text);font-size:11.5px;font-weight:700;}
+.wifi-app .status-select:disabled{opacity:.75;cursor:not-allowed;}
 .wifi-app .field select option,.wifi-app .status-select option{background:#2C3B52;color:#FFFFFF;}
 .wifi-app .status-select.status-nouveau{color:var(--red);}
 .wifi-app .status-select.status-en_cours{color:var(--amber);}
