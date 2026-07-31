@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V4.5</span>
+          <span className="app-version-badge">V4.6</span>
         </div>
 
         {!selected && (
@@ -1344,20 +1344,26 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
     localStorage.setItem("apespot-tech-tab", tab);
   }, [tab]);
   const tabsBarRef = useRef(null);
+  const scrollActiveTabIntoView = () => {
+    const bar = tabsBarRef.current;
+    const active = bar?.querySelector(".tab.active");
+    if (bar && active) {
+      const target = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
+      bar.scrollLeft = Math.max(0, target);
+    }
+  };
   useEffect(() => {
-    // Double requestAnimationFrame : on attend que la mise en page soit bien stabilisée
-    // avant de calculer le défilement (scrollIntoView seul est peu fiable sur mobile ici).
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const bar = tabsBarRef.current;
-        const active = bar?.querySelector(".tab.active");
-        if (bar && active) {
-          const target = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
-          bar.scrollLeft = Math.max(0, target);
-        }
-      });
-    });
+    requestAnimationFrame(() => requestAnimationFrame(scrollActiveTabIntoView));
   }, [tab]);
+  // Les badges (compteurs) arrivent après le chargement des données et changent la largeur
+  // des onglets — on recalcule donc aussi à chaque fois que la barre change de taille.
+  useEffect(() => {
+    const bar = tabsBarRef.current;
+    if (!bar || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => scrollActiveTabIntoView());
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
   const [clientFilter, setClientFilter] = useState("ALL");
@@ -1851,20 +1857,26 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     localStorage.setItem(`apespot-client-tab-${client.id}`, tab);
   }, [tab, client.id]);
   const tabsBarRef = useRef(null);
+  const scrollActiveTabIntoView = () => {
+    const bar = tabsBarRef.current;
+    const active = bar?.querySelector(".tab.active");
+    if (bar && active) {
+      const target = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
+      bar.scrollLeft = Math.max(0, target);
+    }
+  };
   useEffect(() => {
-    // Double requestAnimationFrame : on attend que la mise en page soit bien stabilisée
-    // avant de calculer le défilement (scrollIntoView seul est peu fiable sur mobile ici).
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const bar = tabsBarRef.current;
-        const active = bar?.querySelector(".tab.active");
-        if (bar && active) {
-          const target = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
-          bar.scrollLeft = Math.max(0, target);
-        }
-      });
-    });
+    requestAnimationFrame(() => requestAnimationFrame(scrollActiveTabIntoView));
   }, [tab]);
+  // Les badges (compteurs) arrivent après le chargement des données et changent la largeur
+  // des onglets — on recalcule donc aussi à chaque fois que la barre change de taille.
+  useEffect(() => {
+    const bar = tabsBarRef.current;
+    if (!bar || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => scrollActiveTabIntoView());
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: client.latitude ?? null, longitude: client.longitude ?? null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
   const [sentPayRequest, setSentPayRequest] = useState(false);
@@ -2540,20 +2552,26 @@ export default function AlerteClientWifi() {
     localStorage.setItem("apespot-admin-tab", tab);
   }, [tab]);
   const tabsBarRef = useRef(null);
+  const scrollActiveTabIntoView = () => {
+    const bar = tabsBarRef.current;
+    const active = bar?.querySelector(".tab.active");
+    if (bar && active) {
+      const target = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
+      bar.scrollLeft = Math.max(0, target);
+    }
+  };
   useEffect(() => {
-    // Double requestAnimationFrame : on attend que la mise en page soit bien stabilisée
-    // avant de calculer le défilement (scrollIntoView seul est peu fiable sur mobile ici).
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const bar = tabsBarRef.current;
-        const active = bar?.querySelector(".tab.active");
-        if (bar && active) {
-          const target = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
-          bar.scrollLeft = Math.max(0, target);
-        }
-      });
-    });
+    requestAnimationFrame(() => requestAnimationFrame(scrollActiveTabIntoView));
   }, [tab]);
+  // Les badges (compteurs) arrivent après le chargement des données et changent la largeur
+  // des onglets — on recalcule donc aussi à chaque fois que la barre change de taille.
+  useEffect(() => {
+    const bar = tabsBarRef.current;
+    if (!bar || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => scrollActiveTabIntoView());
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
 
   const [clients, setClients] = useState([]);
   const [payments, setPayments] = useState([]);
