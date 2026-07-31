@@ -1065,6 +1065,32 @@ function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveCl
           <input placeholder="Ex: Serveur 1" value={clientModal.serveur || ""} onChange={(e) => setClientModal({ ...clientModal, serveur: e.target.value })} />
         </div>
         <div className="field">
+          <label>Position</label>
+          {clientModal.latitude != null ? (
+            <div style={{ fontSize: 12, color: "var(--green)", marginBottom: 8 }}>
+              ✓ Position enregistrée ({clientModal.latitude.toFixed(5)}, {clientModal.longitude.toFixed(5)})
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: "var(--amber)", marginBottom: 8 }}>
+              Aucune position enregistrée pour ce client.
+            </div>
+          )}
+          <button
+            type="button"
+            className="btn-cancel"
+            onClick={() => {
+              if (!navigator.geolocation) return;
+              navigator.geolocation.getCurrentPosition(
+                (pos) => setClientModal((m) => ({ ...m, latitude: pos.coords.latitude, longitude: pos.coords.longitude })),
+                () => {},
+                { enableHighAccuracy: true, timeout: 10000 }
+              );
+            }}
+          >
+            📍 {clientModal.latitude != null ? "Mettre à jour ma position actuelle" : "Capturer ma position actuelle"}
+          </button>
+        </div>
+        <div className="field">
           <label>Date d'expiration</label>
           <DatePickerInput value={clientModal.dateExp} onChange={(e) => setClientModal({ ...clientModal, dateExp: e.target.value })} />
         </div>
@@ -1262,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V4.1</span>
+          <span className="app-version-badge">V4.2</span>
         </div>
 
         {!selected && (
@@ -3140,18 +3166,18 @@ export default function AlerteClientWifi() {
     return clients.find((c) => c.nom.trim().toLowerCase() === t) || null;
   };
 
-  const openAddClient = () => setClientModal({ editingId: null, nom: "", offre: "", telephone: "", serveur: "", dateExp: "", accessCode: "" });
+  const openAddClient = () => setClientModal({ editingId: null, nom: "", offre: "", telephone: "", serveur: "", dateExp: "", accessCode: "", latitude: null, longitude: null });
   const openEditClient = (c) =>
-    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", serveur: c.serveur || "", dateExp: c.dateExp || "", accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || ""), previousDateExp: c.previousDateExp || null, renewedAt: c.renewedAt || null });
+    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", serveur: c.serveur || "", dateExp: c.dateExp || "", accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || ""), latitude: c.latitude ?? null, longitude: c.longitude ?? null, previousDateExp: c.previousDateExp || null, renewedAt: c.renewedAt || null });
   const closeClientModal = () => setClientModal(null);
 
   const saveClientModal = async () => {
     if (busySaveClient) return;
-    const { editingId, nom, offre, telephone, serveur, dateExp, accessCode } = clientModal;
+    const { editingId, nom, offre, telephone, serveur, dateExp, accessCode, latitude, longitude } = clientModal;
     if (editingId && !isPrincipalAdmin) return showToast("Seul l'administrateur principal peut modifier un client.");
     if (!nom.trim()) return showToast("Le nom du client est requis.");
     setBusySaveClient(true);
-    const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), serveur: (serveur || "").trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase(), previousDateExp: clientModal.previousDateExp || null, renewedAt: clientModal.renewedAt || null };
+    const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), serveur: (serveur || "").trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase(), latitude: latitude ?? null, longitude: longitude ?? null, previousDateExp: clientModal.previousDateExp || null, renewedAt: clientModal.renewedAt || null };
     try {
       if (editingId) {
         if (SUPABASE_CONFIGURED) await updateClientRow(editingId, payload);
