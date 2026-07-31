@@ -1,6 +1,8 @@
 // api/send-daily-reminder.js
-// Fonction serveur Vercel — envoie la notification quotidienne de 8h à tous les appareils abonnés.
-// Déclenchée automatiquement par vercel.json (cron), une fois par jour.
+// Fonction serveur Vercel — envoie une notification à tous les appareils abonnés.
+// - Déclenchée automatiquement par vercel.json (cron), une fois par jour à 8h (GET, message par défaut).
+// - Peut aussi être déclenchée manuellement par l'administrateur principal (POST, message personnalisé,
+//   protégé par un code secret pour éviter tout envoi non autorisé).
 
 import webpush from "web-push";
 
@@ -8,11 +10,27 @@ const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const ADMIN_NOTIFY_SECRET = process.env.ADMIN_NOTIFY_SECRET;
 
 export default async (req, res) => {
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
     res.status(500).json({ ok: false, error: "Variables d'environnement manquantes sur Vercel." });
     return;
+  }
+
+  let title = "APESPOT WI-FI";
+  let body = "N'oublie pas de consulter l'application aujourd'hui.";
+
+  // Envoi manuel (bouton "Envoyer maintenant" côté admin principal) : nécessite le code secret,
+  // et permet un message personnalisé. L'envoi automatique (cron, GET) garde le message par défaut.
+  if (req.method === "POST") {
+    const provided = req.headers["x-admin-secret"];
+    if (!ADMIN_NOTIFY_SECRET || provided !== ADMIN_NOTIFY_SECRET) {
+      res.status(401).json({ ok: false, error: "Non autorisé." });
+      return;
+    }
+    if (req.body && req.body.title) title = String(req.body.title).slice(0, 100);
+    if (req.body && req.body.body) body = String(req.body.body).slice(0, 500);
   }
 
   webpush.setVapidDetails("mailto:contact@apespot-wifi.local", VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
@@ -23,11 +41,7 @@ export default async (req, res) => {
     });
     const subs = await listRes.json();
 
-    const payload = JSON.stringify({
-      title: "APESPOT WI-FI",
-      body: "N'oublie pas de consulter l'application aujourd'hui.",
-      url: "/",
-    });
+    const payload = JSON.stringify({ title, body, url: "/" });
 
     const results = await Promise.allSettled(
       (subs || []).map(async (s) => {
