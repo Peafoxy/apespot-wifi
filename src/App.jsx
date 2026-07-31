@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V4.2</span>
+          <span className="app-version-badge">V4.3</span>
         </div>
 
         {!selected && (
@@ -1339,7 +1339,10 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 // -------------------- Technicien view --------------------
 
 function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint }) {
-  const [tab, setTab] = useState("complaints");
+  const [tab, setTab] = useState(() => localStorage.getItem("apespot-tech-tab") || "complaints");
+  useEffect(() => {
+    localStorage.setItem("apespot-tech-tab", tab);
+  }, [tab]);
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
   const [clientFilter, setClientFilter] = useState("ALL");
@@ -1828,7 +1831,10 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 // -------------------- Client view --------------------
 
 function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onMarkMessagesRead, onSaveClientLocation, onLogout, sessionWarningSeconds, onStayConnected }) {
-  const [tab, setTab] = useState("home");
+  const [tab, setTab] = useState(() => localStorage.getItem(`apespot-client-tab-${client.id}`) || "home");
+  useEffect(() => {
+    localStorage.setItem(`apespot-client-tab-${client.id}`, tab);
+  }, [tab, client.id]);
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: client.latitude ?? null, longitude: client.longitude ?? null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
   const [sentPayRequest, setSentPayRequest] = useState(false);
@@ -2499,7 +2505,10 @@ export default function AlerteClientWifi() {
   const lastActivityRef = useRef(Date.now());
   const [sessionWarningSeconds, setSessionWarningSeconds] = useState(0); // > 0 = avertissement affiché
 
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState(() => localStorage.getItem("apespot-admin-tab") || "dashboard");
+  useEffect(() => {
+    localStorage.setItem("apespot-admin-tab", tab);
+  }, [tab]);
 
   const [clients, setClients] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -3049,6 +3058,9 @@ export default function AlerteClientWifi() {
     return earliest?.id || null;
   }, [users]);
   const isPrincipalAdmin = authUser && authUser.id === principalAdminId;
+  useEffect(() => {
+    if (tab === "notify" && !isPrincipalAdmin) setTab("dashboard");
+  }, [tab, isPrincipalAdmin]);
   const canModifyEntry = (createdAt) => isPrincipalAdmin || (createdAt && Date.now() - new Date(createdAt).getTime() < 24 * 60 * 60 * 1000);
   const RENEW_COOLDOWN_MS = 60 * 60 * 1000; // 1h avant de pouvoir réabonner à nouveau (sauf admin principal)
   const canRenewClient = (client) => isPrincipalAdmin || !client.renewedAt || Date.now() - new Date(client.renewedAt).getTime() >= RENEW_COOLDOWN_MS;
