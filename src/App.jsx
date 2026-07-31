@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V4.8</span>
+          <span className="app-version-badge">V4.7</span>
         </div>
 
         {!selected && (
@@ -1496,6 +1496,22 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         </div>
       )}
 
+      <select
+        className="tabs-mobile-select"
+        value={tab}
+        onChange={(e) => {
+          const v = e.target.value;
+          setTab(v);
+          if (v === "complaints") onMarkComplaintsRead();
+          if (v === "messages") setActiveThreadClient(null);
+        }}
+      >
+        <option value="complaints">Réclamations{newComplaintsCount > 0 ? ` (${newComplaintsCount})` : ""}</option>
+        <option value="messages">Messages{unansweredThreadsCount > 0 ? ` (${unansweredThreadsCount})` : ""}</option>
+        <option value="tickets">Tickets{pendingTicketRequests.length > 0 ? ` (${pendingTicketRequests.length})` : ""}</option>
+        <option value="clients">Clients</option>
+        <option value="money">Mon argent</option>
+      </select>
       <div className="tabs" ref={tabsBarRef}>
         <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => { setTab("complaints"); onMarkComplaintsRead(); }}>
           Réclamations{newComplaintsCount > 0 && <span className="tab-badge">{newComplaintsCount}</span>}
@@ -2095,6 +2111,19 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
         </div>
       )}
 
+      <select
+        className="tabs-mobile-select"
+        value={tab}
+        onChange={(e) => {
+          const v = e.target.value;
+          setTab(v);
+          if (v === "messages" && unreadMessagesCount > 0) onMarkMessagesRead(freshClient.id, freshClient.nom);
+        }}
+      >
+        <option value="home">Mon compte</option>
+        <option value="messages">Message{unreadMessagesCount > 0 ? ` (${unreadMessagesCount})` : ""}</option>
+        <option value="tickets">Ticket{myTicketRequests.some((r) => r.status === "ready") ? " (1)" : ""}</option>
+      </select>
       <div className="tabs" ref={tabsBarRef}>
         <button className={`tab ${tab === "home" ? "active" : ""}`} onClick={() => setTab("home")}>Mon compte</button>
         <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); if (unreadMessagesCount > 0) onMarkMessagesRead(freshClient.id, freshClient.nom); }}>
@@ -4778,6 +4807,27 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
+      <select
+        className="tabs-mobile-select"
+        value={tab}
+        onChange={(e) => {
+          const v = e.target.value;
+          setTab(v);
+          if (v === "complaints") markComplaintsReadHandler();
+          if (v === "messages") setActiveThreadClient(null);
+        }}
+      >
+        <option value="dashboard">Tableau de bord</option>
+        <option value="alerts">Alertes WiFi</option>
+        <option value="payments">Paiements{pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ""}</option>
+        <option value="complaints">Réclamations{newComplaintsCount > 0 ? ` (${newComplaintsCount})` : ""}</option>
+        <option value="messages">Messages{unansweredThreadsCount > 0 ? ` (${unansweredThreadsCount})` : ""}</option>
+        <option value="tickets">Tickets{pendingTicketRequests.length > 0 ? ` (${pendingTicketRequests.length})` : ""}</option>
+        <option value="fuel">Dépenses{(unpaidFuelCount + unpaidPerdiemCount) > 0 ? ` (${unpaidFuelCount + unpaidPerdiemCount})` : ""}</option>
+        <option value="users">Utilisateurs</option>
+        <option value="money">Mon argent</option>
+        {isPrincipalAdmin && <option value="notify">📢 Notifications</option>}
+      </select>
       <div className="tabs" ref={tabsBarRef}>
         <button className={`tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>
           Tableau de bord
@@ -6567,9 +6617,8 @@ const CSS = `
   .wifi-app .stats{grid-template-columns:repeat(2,1fr);}
   .wifi-app .reminder-btn-mobile{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;padding:6px 10px;font-size:16px;}
   .wifi-app .reminder-btn-desktop{display:none;}
-  .wifi-app .tabs{flex-wrap:wrap;overflow-x:visible;border-bottom:none;gap:6px;}
-  .wifi-app .tabs .tab{flex:0 0 auto;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12px;}
-  .wifi-app .tabs .tab.active{border-color:var(--cyan);background:var(--cyan-dim);}
+  .wifi-app .tabs-mobile-select{display:block;width:100%;margin-bottom:18px;padding:12px 14px;border-radius:10px;border:2px solid #6B7C99;background:#2C3B52;color:#FFFFFF;font-size:14px;font-weight:700;font-family:var(--sans);}
+  .wifi-app .tabs{display:none;}
 }
 
 /* LOGIN SCREEN */
