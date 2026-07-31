@@ -1262,7 +1262,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V3.8</span>
+          <span className="app-version-badge">V3.9</span>
         </div>
 
         {!selected && (
@@ -2770,7 +2770,7 @@ export default function AlerteClientWifi() {
   const [expenseLineModal, setExpenseLineModal] = useState(null); // null | { editingId, nom, montant, dateExp, note }
   const [renewConfirmModal, setRenewConfirmModal] = useState(null); // null | { client, previewDate }
   const [bonusStep, setBonusStep] = useState(null); // null | "unit" | { unit }
-  const [broadcastModal, setBroadcastModal] = useState(null); // null | { title, body }
+  const [broadcastModal, setBroadcastModal] = useState({ title: "APESPOT WI-FI", body: "" });
   const [busyBroadcast, setBusyBroadcast] = useState(false);
   const sendBroadcastNotification = async () => {
     if (busyBroadcast) return;
@@ -2784,7 +2784,7 @@ export default function AlerteClientWifi() {
       const data = await res.json();
       if (data.ok) {
         showToast(`Notification envoyée à ${data.sent}/${data.total} appareil(s).`);
-        setBroadcastModal(null);
+        setBroadcastModal((m) => ({ ...m, body: "" }));
       } else {
         showToast("Erreur : " + (data.error || "envoi impossible."));
       }
@@ -4648,9 +4648,6 @@ export default function AlerteClientWifi() {
             {today.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
           </span>
           <button className="logout-link logout-inline reminder-btn-desktop" onClick={async () => { const r = await subscribeToDailyReminder(authUser); showToast(r.message); }}>🔔 Rappels</button>
-          {isPrincipalAdmin && (
-            <button className="logout-link logout-inline" onClick={() => setBroadcastModal({ title: "APESPOT WI-FI", body: "" })}>📢 Envoyer à tous</button>
-          )}
           <button className="logout-link logout-inline" onClick={handleLogout}>Déconnexion</button>
         </div>
       </header>
@@ -4690,6 +4687,11 @@ export default function AlerteClientWifi() {
         <button className={`tab ${tab === "money" ? "active" : ""}`} onClick={() => setTab("money")}>
           Mon argent
         </button>
+        {isPrincipalAdmin && (
+          <button className={`tab ${tab === "notify" ? "active" : ""}`} onClick={() => setTab("notify")}>
+            📢 Notifications
+          </button>
+        )}
       </div>
 
       {tab === "dashboard" && (
@@ -5644,6 +5646,28 @@ export default function AlerteClientWifi() {
         <MonArgentView authUser={authUser} fuelExpenses={fuelExpenses} perdiemExpenses={perdiemExpenses} />
       )}
 
+      {tab === "notify" && isPrincipalAdmin && (
+        <div className="view active">
+          <div className="chart-card">
+            <div className="ctitle">ENVOYER UNE NOTIFICATION À TOUS</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginBottom: 14 }}>
+              Envoyée immédiatement à tous les appareils ayant activé "🔔 Rappels" — le rappel automatique de 8h continue de tourner normalement, sans lien avec ceci.
+            </div>
+            <div className="field">
+              <label>Titre</label>
+              <input value={broadcastModal.title} onChange={(e) => setBroadcastModal({ ...broadcastModal, title: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>Message</label>
+              <textarea rows={4} placeholder="Ex: Maintenance prévue ce soir de 22h à 23h." value={broadcastModal.body} onChange={(e) => setBroadcastModal({ ...broadcastModal, body: e.target.value })} />
+            </div>
+            <button className="btn-add" disabled={busyBroadcast || !broadcastModal.body.trim()} onClick={sendBroadcastNotification}>
+              {busyBroadcast ? "Envoi..." : "Envoyer à tous"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {userModal && (
         <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && closeUserModal()}>
           <div className="modal">
@@ -5893,28 +5917,6 @@ export default function AlerteClientWifi() {
       {/* ---- Client modal ---- */}
       <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
 
-      {broadcastModal && (
-        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setBroadcastModal(null)}>
-          <div className="modal">
-            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Envoyer une notification à tous</h2>
-            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginBottom: 14 }}>
-              Envoyée immédiatement à tous les appareils ayant activé "🔔 Rappels" — le rappel automatique de 8h continue de tourner normalement, sans lien avec ceci.
-            </div>
-            <div className="field">
-              <label>Titre</label>
-              <input value={broadcastModal.title} onChange={(e) => setBroadcastModal({ ...broadcastModal, title: e.target.value })} />
-            </div>
-            <div className="field">
-              <label>Message</label>
-              <textarea rows={3} placeholder="Ex: Maintenance prévue ce soir de 22h à 23h." value={broadcastModal.body} onChange={(e) => setBroadcastModal({ ...broadcastModal, body: e.target.value })} />
-            </div>
-            <div className="modal-actions">
-              <button className="btn-cancel" onClick={() => setBroadcastModal(null)}>Annuler</button>
-              <button className="btn-save" disabled={busyBroadcast || !broadcastModal.body.trim()} onClick={sendBroadcastNotification}>{busyBroadcast ? "Envoi..." : "Envoyer"}</button>
-            </div>
-          </div>
-        </div>
-      )}
       <NewComplaintModal newComplaintModal={newComplaintModal} setNewComplaintModal={setNewComplaintModal} clients={clients} saveNewComplaint={saveNewComplaint} />
 
       {/* ---- Payment modal ---- */}
