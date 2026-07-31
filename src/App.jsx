@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V4.3</span>
+          <span className="app-version-badge">V4.4</span>
         </div>
 
         {!selected && (
@@ -1342,6 +1342,11 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-tech-tab") || "complaints");
   useEffect(() => {
     localStorage.setItem("apespot-tech-tab", tab);
+  }, [tab]);
+  const tabsBarRef = useRef(null);
+  useEffect(() => {
+    const active = tabsBarRef.current?.querySelector(".tab.active");
+    if (active) active.scrollIntoView({ inline: "center", block: "nearest" });
   }, [tab]);
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
@@ -1475,7 +1480,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         </div>
       )}
 
-      <div className="tabs">
+      <div className="tabs" ref={tabsBarRef}>
         <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => { setTab("complaints"); onMarkComplaintsRead(); }}>
           Réclamations{newComplaintsCount > 0 && <span className="tab-badge">{newComplaintsCount}</span>}
         </button>
@@ -1835,6 +1840,11 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   useEffect(() => {
     localStorage.setItem(`apespot-client-tab-${client.id}`, tab);
   }, [tab, client.id]);
+  const tabsBarRef = useRef(null);
+  useEffect(() => {
+    const active = tabsBarRef.current?.querySelector(".tab.active");
+    if (active) active.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [tab]);
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: client.latitude ?? null, longitude: client.longitude ?? null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
   const [sentPayRequest, setSentPayRequest] = useState(false);
@@ -2053,7 +2063,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
         </div>
       )}
 
-      <div className="tabs">
+      <div className="tabs" ref={tabsBarRef}>
         <button className={`tab ${tab === "home" ? "active" : ""}`} onClick={() => setTab("home")}>Mon compte</button>
         <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); if (unreadMessagesCount > 0) onMarkMessagesRead(freshClient.id, freshClient.nom); }}>
           Message{unreadMessagesCount > 0 && <span className="tab-badge">{unreadMessagesCount}</span>}
@@ -2508,6 +2518,11 @@ export default function AlerteClientWifi() {
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-admin-tab") || "dashboard");
   useEffect(() => {
     localStorage.setItem("apespot-admin-tab", tab);
+  }, [tab]);
+  const tabsBarRef = useRef(null);
+  useEffect(() => {
+    const active = tabsBarRef.current?.querySelector(".tab.active");
+    if (active) active.scrollIntoView({ inline: "center", block: "nearest" });
   }, [tab]);
 
   const [clients, setClients] = useState([]);
@@ -4715,7 +4730,7 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
-      <div className="tabs">
+      <div className="tabs" ref={tabsBarRef}>
         <button className={`tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>
           Tableau de bord
         </button>
