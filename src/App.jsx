@@ -378,6 +378,22 @@ function computeRenewedExpiration(currentDateExp) {
   return addOneMonthClamped(base);
 }
 
+// Même règle, mais pour un paiement soumis via l'application : si l'abonnement était déjà
+// expiré, on part de la date de SOUMISSION de la demande (pas du jour où l'admin la valide,
+// qui peut être plus tardif).
+function computeRenewedExpirationFromRequest(currentDateExp, requestCreatedAt) {
+  const requestDateStr = requestCreatedAt ? requestCreatedAt.slice(0, 10) : null;
+  if (!currentDateExp) return addOneMonthClamped(requestDateStr || computeRenewedExpiration(null));
+  const { statut } = computeStatus(currentDateExp);
+  if (statut !== "EXPIRE") return addOneMonthClamped(currentDateExp);
+  const base = requestDateStr || (() => {
+    const t = todayMidnight();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  })();
+  return addOneMonthClamped(base);
+}
+
 // Recule une date d'un jour (format YYYY-MM-DD).
 function subtractOneDay(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
@@ -1245,7 +1261,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V3.3</span>
+          <span className="app-version-badge">V3.7</span>
         </div>
 
         {!selected && (
@@ -3315,7 +3331,7 @@ export default function AlerteClientWifi() {
     setPaymentModal((pm) => {
       if (!pm) return pm;
       const c = findClientByName(nom);
-      return { ...pm, clientNom: nom, newExpiration: c && c.dateExp ? c.dateExp : pm.newExpiration };
+      return { ...pm, clientNom: nom, newExpiration: c ? computeRenewedExpiration(c.dateExp) : pm.newExpiration };
     });
   };
 
@@ -4344,7 +4360,7 @@ export default function AlerteClientWifi() {
       montant: req.montant,
       mode: req.mode,
       date: new Date().toISOString().slice(0, 10),
-      newExpiration: c && c.dateExp ? c.dateExp : "",
+      newExpiration: c ? computeRenewedExpirationFromRequest(c.dateExp, req.createdAt) : "",
       note: req.note || "",
     });
   };
@@ -4817,6 +4833,7 @@ export default function AlerteClientWifi() {
                   <div>
                     <div className="request-client">{r.clientNom}</div>
                     <div className="request-meta">{fmtFCFA(r.montant)} · {r.mode}{(r.mode === "Flooz" || r.mode === "Mix by Yas") && r.note ? ` · Réf: ${r.note}` : ""}</div>
+                    <div className="request-date">{r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}</div>
                   </div>
                   <div className="request-actions">
                     <button className="row-action-btn del" style={{ padding: "8px 12px" }} onClick={() => rejectPaymentRequest(r)}>Refuser</button>
@@ -6435,6 +6452,7 @@ const CSS = `
 .wifi-app .request-row:first-of-type{border-top:none;}
 .wifi-app .request-client{font-weight:700;font-size:13.5px;}
 .wifi-app .request-meta{font-size:11.5px;color:var(--text-dim);margin-top:2px;font-family:var(--mono);}
+.wifi-app .request-date{font-size:10.5px;color:var(--text-faint);margin-top:2px;}
 .wifi-app .request-actions{display:flex;gap:8px;}
 .wifi-app .button-row{display:flex;gap:10px;margin-bottom:16px;}
 .wifi-app .call-reminder{background:var(--green-dim);border:1px solid var(--green);color:var(--green);padding:11px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px;line-height:1.4;}

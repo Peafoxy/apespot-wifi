@@ -2,14 +2,14 @@
 // Fonction serveur Vercel — envoie la notification quotidienne de 8h à tous les appareils abonnés.
 // Déclenchée automatiquement par vercel.json (cron), une fois par jour.
 
-const webpush = require("web-push");
+import webpush from "web-push";
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
     res.status(500).json({ ok: false, error: "Variables d'environnement manquantes sur Vercel." });
     return;
