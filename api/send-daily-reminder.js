@@ -20,9 +20,10 @@ export default async (req, res) => {
 
   let title = "APESPOT WI-FI";
   let body = "N'oublie pas de consulter l'application aujourd'hui.";
+  let audience = "all"; // all | admin | technicien
 
-  // Envoi manuel (bouton "Envoyer maintenant" côté admin principal) : nécessite le code secret,
-  // et permet un message personnalisé. L'envoi automatique (cron, GET) garde le message par défaut.
+  // Envoi manuel ou déclenché par un événement de l'app (nouvelle réclamation, nouveau paiement...) :
+  // nécessite le code secret, permet un message personnalisé et un public restreint.
   if (req.method === "POST") {
     const provided = req.headers["x-admin-secret"];
     if (!ADMIN_NOTIFY_SECRET || provided !== ADMIN_NOTIFY_SECRET) {
@@ -31,6 +32,9 @@ export default async (req, res) => {
     }
     if (req.body && req.body.title) title = String(req.body.title).slice(0, 100);
     if (req.body && req.body.body) body = String(req.body.body).slice(0, 500);
+    if (req.body && (req.body.audience === "admin" || req.body.audience === "technicien")) {
+      audience = req.body.audience;
+    }
   }
 
   webpush.setVapidDetails("mailto:contact@apespot-wifi.local", VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
@@ -39,7 +43,10 @@ export default async (req, res) => {
     const listRes = await fetch(`${SUPABASE_URL}/rest/v1/wifi_push_subscriptions?select=*`, {
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
     });
-    const subs = await listRes.json();
+    let subs = await listRes.json();
+    if (audience !== "all") {
+      subs = (subs || []).filter((s) => s.role === audience);
+    }
 
     const payload = JSON.stringify({ title, body, url: "/" });
 

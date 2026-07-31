@@ -1262,7 +1262,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V3.9</span>
+          <span className="app-version-badge">V4.0</span>
         </div>
 
         {!selected && (
@@ -3635,6 +3635,16 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // Notification silencieuse déclenchée par un événement (nouvelle réclamation, nouveau paiement...).
+  // N'échoue jamais bruyamment : une erreur ici ne doit jamais bloquer l'action principale de l'utilisateur.
+  const notifyStaff = (audience, title, body) => {
+    fetch("/api/send-daily-reminder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-secret": ADMIN_NOTIFY_SECRET },
+      body: JSON.stringify({ title, body, audience }),
+    }).catch((e) => console.error("Erreur notification :", e));
+  };
+
   const addComplaintHandler = async (complaintData) => {
     const payload = { ...complaintData, status: "nouveau", read: false };
     try {
@@ -3642,6 +3652,7 @@ export default function AlerteClientWifi() {
         ? await insertComplaintRow(payload)
         : { id: uid(), ...payload, createdAt: new Date().toISOString() };
       setComplaints((cs) => [created, ...cs]);
+      notifyStaff("all", "Nouvelle réclamation", `${complaintData.clientNom} — ${complaintData.reason}`);
       return true;
     } catch (e) {
       console.error(e);
@@ -4369,6 +4380,7 @@ export default function AlerteClientWifi() {
         ? await insertPaymentRequestRow(payload)
         : { id: uid(), ...payload, createdAt: new Date().toISOString() };
       setPaymentRequests((rs) => [created, ...rs]);
+      notifyStaff("admin", "Nouvelle demande de paiement", `${clientNom} — ${fmtFCFA(Number(montant))} (${mode})`);
       return true;
     } catch (e) {
       console.error(e);
