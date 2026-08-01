@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V4.7</span>
+          <span className="app-version-badge">V4.9</span>
         </div>
 
         {!selected && (
@@ -1343,27 +1343,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   useEffect(() => {
     localStorage.setItem("apespot-tech-tab", tab);
   }, [tab]);
-  const tabsBarRef = useRef(null);
-  const scrollActiveTabIntoView = () => {
-    const bar = tabsBarRef.current;
-    const active = bar?.querySelector(".tab.active");
-    if (bar && active) {
-      const target = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
-      bar.scrollLeft = Math.max(0, target);
-    }
-  };
-  useEffect(() => {
-    requestAnimationFrame(() => requestAnimationFrame(scrollActiveTabIntoView));
-  }, [tab]);
-  // Les badges (compteurs) arrivent après le chargement des données et changent la largeur
-  // des onglets — on recalcule donc aussi à chaque fois que la barre change de taille.
-  useEffect(() => {
-    const bar = tabsBarRef.current;
-    if (!bar || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => scrollActiveTabIntoView());
-    ro.observe(bar);
-    return () => ro.disconnect();
-  }, []);
+
   const [activeThreadClient, setActiveThreadClient] = useState(null);
   const [replyText, setReplyText] = useState("");
   const [clientFilter, setClientFilter] = useState("ALL");
@@ -1496,23 +1476,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         </div>
       )}
 
-      <select
-        className="tabs-mobile-select"
-        value={tab}
-        onChange={(e) => {
-          const v = e.target.value;
-          setTab(v);
-          if (v === "complaints") onMarkComplaintsRead();
-          if (v === "messages") setActiveThreadClient(null);
-        }}
-      >
-        <option value="complaints">Réclamations{newComplaintsCount > 0 ? ` (${newComplaintsCount})` : ""}</option>
-        <option value="messages">Messages{unansweredThreadsCount > 0 ? ` (${unansweredThreadsCount})` : ""}</option>
-        <option value="tickets">Tickets{pendingTicketRequests.length > 0 ? ` (${pendingTicketRequests.length})` : ""}</option>
-        <option value="clients">Clients</option>
-        <option value="money">Mon argent</option>
-      </select>
-      <div className="tabs" ref={tabsBarRef}>
+      <div className="tabs">
         <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => { setTab("complaints"); onMarkComplaintsRead(); }}>
           Réclamations{newComplaintsCount > 0 && <span className="tab-badge">{newComplaintsCount}</span>}
         </button>
@@ -1872,27 +1836,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   useEffect(() => {
     localStorage.setItem(`apespot-client-tab-${client.id}`, tab);
   }, [tab, client.id]);
-  const tabsBarRef = useRef(null);
-  const scrollActiveTabIntoView = () => {
-    const bar = tabsBarRef.current;
-    const active = bar?.querySelector(".tab.active");
-    if (bar && active) {
-      const target = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
-      bar.scrollLeft = Math.max(0, target);
-    }
-  };
-  useEffect(() => {
-    requestAnimationFrame(() => requestAnimationFrame(scrollActiveTabIntoView));
-  }, [tab]);
-  // Les badges (compteurs) arrivent après le chargement des données et changent la largeur
-  // des onglets — on recalcule donc aussi à chaque fois que la barre change de taille.
-  useEffect(() => {
-    const bar = tabsBarRef.current;
-    if (!bar || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => scrollActiveTabIntoView());
-    ro.observe(bar);
-    return () => ro.disconnect();
-  }, []);
+
   const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: client.latitude ?? null, longitude: client.longitude ?? null });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
   const [sentPayRequest, setSentPayRequest] = useState(false);
@@ -2111,20 +2055,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
         </div>
       )}
 
-      <select
-        className="tabs-mobile-select"
-        value={tab}
-        onChange={(e) => {
-          const v = e.target.value;
-          setTab(v);
-          if (v === "messages" && unreadMessagesCount > 0) onMarkMessagesRead(freshClient.id, freshClient.nom);
-        }}
-      >
-        <option value="home">Mon compte</option>
-        <option value="messages">Message{unreadMessagesCount > 0 ? ` (${unreadMessagesCount})` : ""}</option>
-        <option value="tickets">Ticket{myTicketRequests.some((r) => r.status === "ready") ? " (1)" : ""}</option>
-      </select>
-      <div className="tabs" ref={tabsBarRef}>
+      <div className="tabs">
         <button className={`tab ${tab === "home" ? "active" : ""}`} onClick={() => setTab("home")}>Mon compte</button>
         <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); if (unreadMessagesCount > 0) onMarkMessagesRead(freshClient.id, freshClient.nom); }}>
           Message{unreadMessagesCount > 0 && <span className="tab-badge">{unreadMessagesCount}</span>}
@@ -2580,27 +2511,7 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     localStorage.setItem("apespot-admin-tab", tab);
   }, [tab]);
-  const tabsBarRef = useRef(null);
-  const scrollActiveTabIntoView = () => {
-    const bar = tabsBarRef.current;
-    const active = bar?.querySelector(".tab.active");
-    if (bar && active) {
-      const target = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
-      bar.scrollLeft = Math.max(0, target);
-    }
-  };
-  useEffect(() => {
-    requestAnimationFrame(() => requestAnimationFrame(scrollActiveTabIntoView));
-  }, [tab]);
-  // Les badges (compteurs) arrivent après le chargement des données et changent la largeur
-  // des onglets — on recalcule donc aussi à chaque fois que la barre change de taille.
-  useEffect(() => {
-    const bar = tabsBarRef.current;
-    if (!bar || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => scrollActiveTabIntoView());
-    ro.observe(bar);
-    return () => ro.disconnect();
-  }, []);
+
 
   const [clients, setClients] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -4807,28 +4718,7 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
-      <select
-        className="tabs-mobile-select"
-        value={tab}
-        onChange={(e) => {
-          const v = e.target.value;
-          setTab(v);
-          if (v === "complaints") markComplaintsReadHandler();
-          if (v === "messages") setActiveThreadClient(null);
-        }}
-      >
-        <option value="dashboard">Tableau de bord</option>
-        <option value="alerts">Alertes WiFi</option>
-        <option value="payments">Paiements{pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ""}</option>
-        <option value="complaints">Réclamations{newComplaintsCount > 0 ? ` (${newComplaintsCount})` : ""}</option>
-        <option value="messages">Messages{unansweredThreadsCount > 0 ? ` (${unansweredThreadsCount})` : ""}</option>
-        <option value="tickets">Tickets{pendingTicketRequests.length > 0 ? ` (${pendingTicketRequests.length})` : ""}</option>
-        <option value="fuel">Dépenses{(unpaidFuelCount + unpaidPerdiemCount) > 0 ? ` (${unpaidFuelCount + unpaidPerdiemCount})` : ""}</option>
-        <option value="users">Utilisateurs</option>
-        <option value="money">Mon argent</option>
-        {isPrincipalAdmin && <option value="notify">📢 Notifications</option>}
-      </select>
-      <div className="tabs" ref={tabsBarRef}>
+      <div className="tabs">
         <button className={`tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>
           Tableau de bord
         </button>
@@ -6436,7 +6326,7 @@ const CSS = `
 .wifi-app .today-box{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);}
 .wifi-app .today-box .label{font-size:12px;color:#FFD400;letter-spacing:1px;text-transform:uppercase;font-weight:700;order:-1;}
 .wifi-app .today-box .val{font-size:16px;color:var(--cyan);font-weight:600;}
-.wifi-app .tabs{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.wifi-app .tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);}
 .wifi-app .tabs::-webkit-scrollbar{display:none;}
 .wifi-app .tab{padding:10px 12px;margin-bottom:-1px;background:none;border:none;color:var(--text-faint);font-size:13.5px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);}
@@ -6617,8 +6507,9 @@ const CSS = `
   .wifi-app .stats{grid-template-columns:repeat(2,1fr);}
   .wifi-app .reminder-btn-mobile{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;padding:6px 10px;font-size:16px;}
   .wifi-app .reminder-btn-desktop{display:none;}
-  .wifi-app .tabs-mobile-select{display:block;width:100%;margin-bottom:18px;padding:12px 14px;border-radius:10px;border:2px solid #6B7C99;background:#2C3B52;color:#FFFFFF;font-size:14px;font-weight:700;font-family:var(--sans);}
-  .wifi-app .tabs{display:none;}
+  .wifi-app .tabs{flex-wrap:wrap;overflow-x:visible;border-bottom:none;gap:6px;}
+  .wifi-app .tabs .tab{flex:0 0 auto;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12px;}
+  .wifi-app .tabs .tab.active{border-color:var(--cyan);background:var(--cyan-dim);}
 }
 
 /* LOGIN SCREEN */
