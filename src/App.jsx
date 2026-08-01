@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V4.9</span>
+          <span className="app-version-badge">V5.0</span>
         </div>
 
         {!selected && (
@@ -6326,9 +6326,9 @@ const CSS = `
 .wifi-app .today-box{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);}
 .wifi-app .today-box .label{font-size:12px;color:#FFD400;letter-spacing:1px;text-transform:uppercase;font-weight:700;order:-1;}
 .wifi-app .today-box .val{font-size:16px;color:var(--cyan);font-weight:600;}
-.wifi-app .tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);}
+.wifi-app .tabs{display:flex;flex-wrap:nowrap;gap:4px;margin-bottom:22px;border-bottom:1px solid var(--line);}
 .wifi-app .tabs::-webkit-scrollbar{display:none;}
-.wifi-app .tab{padding:10px 12px;margin-bottom:-1px;background:none;border:none;color:var(--text-faint);font-size:13.5px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
+.wifi-app .tab{padding:10px 6px;margin-bottom:-1px;background:none;border:none;color:var(--text-faint);font-size:13.5px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;}
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
 .wifi-app .session-warning{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--amber-dim);border:1px solid var(--amber);color:var(--amber);padding:10px 14px;border-radius:10px;font-size:12.5px;font-weight:600;margin-bottom:16px;}
@@ -6507,8 +6507,8 @@ const CSS = `
   .wifi-app .stats{grid-template-columns:repeat(2,1fr);}
   .wifi-app .reminder-btn-mobile{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;padding:6px 10px;font-size:16px;}
   .wifi-app .reminder-btn-desktop{display:none;}
-  .wifi-app .tabs{flex-wrap:wrap;overflow-x:visible;border-bottom:none;gap:6px;}
-  .wifi-app .tabs .tab{flex:0 0 auto;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12px;}
+  .wifi-app .tabs{flex-wrap:nowrap;border-bottom:none;gap:2px;}
+  .wifi-app .tabs .tab{flex:1 1 0;min-width:0;border:1px solid var(--line);border-radius:8px;padding:6px 3px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .wifi-app .tabs .tab.active{border-color:var(--cyan);background:var(--cyan-dim);}
 }
 
