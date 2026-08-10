@@ -1295,7 +1295,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V6.0</span>
+          <span className="app-version-badge">V6.1</span>
         </div>
 
         {!selected && (
@@ -6462,8 +6462,8 @@ const CSS = `
 .wifi-app .today-box .val{font-size:16px;color:var(--cyan);font-weight:600;}
 .wifi-app .tabs{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
 .wifi-app .tabs::-webkit-scrollbar{display:none;}
-.wifi-app .tab{padding:10px 12px;margin-bottom:-1px;background:none;border:none;color:var(--text-faint);font-size:13.5px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
-.wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);}
+.wifi-app .tab{padding:10px 12px;margin-bottom:-1px;background:none;border:none;color:var(--text-faint);font-size:13.5px;font-weight:800;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
+.wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);font-weight:800;}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
 .wifi-app .session-warning{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--amber-dim);border:1px solid var(--amber);color:var(--amber);padding:10px 14px;border-radius:10px;font-size:12.5px;font-weight:600;margin-bottom:16px;}
 .wifi-app .renew-confirm-box{background:var(--green-dim);border:1px solid var(--green);color:var(--green);padding:14px 16px;border-radius:10px;font-size:14px;font-weight:600;text-align:center;margin:16px 0;}
