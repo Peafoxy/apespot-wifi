@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V5.4</span>
+          <span className="app-version-badge">V5.6</span>
         </div>
 
         {!selected && (
@@ -2321,12 +2321,15 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                 </div>
 
                 {locConfirmOpen && (
-                  <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setLocConfirmOpen(false)}>
+                  <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setLocConfirmOpen(false)}>
                     <div className="modal">
-                      <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Es-tu chez toi, à côté de ton routeur ?</h2>
-                      <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 18 }}>
+                      <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Confirme ta position</h2>
+                      <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 14 }}>
                         Pour enregistrer ta localisation, rapproche-toi de ton routeur, là où le problème se pose.
                         Sinon, attends d'être à proximité de ton installation avant de l'enregistrer.
+                      </div>
+                      <div style={{ fontSize: 14, color: "#FFFFFF", fontWeight: 700, marginBottom: 18 }}>
+                        Es-tu chez toi, à côté de ton routeur ?
                       </div>
                       <div className="modal-actions">
                         <button
@@ -2352,7 +2355,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                   </div>
                 )}
                 {locThanksOpen && (
-                  <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setLocThanksOpen(false)}>
+                  <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setLocThanksOpen(false)}>
                     <div className="modal">
                       <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Merci</h2>
                       <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 18 }}>
@@ -6030,12 +6033,15 @@ export default function AlerteClientWifi() {
 
 
       {posConfirmAction && (
-        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setPosConfirmAction(null)}>
+        <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setPosConfirmAction(null)}>
           <div className="modal">
-            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Es-tu chez le client ?</h2>
-            <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 18 }}>
+            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Confirme la position</h2>
+            <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 14 }}>
               Pour enregistrer sa localisation, rapproche-toi de son routeur, là où le problème se pose.
               Sinon, attends d'être à proximité de l'installation du client avant de l'enregistrer.
+            </div>
+            <div style={{ fontSize: 14, color: "#FFFFFF", fontWeight: 700, marginBottom: 18 }}>
+              Es-tu chez le client ?
             </div>
             <div className="modal-actions">
               <button
@@ -6061,7 +6067,7 @@ export default function AlerteClientWifi() {
         </div>
       )}
       {posThanksOpen && (
-        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setPosThanksOpen(false)}>
+        <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setPosThanksOpen(false)}>
           <div className="modal">
             <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Merci</h2>
             <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 18 }}>
