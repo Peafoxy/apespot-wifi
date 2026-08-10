@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V5.1</span>
+          <span className="app-version-badge">V5.2</span>
         </div>
 
         {!selected && (
@@ -1845,6 +1845,13 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const [msgText, setMsgText] = useState("");
   const [sentComplaint, setSentComplaint] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [locConfirmOpen, setLocConfirmOpen] = useState(false);
+  const [clientToast, setClientToast] = useState("");
+  const showClientToast = (msg) => {
+    setClientToast(msg);
+    window.clearTimeout(showClientToast._t);
+    showClientToast._t = window.setTimeout(() => setClientToast(""), 3200);
+  };
   const [locError, setLocError] = useState("");
   const [ticketQuantities, setTicketQuantities] = useState({});
   const [sentTicketLine, setSentTicketLine] = useState("");
@@ -2306,17 +2313,49 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                           Voir sur la carte
                         </a>
                       </div>
-                      <button type="button" className="btn-cancel" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={captureLocation}>
+                      <button type="button" className="btn-cancel" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={() => setLocConfirmOpen(true)}>
                         Actualiser
                       </button>
                     </div>
                   ) : (
-                    <button type="button" className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={captureLocation} disabled={locating}>
+                    <button type="button" className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={() => setLocConfirmOpen(true)} disabled={locating}>
                       {locating ? "Localisation en cours..." : "📍 Utiliser ma position GPS"}
                     </button>
                   )}
                   {locError && <div className="login-error" style={{ textAlign: "left", marginTop: 8 }}>{locError}</div>}
                 </div>
+
+                {locConfirmOpen && (
+                  <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setLocConfirmOpen(false)}>
+                    <div className="modal">
+                      <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Es-tu chez toi, à côté de ton routeur ?</h2>
+                      <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 18 }}>
+                        Pour enregistrer ta localisation, rapproche-toi de ton routeur, là où le problème se pose.
+                        Sinon, attends d'être à proximité de ton installation avant de l'enregistrer.
+                      </div>
+                      <div className="modal-actions">
+                        <button
+                          className="btn-cancel"
+                          onClick={() => {
+                            setLocConfirmOpen(false);
+                            showClientToast("Merci — pense à envoyer ta réclamation dès que tu seras près de ton WiFi.");
+                          }}
+                        >
+                          Non
+                        </button>
+                        <button
+                          className="btn-save"
+                          onClick={() => {
+                            setLocConfirmOpen(false);
+                            captureLocation();
+                          }}
+                        >
+                          Oui
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="field">
                   <label>Repère / précisions (optionnel)</label>
                   <input placeholder="Ex: Bè Klikamé, près du marché" value={complaintForm.localisation} onChange={(e) => setComplaintForm({ ...complaintForm, localisation: e.target.value })} />
@@ -2492,6 +2531,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
       )}
 
       <footer>APESPOT WI-FI · votre espace client</footer>
+      {clientToast && <div className="toast show">{clientToast}</div>}
     </div>
   );
 }
