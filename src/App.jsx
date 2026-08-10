@@ -1295,7 +1295,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V6.1</span>
+          <span className="app-version-badge">V6.2</span>
         </div>
 
         {!selected && (
@@ -6152,8 +6152,8 @@ export default function AlerteClientWifi() {
               <DatePickerInput value={paymentModal.newExpiration} onChange={(e) => setPaymentModal({ ...paymentModal, newExpiration: e.target.value })} />
             </div>
             <div className="field">
-              <label>Note (optionnel)</label>
-              <textarea placeholder="Ex: renouvellement 30 jours" value={paymentModal.note} onChange={(e) => setPaymentModal({ ...paymentModal, note: e.target.value })} />
+              <label>Référence / note (optionnel)</label>
+              <textarea placeholder="Ex: référence Flooz/Mix by Yas, ou renouvellement 30 jours" value={paymentModal.note} onChange={(e) => setPaymentModal({ ...paymentModal, note: e.target.value })} />
             </div>
             <div className="modal-actions">
               <button className="btn-cancel" onClick={closePaymentModal}>Annuler</button>
