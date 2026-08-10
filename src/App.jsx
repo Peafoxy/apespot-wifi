@@ -1228,6 +1228,7 @@ function DatePickerInput({ id, value, onChange }) {
 function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, onClientLogin }) {
   const [selected, setSelected] = useState(null); // 'admin' | 'technicien' | 'client'
   const [value, setValue] = useState("");
+  const [showLoginCode, setShowLoginCode] = useState(false);
   const [error, setError] = useState("");
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockedUntil, setLockedUntil] = useState(null);
@@ -1288,7 +1289,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V5.8</span>
+          <span className="app-version-badge">V5.9</span>
         </div>
 
         {!selected && (
@@ -1314,15 +1315,27 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         {selected && (
           <div className="login-form">
             <label>{selected === "client" ? "Ton code d'accès" : `Code d'accès ${selected === "admin" ? "Admin" : "Technicien"}`}</label>
-            <input
-              autoFocus
-              style={{ letterSpacing: 3, textAlign: "center", fontFamily: "var(--mono)", fontWeight: 700, fontSize: 18, textTransform: "uppercase" }}
-              type={selected === "client" ? "text" : "password"}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-              disabled={isLocked}
-            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                autoFocus
+                style={{ flex: 1, minWidth: 0, letterSpacing: 3, textAlign: "center", fontFamily: "var(--mono)", fontWeight: 700, fontSize: 18, textTransform: "uppercase" }}
+                type={selected === "client" || showLoginCode ? "text" : "password"}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
+                disabled={isLocked}
+              />
+              {selected !== "client" && (
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  style={{ flex: "0 0 auto", padding: "0 14px" }}
+                  onClick={() => setShowLoginCode((v) => !v)}
+                >
+                  {showLoginCode ? "🙈" : "👁"}
+                </button>
+              )}
+            </div>
             {isLocked && <div className="login-error">Trop de tentatives. Réessaie dans {lockSecondsLeft}s.</div>}
             {!isLocked && error && <div className="login-error">{error}</div>}
             <div className="modal-actions" style={{ marginTop: 18 }}>
