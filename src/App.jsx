@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V5.2</span>
+          <span className="app-version-badge">V5.3</span>
         </div>
 
         {!selected && (
@@ -1846,12 +1846,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const [sentComplaint, setSentComplaint] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locConfirmOpen, setLocConfirmOpen] = useState(false);
-  const [clientToast, setClientToast] = useState("");
-  const showClientToast = (msg) => {
-    setClientToast(msg);
-    window.clearTimeout(showClientToast._t);
-    showClientToast._t = window.setTimeout(() => setClientToast(""), 3200);
-  };
+  const [locThanksOpen, setLocThanksOpen] = useState(false);
   const [locError, setLocError] = useState("");
   const [ticketQuantities, setTicketQuantities] = useState({});
   const [sentTicketLine, setSentTicketLine] = useState("");
@@ -2338,7 +2333,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                           className="btn-cancel"
                           onClick={() => {
                             setLocConfirmOpen(false);
-                            showClientToast("Merci — pense à envoyer ta réclamation dès que tu seras près de ton WiFi.");
+                            setLocThanksOpen(true);
                           }}
                         >
                           Non
@@ -2352,6 +2347,19 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                         >
                           Oui
                         </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {locThanksOpen && (
+                  <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setLocThanksOpen(false)}>
+                    <div className="modal">
+                      <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Merci</h2>
+                      <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 18 }}>
+                        Rappelle-toi d'envoyer ta réclamation dès ton arrivée à proximité de ton WiFi.
+                      </div>
+                      <div className="modal-actions">
+                        <button className="btn-save" style={{ width: "100%" }} onClick={() => setLocThanksOpen(false)}>OK</button>
                       </div>
                     </div>
                   </div>
@@ -2531,7 +2539,6 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
       )}
 
       <footer>APESPOT WI-FI · votre espace client</footer>
-      {clientToast && <div className="toast show">{clientToast}</div>}
     </div>
   );
 }
