@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V5.7</span>
+          <span className="app-version-badge">V5.8</span>
         </div>
 
         {!selected && (
@@ -1846,6 +1846,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   const [sentComplaint, setSentComplaint] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locConfirmOpen, setLocConfirmOpen] = useState(false);
+  const [showSecretCode, setShowSecretCode] = useState(false);
   const [locThanksOpen, setLocThanksOpen] = useState(false);
   const [locError, setLocError] = useState("");
   const [ticketQuantities, setTicketQuantities] = useState({});
@@ -2199,13 +2200,24 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                   <>
                     <div className="field">
                       <label>Code secret Mobile Money</label>
-                      <input
-                        type="password"
-                        inputMode="numeric"
-                        placeholder="Ton code secret"
-                        value={payForm.codeSecret}
-                        onChange={(e) => setPayForm({ ...payForm, codeSecret: e.target.value })}
-                      />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          type={showSecretCode ? "text" : "password"}
+                          inputMode="numeric"
+                          placeholder="Ton code secret"
+                          value={payForm.codeSecret}
+                          onChange={(e) => setPayForm({ ...payForm, codeSecret: e.target.value })}
+                          style={{ flex: 1, minWidth: 0 }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-cancel"
+                          style={{ flex: "0 0 auto", padding: "0 14px" }}
+                          onClick={() => setShowSecretCode((v) => !v)}
+                        >
+                          {showSecretCode ? "Masquer" : "Afficher"}
+                        </button>
+                      </div>
                       <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
                         Ton code secret ne quitte jamais ton téléphone — il n'est ni enregistré ni envoyé à APESPOT WI-FI.
                       </div>
