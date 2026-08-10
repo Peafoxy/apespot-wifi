@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V5.6</span>
+          <span className="app-version-badge">V5.7</span>
         </div>
 
         {!selected && (
@@ -2323,12 +2323,12 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                 {locConfirmOpen && (
                   <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setLocConfirmOpen(false)}>
                     <div className="modal">
-                      <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Confirme ta position</h2>
+                      <h2 style={{ color: "var(--red)", fontWeight: 700 }}>Où êtes-vous ?</h2>
                       <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 14 }}>
                         Pour enregistrer ta localisation, rapproche-toi de ton routeur, là où le problème se pose.
                         Sinon, attends d'être à proximité de ton installation avant de l'enregistrer.
                       </div>
-                      <div style={{ fontSize: 14, color: "#FFFFFF", fontWeight: 700, marginBottom: 18 }}>
+                      <div style={{ fontSize: 14, color: "var(--red)", fontWeight: 700, marginBottom: 18 }}>
                         Es-tu chez toi, à côté de ton routeur ?
                       </div>
                       <div className="modal-actions">
