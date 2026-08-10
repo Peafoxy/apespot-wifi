@@ -418,6 +418,12 @@ function fmtDate(dateExp) {
   return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+// Salutation selon l'heure : "Bonjour" le matin/journée, "Bonsoir" à partir de 18h.
+function greeting() {
+  const h = new Date().getHours();
+  return h >= 18 || h < 5 ? "Bonsoir" : "Bonjour";
+}
+
 function fmtFCFA(n) {
   return (Number(n) || 0).toLocaleString("fr-FR") + " F";
 }
@@ -543,7 +549,7 @@ function buildWaMessage(c) {
   const codeLine = c.accessCode ? `TON CODE : ${c.accessCode}` : "(demande ton code à APESPOT WI-FI)";
 
   return [
-    `Bonjour ${c.nom}`,
+    `${greeting()} ${c.nom}`,
     ``,
     statusLines,
     ``,
@@ -1289,7 +1295,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V5.9</span>
+          <span className="app-version-badge">V6.0</span>
         </div>
 
         {!selected && (
@@ -3319,7 +3325,7 @@ export default function AlerteClientWifi() {
       showToast(`Bonus de ${n} ${unitLabel} appliqué — nouvelle échéance le ${fmtDate(newDateExp)}.`);
       const phone = normalizePhone(client.telephone);
       if (phone) {
-        const msg = `Bonjour ${client.nom}\n\nBonne nouvelle ! Tu as reçu ${n} ${unitLabel} de bonus de la part de APESPOT WI-FI. 🎁\n\nTa nouvelle échéance : ${fmtDate(newDateExp)}.\n\nClick sur :\n\nhttps://apespot-wifi.vercel.app\n\nVas sur *client*\n\nTON CODE : ${client.accessCode || "(demande ton code à APESPOT WI-FI)"}\n\nAccède à ton espace pour payer ou soumettre une réclamation`;
+        const msg = `${greeting()} ${client.nom}\n\nBonne nouvelle ! Tu as reçu ${n} ${unitLabel} de bonus de la part de APESPOT WI-FI. 🎁\n\nTa nouvelle échéance : ${fmtDate(newDateExp)}.\n\nClick sur :\n\nhttps://apespot-wifi.vercel.app\n\nVas sur *client*\n\nTON CODE : ${client.accessCode || "(demande ton code à APESPOT WI-FI)"}\n\nAccède à ton espace pour payer ou soumettre une réclamation`;
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
       } else {
         showToast("Aucun numéro WhatsApp enregistré — le bonus est appliqué mais le client n'a pas été prévenu.");
@@ -3335,7 +3341,7 @@ export default function AlerteClientWifi() {
   const buildWelcomeMessage = (c) => {
     const codeLine = c.accessCode ? `TON CODE : ${c.accessCode}` : "(demande ton code à APESPOT WI-FI)";
     return [
-      `Bonjour ${c.nom}`,
+      `${greeting()} ${c.nom}`,
       ``,
       `Bienvenue sur le réseau *APESPOT WI-FI* ! 🎉`,
       `Ton offre : ${c.offre || "—"}`,
