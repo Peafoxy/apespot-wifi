@@ -1288,7 +1288,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V5.3</span>
+          <span className="app-version-badge">V5.4</span>
         </div>
 
         {!selected && (
@@ -4375,6 +4375,11 @@ export default function AlerteClientWifi() {
     );
   };
 
+  const [posConfirmAction, setPosConfirmAction] = useState(null); // null | () => void
+  const [posThanksOpen, setPosThanksOpen] = useState(false);
+  const requestSetClientLocation = (complaint) => setPosConfirmAction(() => () => captureClientLocationByTechnicien(complaint));
+  const requestCaptureClientLocationDirect = (client) => setPosConfirmAction(() => () => captureClientLocationDirect(client));
+
   const captureClientLocationByTechnicien = (complaint) => {
     if (!navigator.geolocation) {
       showToast("La géolocalisation n'est pas disponible sur cet appareil.");
@@ -4683,8 +4688,8 @@ export default function AlerteClientWifi() {
         onLogFuelExpense={logFuelExpense}
         onRequestApproval={requestInterventionApproval}
         onCaptureStartPosition={captureTechnicienStartPosition}
-        onSetClientLocation={captureClientLocationByTechnicien}
-        onCaptureClientLocation={captureClientLocationDirect}
+        onSetClientLocation={requestSetClientLocation}
+        onCaptureClientLocation={requestCaptureClientLocationDirect}
         onMarkStaffRead={markStaffMessagesReadHandler}
         onShowToast={showToast}
         onSaveTechnicienComment={saveTechnicienComment}
@@ -6023,6 +6028,51 @@ export default function AlerteClientWifi() {
       {/* ---- Client modal ---- */}
       <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
 
+
+      {posConfirmAction && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setPosConfirmAction(null)}>
+          <div className="modal">
+            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Es-tu chez le client ?</h2>
+            <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 18 }}>
+              Pour enregistrer sa localisation, rapproche-toi de son routeur, là où le problème se pose.
+              Sinon, attends d'être à proximité de l'installation du client avant de l'enregistrer.
+            </div>
+            <div className="modal-actions">
+              <button
+                className="btn-cancel"
+                onClick={() => {
+                  setPosConfirmAction(null);
+                  setPosThanksOpen(true);
+                }}
+              >
+                Non
+              </button>
+              <button
+                className="btn-save"
+                onClick={() => {
+                  posConfirmAction();
+                  setPosConfirmAction(null);
+                }}
+              >
+                Oui
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {posThanksOpen && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setPosThanksOpen(false)}>
+          <div className="modal">
+            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Merci</h2>
+            <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 18 }}>
+              Pense à enregistrer sa position dès ton arrivée chez le client.
+            </div>
+            <div className="modal-actions">
+              <button className="btn-save" style={{ width: "100%" }} onClick={() => setPosThanksOpen(false)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
       <NewComplaintModal newComplaintModal={newComplaintModal} setNewComplaintModal={setNewComplaintModal} clients={clients} saveNewComplaint={saveNewComplaint} />
 
       {/* ---- Payment modal ---- */}
@@ -6135,7 +6185,7 @@ export default function AlerteClientWifi() {
                 Réabonné
               </button>
 
-              <button className="row-action-btn" onClick={() => captureClientLocationDirect(rowActionsClient)}>
+              <button className="row-action-btn" onClick={() => requestCaptureClientLocationDirect(rowActionsClient)}>
                 📍 {rowActionsClient.latitude != null ? "Mettre à jour la position" : "Enregistrer la position du client"}
               </button>
 
