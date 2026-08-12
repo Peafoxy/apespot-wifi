@@ -1295,7 +1295,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V6.6</span>
+          <span className="app-version-badge">V6.8</span>
         </div>
 
         {!selected && (
@@ -2881,6 +2881,7 @@ export default function AlerteClientWifi() {
   const [search, setSearch] = useState("");
   const [clientPageSize, setClientPageSize] = useState(40);
   const [filter, setFilter] = useState("ALL");
+  const [serverFilter, setServerFilter] = useState("ALL");
   const [complaintFilter, setComplaintFilter] = useState("ALL");
   const [adminComplaintPageSize, setAdminComplaintPageSize] = useState(20);
   useEffect(() => {
@@ -3005,11 +3006,17 @@ export default function AlerteClientWifi() {
 
   useEffect(() => {
     setClientPageSize(40);
-  }, [filter, search]);
+  }, [filter, search, serverFilter]);
+
+  const availableServers = useMemo(() => {
+    const set = new Set(clients.map((c) => (c.serveur || "").trim()).filter(Boolean));
+    return [...set].sort();
+  }, [clients]);
 
   const visibleClients = useMemo(() => {
     let rows = enrichedClients;
     if (filter !== "ALL") rows = rows.filter((c) => c.statut === filter);
+    if (serverFilter !== "ALL") rows = rows.filter((c) => (c.serveur || "").trim() === serverFilter);
     if (search.trim()) {
       const t = search.trim().toLowerCase();
       rows = rows.filter(
@@ -3232,6 +3239,7 @@ export default function AlerteClientWifi() {
     return months.map((m, i) => ({ ...m, sum: sums[i], pct: Math.max(3, Math.round((sums[i] / max) * 100)) }));
   }, [payments]);
 
+  const [dashboardMonth, setDashboardMonth] = useState(null);
   const paymentsDashboard = useMemo(() => {
     const byMonth = {};
     const byMode = {};
@@ -4985,6 +4993,19 @@ export default function AlerteClientWifi() {
             </button>
           </div>
 
+          {availableServers.length > 0 && (
+            <div className="chips" style={{ marginTop: -8, marginBottom: 18 }}>
+              <button className={`chip ${serverFilter === "ALL" ? "active" : ""}`} onClick={() => setServerFilter("ALL")}>
+                Tous
+              </button>
+              {availableServers.map((s) => (
+                <button key={s} className={`chip ${serverFilter === s ? "active" : ""}`} onClick={() => setServerFilter(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="table-shell client-list-shell">
             <div className="client-list-header">
               <span onClick={() => toggleSort("nom")}>Client</span>
@@ -5036,14 +5057,9 @@ export default function AlerteClientWifi() {
           {isPrincipalAdmin && (
             <div className="chart-card" style={{ marginBottom: 20 }}>
               <div className="ctitle">TABLEAU DE BORD PAIEMENTS (ADMIN PRINCIPAL)</div>
-              <div className="stats" style={{ marginBottom: 18 }}>
-                <div className="stat total"><div className="n">{fmtFCFA(paymentsDashboard.total)}</div><div className="l">Total encaissé (tout historique)</div></div>
-                <div className="stat ok"><div className="n">{fmtFCFA(paymentsDashboard.thisMonth)}</div><div className="l">Ce mois-ci</div></div>
-                <div className="stat attention"><div className="n">{paymentsDashboard.count}</div><div className="l">Nombre de paiements</div></div>
-                <div className="stat expire"><div className="n">{fmtFCFA(paymentsDashboard.avg)}</div><div className="l">Paiement moyen</div></div>
-              </div>
 
               <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, marginBottom: 8 }}>PAR MODE DE PAIEMENT</div>
+              {paymentsDashboard.modes.length === 0 && <div className="empty">Aucun paiement enregistré pour l'instant.</div>}
               {paymentsDashboard.modes.map(([mode, d]) => (
                 <div key={mode} className="rah-item">
                   <span>{mode}</span>
@@ -5052,15 +5068,33 @@ export default function AlerteClientWifi() {
                 </div>
               ))}
 
-              <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, margin: "16px 0 8px" }}>PAR MOIS</div>
-              {paymentsDashboard.months.length === 0 && <div className="empty">Aucun paiement enregistré pour l'instant.</div>}
-              {paymentsDashboard.months.map(([month, d]) => (
-                <div key={month} className="rah-item">
-                  <span>{new Date(month + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</span>
-                  <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{d.count} paiement(s)</span>
-                  <span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(d.total)}</span>
-                </div>
-              ))}
+              <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, margin: "16px 0 8px" }}>HISTORIQUE PAR MOIS</div>
+              {paymentsDashboard.months.length === 0 ? (
+                <div className="empty">Aucun paiement enregistré pour l'instant.</div>
+              ) : (
+                <>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <select value={dashboardMonth || paymentsDashboard.months[0][0]} onChange={(e) => setDashboardMonth(e.target.value)}>
+                      {paymentsDashboard.months.map(([month, d]) => (
+                        <option key={month} value={month}>
+                          {new Date(month + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })} — {d.count} paiement(s), {fmtFCFA(d.total)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {(() => {
+                    const selectedMonth = dashboardMonth || paymentsDashboard.months[0][0];
+                    const monthPayments = payments.filter((p) => (p.date || "").slice(0, 7) === selectedMonth).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+                    return monthPayments.map((p) => (
+                      <div key={p.id} className="rah-item">
+                        <span>{p.clientNom}</span>
+                        <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{fmtDate(p.date)} · {p.mode}</span>
+                        <span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(p.montant)}</span>
+                      </div>
+                    ));
+                  })()}
+                </>
+              )}
             </div>
           )}
           {pendingRequests.length > 0 && (
