@@ -1295,7 +1295,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V6.4</span>
+          <span className="app-version-badge">V6.6</span>
         </div>
 
         {!selected && (
@@ -2933,6 +2933,7 @@ export default function AlerteClientWifi() {
   const [busySaveClient, setBusySaveClient] = useState(false);
   const [busySaveUser, setBusySaveUser] = useState(false);
   const [busySavePayment, setBusySavePayment] = useState(false);
+  const [paymentConfirmOpen, setPaymentConfirmOpen] = useState(false);
   const [rejectPaymentModal, setRejectPaymentModal] = useState(null); // null | { request, reason }
   const [complaintReplyDrafts, setComplaintReplyDrafts] = useState({}); // { [complaintId]: text }
   const [busyComplaintReplyId, setBusyComplaintReplyId] = useState(null);
@@ -3229,6 +3230,31 @@ export default function AlerteClientWifi() {
     );
     const max = Math.max(...sums, 1);
     return months.map((m, i) => ({ ...m, sum: sums[i], pct: Math.max(3, Math.round((sums[i] / max) * 100)) }));
+  }, [payments]);
+
+  const paymentsDashboard = useMemo(() => {
+    const byMonth = {};
+    const byMode = {};
+    let total = 0;
+    payments.forEach((p) => {
+      const montant = Number(p.montant) || 0;
+      const month = (p.date || "").slice(0, 7);
+      if (month) {
+        if (!byMonth[month]) byMonth[month] = { total: 0, count: 0 };
+        byMonth[month].total += montant;
+        byMonth[month].count += 1;
+      }
+      const mode = p.mode || "Autre";
+      if (!byMode[mode]) byMode[mode] = { total: 0, count: 0 };
+      byMode[mode].total += montant;
+      byMode[mode].count += 1;
+      total += montant;
+    });
+    const months = Object.entries(byMonth).sort((a, b) => b[0].localeCompare(a[0]));
+    const modes = Object.entries(byMode).sort((a, b) => b[1].total - a[1].total);
+    const currentMonthKey = new Date().toISOString().slice(0, 7);
+    const thisMonth = byMonth[currentMonthKey]?.total || 0;
+    return { total, count: payments.length, months, modes, thisMonth, avg: payments.length ? Math.round(total / payments.length) : 0 };
   }, [payments]);
 
   const visiblePayments = useMemo(() => {
@@ -5007,6 +5033,36 @@ export default function AlerteClientWifi() {
 
       {tab === "payments" && (
         <div className="view active">
+          {isPrincipalAdmin && (
+            <div className="chart-card" style={{ marginBottom: 20 }}>
+              <div className="ctitle">TABLEAU DE BORD PAIEMENTS (ADMIN PRINCIPAL)</div>
+              <div className="stats" style={{ marginBottom: 18 }}>
+                <div className="stat total"><div className="n">{fmtFCFA(paymentsDashboard.total)}</div><div className="l">Total encaissé (tout historique)</div></div>
+                <div className="stat ok"><div className="n">{fmtFCFA(paymentsDashboard.thisMonth)}</div><div className="l">Ce mois-ci</div></div>
+                <div className="stat attention"><div className="n">{paymentsDashboard.count}</div><div className="l">Nombre de paiements</div></div>
+                <div className="stat expire"><div className="n">{fmtFCFA(paymentsDashboard.avg)}</div><div className="l">Paiement moyen</div></div>
+              </div>
+
+              <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, marginBottom: 8 }}>PAR MODE DE PAIEMENT</div>
+              {paymentsDashboard.modes.map(([mode, d]) => (
+                <div key={mode} className="rah-item">
+                  <span>{mode}</span>
+                  <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{d.count} paiement(s)</span>
+                  <span className="rah-amount" style={{ color: "var(--cyan)" }}>{fmtFCFA(d.total)}</span>
+                </div>
+              ))}
+
+              <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, margin: "16px 0 8px" }}>PAR MOIS</div>
+              {paymentsDashboard.months.length === 0 && <div className="empty">Aucun paiement enregistré pour l'instant.</div>}
+              {paymentsDashboard.months.map(([month, d]) => (
+                <div key={month} className="rah-item">
+                  <span>{new Date(month + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</span>
+                  <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{d.count} paiement(s)</span>
+                  <span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(d.total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {pendingRequests.length > 0 && (
             <div className="chart-card" style={{ borderColor: "var(--amber)" }}>
               <div className="ctitle" style={{ color: "var(--amber)" }}>DEMANDES DE PAIEMENT EN ATTENTE ({pendingRequests.length})</div>
@@ -6150,7 +6206,48 @@ export default function AlerteClientWifi() {
             </div>
             <div className="modal-actions">
               <button className="btn-cancel" onClick={closePaymentModal}>Annuler</button>
-              <button className="btn-save" disabled={busySavePayment} onClick={savePaymentModal}>{busySavePayment ? "Enregistrement..." : "Enregistrer"}</button>
+              <button
+                className="btn-save"
+                disabled={busySavePayment}
+                onClick={() => {
+                  if (!paymentModal.clientNom.trim()) return showToast("Le nom du client est requis.");
+                  if (!paymentModal.montant || Number(paymentModal.montant) <= 0) return showToast("Le montant doit être supérieur à 0.");
+                  if (!paymentModal.date) return showToast("La date du paiement est requise.");
+                  setPaymentConfirmOpen(true);
+                }}
+              >
+                {busySavePayment ? "Enregistrement..." : "Enregistrer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {paymentConfirmOpen && paymentModal && (
+        <div className="overlay show" style={{ zIndex: 70 }} onClick={(e) => e.target.classList.contains("overlay") && setPaymentConfirmOpen(false)}>
+          <div className="modal renew-confirm-modal">
+            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Confirmer le paiement de "{paymentModal.clientNom}"</h2>
+            <div className="renew-confirm-box">
+              {fmtFCFA(Number(paymentModal.montant))} · {paymentModal.mode}
+              {paymentModal.newExpiration && (
+                <>
+                  <br />Nouvelle échéance : <strong>{fmtDate(paymentModal.newExpiration)}</strong>
+                </>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={() => setPaymentConfirmOpen(false)}>Annuler</button>
+              <button
+                className="btn-save"
+                style={{ background: "var(--green)", borderColor: "var(--green)", color: "#0E1520" }}
+                disabled={busySavePayment}
+                onClick={async () => {
+                  setPaymentConfirmOpen(false);
+                  await savePaymentModal();
+                }}
+              >
+                {busySavePayment ? "Enregistrement..." : "Confirmer"}
+              </button>
             </div>
           </div>
         </div>
