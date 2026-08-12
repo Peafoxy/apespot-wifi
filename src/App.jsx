@@ -1295,7 +1295,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V6.2</span>
+          <span className="app-version-badge">V6.3</span>
         </div>
 
         {!selected && (
@@ -5972,13 +5972,24 @@ export default function AlerteClientWifi() {
                 className="btn-save"
                 style={{ background: "var(--green)", borderColor: "var(--green)", color: "#0E1520" }}
                 onClick={async () => {
-                  const { client } = renewConfirmModal;
+                  const { client, previewDate } = renewConfirmModal;
                   setRenewConfirmModal(null);
                   const updated = await renewClientSubscription(client);
-                  if (updated) setRowActionsClient(updated);
+                  if (updated) {
+                    setRowActionsClient(updated);
+                    setPaymentModal({
+                      editingId: null,
+                      clientNom: updated.nom,
+                      montant: "",
+                      mode: "Cash",
+                      date: new Date().toISOString().slice(0, 10),
+                      newExpiration: previewDate,
+                      note: "",
+                    });
+                  }
                 }}
               >
-                Confirmer
+                Confirmer et enregistrer le paiement
               </button>
             </div>
           </div>
@@ -6114,7 +6125,7 @@ export default function AlerteClientWifi() {
 
       {/* ---- Payment modal ---- */}
       {paymentModal && (
-        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && closePaymentModal()}>
+        <div className="overlay show" style={{ zIndex: 65 }} onClick={(e) => e.target.classList.contains("overlay") && closePaymentModal()}>
           <div className="modal">
             <h2>{paymentModal.editingId ? "Modifier le paiement" : pendingRequestId ? "Valider la demande de paiement" : "Enregistrer un paiement"}</h2>
             <div className="field">
