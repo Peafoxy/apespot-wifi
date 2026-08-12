@@ -1295,7 +1295,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V6.3</span>
+          <span className="app-version-badge">V6.4</span>
         </div>
 
         {!selected && (
@@ -3518,7 +3518,7 @@ export default function AlerteClientWifi() {
 
   const savePaymentModal = async () => {
     if (busySavePayment) return;
-    const { editingId, clientNom, montant, mode, date, newExpiration, note } = paymentModal;
+    const { editingId, clientNom, montant, mode, date, newExpiration, note, _fromRenewal } = paymentModal;
     if (!clientNom.trim()) return showToast("Le nom du client est requis.");
     if (!montant || Number(montant) <= 0) return showToast("Le montant doit être supérieur à 0.");
     if (!date) return showToast("La date du paiement est requise.");
@@ -3553,7 +3553,12 @@ export default function AlerteClientWifi() {
         if (c) {
           if (SUPABASE_CONFIGURED) await updateClientRow(c.id, { ...c, dateExp: newExpiration });
           setClients((cs) => cs.map((x) => (x.id === c.id ? { ...x, dateExp: newExpiration } : x)));
-          showToast("Paiement enregistré · abonnement WiFi prolongé.");
+          if (_fromRenewal) {
+            setRowActionsClient((rc) => (rc && rc.id === c.id ? { ...rc, dateExp: newExpiration } : rc));
+            setRenewConfirmModal({ nom: c.nom, previewDate: newExpiration });
+          } else {
+            showToast("Paiement enregistré · abonnement WiFi prolongé.");
+          }
         } else {
           showToast("Paiement enregistré · client introuvable dans la liste WiFi.");
         }
@@ -5962,35 +5967,12 @@ export default function AlerteClientWifi() {
       {renewConfirmModal && (
         <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setRenewConfirmModal(null)}>
           <div className="modal renew-confirm-modal">
-            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Réabonné "{renewConfirmModal.client.nom}"</h2>
+            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Réabonné "{renewConfirmModal.nom}"</h2>
             <div className="renew-confirm-box">
-              Nouvelle échéance : <strong>{fmtDate(renewConfirmModal.previewDate)}</strong>
+              Paiement enregistré · nouvelle échéance : <strong>{fmtDate(renewConfirmModal.previewDate)}</strong>
             </div>
             <div className="modal-actions">
-              <button className="btn-cancel" onClick={() => setRenewConfirmModal(null)}>Annuler</button>
-              <button
-                className="btn-save"
-                style={{ background: "var(--green)", borderColor: "var(--green)", color: "#0E1520" }}
-                onClick={async () => {
-                  const { client, previewDate } = renewConfirmModal;
-                  setRenewConfirmModal(null);
-                  const updated = await renewClientSubscription(client);
-                  if (updated) {
-                    setRowActionsClient(updated);
-                    setPaymentModal({
-                      editingId: null,
-                      clientNom: updated.nom,
-                      montant: "",
-                      mode: "Cash",
-                      date: new Date().toISOString().slice(0, 10),
-                      newExpiration: previewDate,
-                      note: "",
-                    });
-                  }
-                }}
-              >
-                Confirmer et enregistrer le paiement
-              </button>
+              <button className="btn-save" style={{ width: "100%" }} onClick={() => setRenewConfirmModal(null)}>OK</button>
             </div>
           </div>
         </div>
@@ -6226,7 +6208,16 @@ export default function AlerteClientWifi() {
                     return;
                   }
                   const previewDate = computeRenewedExpiration(rowActionsClient.dateExp);
-                  setRenewConfirmModal({ client: rowActionsClient, previewDate });
+                  setPaymentModal({
+                    editingId: null,
+                    clientNom: rowActionsClient.nom,
+                    montant: "",
+                    mode: "Cash",
+                    date: new Date().toISOString().slice(0, 10),
+                    newExpiration: previewDate,
+                    note: "",
+                    _fromRenewal: true,
+                  });
                 }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
