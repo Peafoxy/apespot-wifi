@@ -1295,7 +1295,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V6.9</span>
+          <span className="app-version-badge">V7.0</span>
         </div>
 
         {!selected && (
@@ -3590,8 +3590,7 @@ export default function AlerteClientWifi() {
           if (_fromRenewal) {
             const updatedClient = { ...c, dateExp: newExpiration };
             setRowActionsClient((rc) => (rc && rc.id === c.id ? updatedClient : rc));
-            setRenewConfirmModal({ nom: c.nom, previewDate: newExpiration });
-            sendWhatsApp(updatedClient);
+            setRenewConfirmModal({ nom: c.nom, previewDate: newExpiration, client: updatedClient });
           } else {
             showToast("Paiement enregistré · abonnement WiFi prolongé.");
           }
@@ -6064,7 +6063,17 @@ export default function AlerteClientWifi() {
               Paiement enregistré · nouvelle échéance : <strong>{fmtDate(renewConfirmModal.previewDate)}</strong>
             </div>
             <div className="modal-actions">
-              <button className="btn-save" style={{ width: "100%" }} onClick={() => setRenewConfirmModal(null)}>OK</button>
+              <button
+                className="btn-save"
+                style={{ width: "100%" }}
+                onClick={() => {
+                  const { client } = renewConfirmModal;
+                  setRenewConfirmModal(null);
+                  if (client) sendWhatsApp(client);
+                }}
+              >
+                OK
+              </button>
             </div>
           </div>
         </div>
