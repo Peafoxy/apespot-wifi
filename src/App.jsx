@@ -1295,7 +1295,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V6.8</span>
+          <span className="app-version-badge">V6.9</span>
         </div>
 
         {!selected && (
@@ -3588,8 +3588,10 @@ export default function AlerteClientWifi() {
           if (SUPABASE_CONFIGURED) await updateClientRow(c.id, { ...c, dateExp: newExpiration });
           setClients((cs) => cs.map((x) => (x.id === c.id ? { ...x, dateExp: newExpiration } : x)));
           if (_fromRenewal) {
-            setRowActionsClient((rc) => (rc && rc.id === c.id ? { ...rc, dateExp: newExpiration } : rc));
+            const updatedClient = { ...c, dateExp: newExpiration };
+            setRowActionsClient((rc) => (rc && rc.id === c.id ? updatedClient : rc));
             setRenewConfirmModal({ nom: c.nom, previewDate: newExpiration });
+            sendWhatsApp(updatedClient);
           } else {
             showToast("Paiement enregistré · abonnement WiFi prolongé.");
           }
