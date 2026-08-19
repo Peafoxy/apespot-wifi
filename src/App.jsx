@@ -1363,7 +1363,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.2</span>
+          <span className="app-version-badge">V7.3</span>
         </div>
 
         {!selected && (
@@ -5170,13 +5170,18 @@ export default function AlerteClientWifi() {
                   {(() => {
                     const selectedMonth = dashboardMonth || paymentsDashboard.months[0][0];
                     const monthPayments = payments.filter((p) => (p.date || "").slice(0, 7) === selectedMonth).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-                    return monthPayments.map((p) => (
-                      <div key={p.id} className="rah-item">
-                        <span>{p.clientNom}</span>
-                        <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{fmtDate(p.date)} · {p.mode}</span>
-                        <span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(p.montant)}</span>
+                    // Liste bornée qui défile à l'intérieur de la carte, au lieu d'allonger toute la page.
+                    return (
+                      <div className="scroll-list">
+                        {monthPayments.map((p) => (
+                          <div key={p.id} className="rah-item">
+                            <span>{p.clientNom}</span>
+                            <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{fmtDate(p.date)} · {p.mode}</span>
+                            <span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(p.montant)}</span>
+                          </div>
+                        ))}
                       </div>
-                    ));
+                    );
                   })()}
                 </>
               )}
@@ -5261,7 +5266,7 @@ export default function AlerteClientWifi() {
             </button>
           </div>
 
-          <div className="table-shell">
+          <div className="table-shell table-scroll">
             <table>
               <thead>
                 <tr>
@@ -6737,6 +6742,9 @@ const CSS = `
 .wifi-app .rah-amount{color:var(--green);font-weight:700;font-family:var(--mono);flex-shrink:0;}
 .wifi-app .rah-empty{font-size:12px;color:var(--text-faint);}
 .wifi-app .table-shell{background:var(--bg-panel);border:1px solid var(--line);border-radius:16px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.wifi-app .scroll-list{max-height:320px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border:1px solid var(--line);border-radius:12px;padding:0 10px;}
+.wifi-app .table-shell.table-scroll{max-height:65vh;overflow-y:auto;overscroll-behavior:contain;}
+.wifi-app .table-shell.table-scroll thead th{position:sticky;top:0;background:var(--bg-panel);z-index:2;}
 .wifi-app table{width:100%;min-width:720px;border-collapse:collapse;}
 .wifi-app thead th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-faint);padding:13px 16px;font-weight:600;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;}
 .wifi-app thead th:hover{color:var(--text-dim);}
@@ -6761,7 +6769,7 @@ const CSS = `
 .wifi-app .signal.amber i:nth-child(1),.wifi-app .signal.amber i:nth-child(2){background:var(--amber);}
 .wifi-app .signal.green i{background:var(--green);}
 .wifi-app .signal.na i{background:var(--line);}
-.wifi-app .badge{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:7px;font-size:11.5px;font-weight:700;letter-spacing:.3px;}
+.wifi-app .badge{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:7px;font-size:11.5px;font-weight:700;letter-spacing:.3px;white-space:nowrap;}
 .wifi-app .badge.EXPIRE{background:var(--red-dim);color:var(--red);}
 .wifi-app .badge.ATTENTION{background:var(--amber-dim);color:var(--amber);}
 .wifi-app .badge.OK{background:var(--green-dim);color:var(--green);}
