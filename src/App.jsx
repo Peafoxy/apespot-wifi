@@ -1363,7 +1363,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.1</span>
+          <span className="app-version-badge">V7.2</span>
         </div>
 
         {!selected && (
@@ -4643,6 +4643,8 @@ export default function AlerteClientWifi() {
   };
 
   // L'admin ouvre le formulaire de paiement pré-rempli à partir de la demande du client.
+  // _fromRenewal : après validation, même parcours que le réabonnement fait par
+  // l'admin — fenêtre de confirmation puis envoi WhatsApp au client via OK.
   const acceptPaymentRequest = (req) => {
     const c = findClientByName(req.clientNom);
     setPendingRequestId(req.id);
@@ -4654,6 +4656,7 @@ export default function AlerteClientWifi() {
       date: new Date().toISOString().slice(0, 10),
       newExpiration: c ? computeRenewedExpirationFromRequest(c.dateExp, req.createdAt) : "",
       note: req.note || "",
+      _fromRenewal: true,
     });
   };
 
