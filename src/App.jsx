@@ -5,25 +5,29 @@ import jsPDF from "jspdf";
  * Alerte Client WiFi — APESPOT WI-FI
  * Tableau de bord des abonnements WiFi (statut / jours restants) + suivi des paiements clients.
  *
- * Persistance : Supabase, via des appels fetch() directs à l'API REST (PostgREST) —
- * pas de dépendance à @supabase/supabase-js, donc ça marche à la fois dans l'aperçu
- * d'artefact de Claude et tel quel dans ton projet React, sans rien installer.
- * Voir le script SQL fourni séparément (wifi-schema.sql) pour créer les tables.
+ * Persistance : Supabase, mais le navigateur ne parle plus jamais directement
+ * à la base. Toutes les requêtes passent par les fonctions serveur Vercel
+ * (/api/login, /api/db, /api/storage) qui détiennent seules la clé
+ * service_role. Le RLS est activé sur toutes les tables wifi_* (voir
+ * supabase/security-rls.sql) : la clé publique anon n'a plus aucun accès.
  *
- * Remplace SUPABASE_URL et SUPABASE_ANON_KEY par les valeurs de ton projet
- * (les mêmes que celles utilisées par BMI-Gestions Boutiques).
+ * La connexion (PIN admin/technicien, code client) est vérifiée côté serveur
+ * par /api/login, qui délivre un jeton de session signé stocké localement.
  *
- * MODE DÉMO AUTOMATIQUE : tant que SUPABASE_ANON_KEY n'est pas renseignée,
- * l'app fonctionne toute seule avec des données de démonstration sauvegardées
- * dans le navigateur (localStorage). Dès que tu colles ta vraie clé, elle
- * bascule automatiquement sur Supabase — aucun autre changement nécessaire.
+ * MODE DÉMO AUTOMATIQUE : en local (vite sur localhost, sans fonctions
+ * serveur), l'app fonctionne toute seule avec des données de démonstration
+ * sauvegardées dans le navigateur (localStorage). Une fois déployée sur
+ * Vercel, elle bascule automatiquement sur le mode connecté.
  */
 
-const SUPABASE_URL = "https://jtjqvlcryaeljcnhhrpv.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0anF2bGNyeWFlbGpjbmhocnB2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1Mzg2NjEsImV4cCI6MjA5OTExNDY2MX0.GbOgFkjbb8Rik1NQikrUFqGLmHDE_IwDt0zVoO3FCcQ";
 const VAPID_PUBLIC_KEY = "BJR_OCj3YzQehhFRzZimm42AE9nvkTYb0JctOl7GM581isdDykE_qztnbtTOjKydXXB6COmzDkF12TMFLBf8_ew";
-const ADMIN_NOTIFY_SECRET = "30932589d07a19fcc9e2e5356f0fd64ebae521d21a45303f";
-const SUPABASE_CONFIGURED = Boolean(SUPABASE_ANON_KEY) && SUPABASE_ANON_KEY !== "COLLE_ICI_TA_CLE_ANON_PUBLIC";
+// Mode démo sur localhost (vite seul, pas de /api). Pour tester les fonctions
+// serveur en local avec `vercel dev` : localStorage.setItem("apespot-force-backend", "1")
+const IS_LOCAL_DEV =
+  typeof window !== "undefined" &&
+  /^(localhost|127\.|0\.0\.0\.0)/.test(window.location.hostname) &&
+  window.localStorage.getItem("apespot-force-backend") !== "1";
+const SUPABASE_CONFIGURED = !IS_LOCAL_DEV;
 
 const LOCAL_CLIENTS_KEY = "bmi-wifi-clients-demo";
 const LOCAL_PAYMENTS_KEY = "bmi-wifi-payments-demo";
@@ -69,17 +73,56 @@ function generateUserPin() {
 
 const LOGO_DATA_URI = "data:image/jpeg;base64,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";
 
-async function sbFetch(path, options = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "return=representation",
-      ...(options.headers || {}),
-    },
+// ---- Session côté navigateur : jeton signé délivré par /api/login ----
+const TOKEN_KEY = "apespot-wifi-token";
+let sessionToken = (typeof window !== "undefined" && window.localStorage.getItem(TOKEN_KEY)) || null;
+
+function setSessionToken(t) {
+  sessionToken = t || null;
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch (e) { console.error(e); }
+}
+
+function authHeaders() {
+  return sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
+}
+
+// Connexion via le serveur : le PIN/code n'est comparé que côté serveur, et la
+// réponse contient le jeton de session + la fiche du compte connecté.
+async function apiLogin(role, code) {
+  const res = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role, code }),
   });
+  if (res.status === 401) return null; // code incorrect
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || `Connexion impossible (${res.status}).`);
+  setSessionToken(data.token);
+  return data;
+}
+
+// Toutes les requêtes base passent par le proxy /api/db (clé service_role côté
+// serveur uniquement) : même signature qu'avant pour ne rien changer ailleurs.
+async function sbFetch(path, options = {}) {
+  const res = await fetch("/api/db", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({
+      path,
+      method: options.method || "GET",
+      body: options.body ?? null,
+      prefer: (options.headers && options.headers.Prefer) || undefined,
+    }),
+  });
+  if (res.status === 401) {
+    // Jeton expiré ou invalide : on nettoie la session, l'app retombera sur
+    // l'écran de connexion (via la déconnexion d'inactivité ou un rechargement).
+    setSessionToken(null);
+    try { localStorage.removeItem(SESSION_KEY); } catch (e) { console.error(e); }
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Supabase ${options.method || "GET"} ${path} — ${res.status} ${text}`);
@@ -93,12 +136,11 @@ const TICKETS_BUCKET = "tickets";
 const RECEIPTS_BUCKET = "receipts";
 
 async function sbStorageUpload(path, file, bucket = TICKETS_BUCKET) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+  const res = await fetch(`/api/storage?action=upload&bucket=${bucket}&path=${encodeURIComponent(path)}`, {
     method: "POST",
     headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       "Content-Type": file.type || "application/pdf",
+      ...authHeaders(),
     },
     body: file,
   });
@@ -110,12 +152,10 @@ async function sbStorageUpload(path, file, bucket = TICKETS_BUCKET) {
 }
 
 async function sbStorageDelete(path, bucket = TICKETS_BUCKET) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
-    method: "DELETE",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    },
+  const res = await fetch("/api/storage?action=delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ bucket, path }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -181,31 +221,26 @@ async function subscribeToDailyReminder(user) {
   }
 }
 
-function sbStorageUrl(path, bucket = TICKETS_BUCKET) {
-  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+// Les buckets sont privés : le serveur génère une URL signée temporaire.
+async function sbStorageSignedUrl(path, bucket = TICKETS_BUCKET) {
+  const res = await fetch("/api/storage?action=sign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ bucket, path }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Lien de téléchargement impossible — ${res.status} ${text}`);
+  }
+  const data = await res.json();
+  return data.url;
 }
 
 async function sbStorageClearBucket(bucket) {
-  const listRes = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${bucket}`, {
+  await fetch("/api/storage?action=clear", {
     method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ prefix: "", limit: 1000 }),
-  });
-  if (!listRes.ok) return;
-  const files = await listRes.json();
-  if (!files || files.length === 0) return;
-  await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}`, {
-    method: "DELETE",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ prefixes: files.map((f) => f.name) }),
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ bucket }),
   });
 }
 
@@ -1236,6 +1271,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
   const [value, setValue] = useState("");
   const [showLoginCode, setShowLoginCode] = useState(false);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockedUntil, setLockedUntil] = useState(null);
   const [now, setNow] = useState(Date.now());
@@ -1257,10 +1293,50 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
     setValue("");
   };
 
-  const submit = () => {
-    if (isLocked) return;
+  const registerFailure = (msg) => {
+    const attempts = failedAttempts + 1;
+    setFailedAttempts(attempts);
+    if (attempts >= 5) {
+      setLockedUntil(Date.now() + 60000);
+      setFailedAttempts(0);
+      setError("Trop de tentatives. Réessaie dans 60 secondes.");
+    } else {
+      setError(msg || `Code incorrect (${attempts}/5 tentatives).`);
+    }
+  };
+
+  const submit = async () => {
+    if (isLocked || busy) return;
     const v = value.trim();
     if (!v) return;
+
+    // Mode connecté : le code est vérifié par le serveur (/api/login), qui
+    // délivre le jeton de session. Les PIN ne sont jamais comparés ici.
+    if (SUPABASE_CONFIGURED) {
+      setBusy(true);
+      setError("");
+      try {
+        const data = await apiLogin(selected, v);
+        if (data) {
+          setFailedAttempts(0);
+          if (selected === "admin") onAdminLogin(rowToUser(data.user));
+          else if (selected === "technicien") onTechLogin(rowToUser(data.user));
+          else onClientLogin(rowToClient(data.client));
+        } else if (selected === "client") {
+          registerFailure("Code introuvable. Vérifie auprès de APESPOT WI-FI.");
+        } else {
+          registerFailure();
+        }
+      } catch (e) {
+        console.error(e);
+        setError("Connexion impossible — vérifie ta connexion internet.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // Mode démo local : vérification sur les données de démonstration.
     if (selected === "admin" || selected === "technicien") {
       const match = users.find((u) => u.role === selected && u.pin === v);
       if (match) {
@@ -1268,15 +1344,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         if (selected === "admin") onAdminLogin(match);
         else onTechLogin(match);
       } else {
-        const attempts = failedAttempts + 1;
-        setFailedAttempts(attempts);
-        if (attempts >= 5) {
-          setLockedUntil(Date.now() + 60000);
-          setFailedAttempts(0);
-          setError("Trop de tentatives. Réessaie dans 60 secondes.");
-        } else {
-          setError(`Code incorrect (${attempts}/5 tentatives).`);
-        }
+        registerFailure();
       }
     } else if (selected === "client") {
       const match = clients.find((c) => (c.accessCode || "").trim().toUpperCase() === v.toUpperCase());
@@ -1295,7 +1363,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.0</span>
+          <span className="app-version-badge">V7.1</span>
         </div>
 
         {!selected && (
@@ -1346,7 +1414,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
             {!isLocked && error && <div className="login-error">{error}</div>}
             <div className="modal-actions" style={{ marginTop: 18 }}>
               <button className="btn-cancel" onClick={() => setSelected(null)}>Retour</button>
-              <button className="btn-save" onClick={submit} disabled={isLocked}>Entrer</button>
+              <button className="btn-save" onClick={submit} disabled={isLocked || busy}>{busy ? "Connexion…" : "Entrer"}</button>
             </div>
           </div>
         )}
@@ -2165,8 +2233,9 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                   <button
                     className="btn-add"
                     style={{ padding: "5px 10px", fontSize: 10.5, flexShrink: 0 }}
-                    onClick={() => {
-                      const url = SUPABASE_CONFIGURED ? sbStorageUrl(p.receiptPath, RECEIPTS_BUCKET) : p.receiptPath;
+                    onClick={async () => {
+                      const url = SUPABASE_CONFIGURED ? await sbStorageSignedUrl(p.receiptPath, RECEIPTS_BUCKET).catch(() => null) : p.receiptPath;
+                      if (!url) return;
                       const a = document.createElement("a");
                       a.href = url;
                       a.download = p.receiptName || "recu.pdf";
@@ -2612,8 +2681,11 @@ export default function AlerteClientWifi() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
+  const demoLoadedRef = useRef(false);
   useEffect(() => {
     if (!SUPABASE_CONFIGURED) {
+      if (demoLoadedRef.current) return;
+      demoLoadedRef.current = true;
       const demoClients = loadLocal(LOCAL_CLIENTS_KEY, null) || SEED_CLIENTS.map((c) => ({ ...c, id: uid() }));
       const demoPayments = loadLocal(LOCAL_PAYMENTS_KEY, []);
       const demoMessages = loadLocal(LOCAL_MESSAGES_KEY, []);
@@ -2651,6 +2723,14 @@ export default function AlerteClientWifi() {
       setLoading(false);
       return;
     }
+    // Mode connecté : les données ne se chargent qu'une fois connecté —
+    // le proxy /api/db refuse toute requête sans jeton de session valide.
+    if (!sessionChecked) return;
+    if (!role || !sessionToken) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     (async () => {
       try {
         const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe, al] = await Promise.all([
@@ -2688,17 +2768,17 @@ export default function AlerteClientWifi() {
         trimTicketRequestsHandler(tr);
       } catch (e) {
         console.error(e);
-        setLoadError("Connexion à Supabase impossible. Vérifie SUPABASE_URL / SUPABASE_ANON_KEY et les tables wifi_clients / wifi_payments / wifi_messages / wifi_complaints / wifi_users / wifi_payment_requests / wifi_ticket_requests.");
+        setLoadError("Connexion au serveur impossible. Vérifie les variables SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / APP_SESSION_SECRET sur Vercel.");
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [sessionChecked, role]);
 
   // Rafraîchissement automatique en arrière-plan (toutes les 90s), pour voir les nouvelles
   // réclamations / messages / demandes sans recharger la page manuellement.
   useEffect(() => {
-    if (!SUPABASE_CONFIGURED) return;
+    if (!SUPABASE_CONFIGURED || !role) return;
     const t = setInterval(async () => {
       try {
         const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe] = await Promise.all([
@@ -2737,7 +2817,7 @@ export default function AlerteClientWifi() {
       }
     }, 90000);
     return () => clearInterval(t);
-  }, []);
+  }, [role]);
 
   // En mode démo (sans Supabase), on sauvegarde localement à chaque changement.
   useEffect(() => {
@@ -2785,30 +2865,29 @@ export default function AlerteClientWifi() {
 
   // ---------- Session persistante (survit à une actualisation) + déconnexion après inactivité ----------
 
-  // Restaure la session sauvegardée une fois les données chargées (une seule fois).
+  // Restaure la session sauvegardée au démarrage (une seule fois). La fiche du
+  // compte connecté est stockée avec la session : plus besoin d'attendre le
+  // chargement des données (qui, en mode connecté, exige d'être connecté).
   useEffect(() => {
-    if (loading) return;
     try {
       const raw = localStorage.getItem(SESSION_KEY);
       if (raw) {
         const session = JSON.parse(raw);
-        const stillValid = session && session.role && (Date.now() - (session.lastActivity || 0) <= INACTIVITY_LIMIT_MS);
-        if (stillValid) {
-          if (session.role === "client") {
-            const c = clients.find((x) => x.id === session.clientId);
-            if (c) {
-              lastActivityRef.current = Date.now();
-              setAuthClient(c);
-              setRole("client");
-            }
-          } else if (session.role === "admin" || session.role === "technicien") {
-            const u = users.find((x) => x.id === session.userId) || null;
-            lastActivityRef.current = Date.now();
-            setAuthUser(u);
-            setRole(session.role);
-          }
+        const stillValid =
+          session && session.role &&
+          (Date.now() - (session.lastActivity || 0) <= INACTIVITY_LIMIT_MS) &&
+          (!SUPABASE_CONFIGURED || Boolean(sessionToken));
+        if (stillValid && session.role === "client" && session.client) {
+          lastActivityRef.current = Date.now();
+          setAuthClient(session.client);
+          setRole("client");
+        } else if (stillValid && (session.role === "admin" || session.role === "technicien") && session.user) {
+          lastActivityRef.current = Date.now();
+          setAuthUser(session.user);
+          setRole(session.role);
         } else {
           localStorage.removeItem(SESSION_KEY);
+          if (SUPABASE_CONFIGURED) setSessionToken(null);
         }
       }
     } catch (e) {
@@ -2816,7 +2895,7 @@ export default function AlerteClientWifi() {
     }
     setSessionChecked(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  }, []);
 
   // Sauvegarde la session à chaque connexion / changement de compte.
   useEffect(() => {
@@ -2827,8 +2906,8 @@ export default function AlerteClientWifi() {
     }
     localStorage.setItem(SESSION_KEY, JSON.stringify({
       role,
-      userId: authUser?.id || null,
-      clientId: authClient?.id || null,
+      user: authUser || null,
+      client: authClient || null,
       lastActivity: lastActivityRef.current,
     }));
   }, [role, authUser, authClient, sessionChecked]);
@@ -2859,6 +2938,7 @@ export default function AlerteClientWifi() {
       const elapsed = Date.now() - lastActivityRef.current;
       if (elapsed > INACTIVITY_LIMIT_MS) {
         localStorage.removeItem(SESSION_KEY);
+        setSessionToken(null);
         setRole(null);
         setAuthUser(null);
         setAuthClient(null);
@@ -2904,7 +2984,7 @@ export default function AlerteClientWifi() {
     try {
       const res = await fetch("/api/send-daily-reminder", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": ADMIN_NOTIFY_SECRET },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ title: broadcastModal.title || "APESPOT WI-FI", body: broadcastModal.body }),
       });
       const data = await res.json();
@@ -3808,7 +3888,7 @@ export default function AlerteClientWifi() {
   const notifyStaff = (audience, title, body) => {
     fetch("/api/send-daily-reminder", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-admin-secret": ADMIN_NOTIFY_SECRET },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ title, body, audience }),
     }).catch((e) => console.error("Erreur notification :", e));
   };
@@ -3976,7 +4056,7 @@ export default function AlerteClientWifi() {
 
   const downloadAndDeleteTicketHandler = async (req) => {
     try {
-      const url = SUPABASE_CONFIGURED ? sbStorageUrl(req.filePath) : req.filePath;
+      const url = SUPABASE_CONFIGURED ? await sbStorageSignedUrl(req.filePath) : req.filePath;
       const res = await fetch(url);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
@@ -4704,6 +4784,7 @@ export default function AlerteClientWifi() {
 
   const handleLogout = () => {
     localStorage.removeItem(SESSION_KEY);
+    setSessionToken(null);
     setRole(null);
     setAuthClient(null);
     setAuthUser(null);
@@ -4812,7 +4893,7 @@ export default function AlerteClientWifi() {
       {loadError && <div className="chart-card" style={{ borderColor: "var(--red)", color: "var(--red)" }}>{loadError}</div>}
       {!SUPABASE_CONFIGURED && !loadError && (
         <div className="chart-card" style={{ borderColor: "var(--amber)", color: "var(--amber)", fontSize: 12.5 }}>
-          Mode démo local — les données sont sauvegardées dans ce navigateur uniquement. Ajoute ta clé SUPABASE_ANON_KEY avant de déployer pour utiliser la vraie base de données.
+          Mode démo local — les données sont sauvegardées dans ce navigateur uniquement. Une fois déployée sur Vercel, l'application utilise la vraie base via les fonctions serveur sécurisées.
         </div>
       )}
 
