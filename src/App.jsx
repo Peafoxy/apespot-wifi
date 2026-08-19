@@ -1363,7 +1363,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.3</span>
+          <span className="app-version-badge">V7.4</span>
         </div>
 
         {!selected && (
@@ -3006,6 +3006,8 @@ export default function AlerteClientWifi() {
   const [perdiemModal, setPerdiemModal] = useState(null); // null | { editingId, personneNom, personneId, montant, note }
   const [otherExpenseModal, setOtherExpenseModal] = useState(null); // null | { editingId, description, montant }
   const [expenseSubTab, setExpenseSubTab] = useState("carburant"); // carburant | lignes | perdiem | autres
+  const [fuelStatusFilter, setFuelStatusFilter] = useState("a_payer"); // a_payer | paye — onglet Impayés/Payés des déplacements
+  const [perdiemStatusFilter, setPerdiemStatusFilter] = useState("a_payer"); // idem pour les perdiem
   const [busyUploadId, setBusyUploadId] = useState(null);
   const [busyFuelId, setBusyFuelId] = useState(null); // id de la réclamation en cours d'enregistrement, ou "tour"
   const [busyPerdiem, setBusyPerdiem] = useState(false);
@@ -5622,20 +5624,37 @@ export default function AlerteClientWifi() {
 
           <div className="chart-card">
             <div className="ctitle">DÉPLACEMENTS ENREGISTRÉS ({fuelExpenses.length})</div>
-            {fuelExpenses.length === 0 && <div className="empty">Aucun déplacement enregistré pour l'instant.</div>}
-            {fuelExpenses.map((f) => (
-              <div key={f.id} className="rah-item">
-                <span className="rah-date">{f.createdAt ? new Date(f.createdAt).toLocaleDateString("fr-FR") : ""}</span>
-                <span>{f.technicienNom} → {f.clientNom} ({f.distanceKm.toFixed(1)} km)</span>
-                {f.status === "a_payer" ? (
-                  <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markFuelExpensePaid(f)}>
-                    {fmtFCFA(f.montant)} · Marquer payé
-                  </button>
-                ) : (
-                  <span className="badge OK">{fmtFCFA(f.montant)} · Payé</span>
-                )}
-              </div>
-            ))}
+            <div className="chips" style={{ marginBottom: 10 }}>
+              <button className={`chip ${fuelStatusFilter === "a_payer" ? "active" : ""}`} onClick={() => setFuelStatusFilter("a_payer")}>
+                Impayés{unpaidFuelCount > 0 ? ` (${unpaidFuelCount})` : ""}
+              </button>
+              <button className={`chip ${fuelStatusFilter === "paye" ? "active" : ""}`} onClick={() => setFuelStatusFilter("paye")}>
+                Payés ({fuelExpenses.length - unpaidFuelCount})
+              </button>
+            </div>
+            {(() => {
+              const list = fuelExpenses.filter((f) => (fuelStatusFilter === "a_payer" ? f.status === "a_payer" : f.status !== "a_payer"));
+              if (list.length === 0) {
+                return <div className="empty">{fuelStatusFilter === "a_payer" ? "Aucun déplacement impayé. ✓" : "Aucun déplacement payé pour l'instant."}</div>;
+              }
+              return (
+                <div className="scroll-list">
+                  {list.map((f) => (
+                    <div key={f.id} className="rah-item">
+                      <span className="rah-date">{f.createdAt ? new Date(f.createdAt).toLocaleDateString("fr-FR") : ""}</span>
+                      <span>{f.technicienNom} → {f.clientNom} ({f.distanceKm.toFixed(1)} km)</span>
+                      {f.status === "a_payer" ? (
+                        <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markFuelExpensePaid(f)}>
+                          {fmtFCFA(f.montant)} · Marquer payé
+                        </button>
+                      ) : (
+                        <span className="badge OK">{fmtFCFA(f.montant)} · Payé</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
             </>
           )}
@@ -5651,7 +5670,7 @@ export default function AlerteClientWifi() {
                   + Nouvelle ligne
                 </button>
               </div>
-              <div className="table-shell client-list-shell">
+              <div className="table-shell client-list-shell table-scroll">
                 {expenseLines.length === 0 && <div className="empty">Aucune ligne enregistrée.</div>}
                 {[...expenseLines]
                   .sort((a, b) => {
@@ -5803,8 +5822,22 @@ export default function AlerteClientWifi() {
 
               <div className="chart-card">
                 <div className="ctitle">PERDIEM ENREGISTRÉS ({perdiemExpenses.length})</div>
-                {perdiemExpenses.length === 0 && <div className="empty">Aucun perdiem enregistré pour l'instant.</div>}
-                {perdiemExpenses.map((p) => (
+                <div className="chips" style={{ marginBottom: 10 }}>
+                  <button className={`chip ${perdiemStatusFilter === "a_payer" ? "active" : ""}`} onClick={() => setPerdiemStatusFilter("a_payer")}>
+                    Impayés{unpaidPerdiemCount > 0 ? ` (${unpaidPerdiemCount})` : ""}
+                  </button>
+                  <button className={`chip ${perdiemStatusFilter === "paye" ? "active" : ""}`} onClick={() => setPerdiemStatusFilter("paye")}>
+                    Payés ({perdiemExpenses.length - unpaidPerdiemCount})
+                  </button>
+                </div>
+                {(() => {
+                  const list = perdiemExpenses.filter((p) => (perdiemStatusFilter === "a_payer" ? p.status === "a_payer" : p.status !== "a_payer"));
+                  if (list.length === 0) {
+                    return <div className="empty">{perdiemStatusFilter === "a_payer" ? "Aucun perdiem impayé. ✓" : "Aucun perdiem payé pour l'instant."}</div>;
+                  }
+                  return (
+                <div className="scroll-list">
+                {list.map((p) => (
                   <div key={p.id} className="rah-item">
                     <span className="rah-date">{p.createdAt ? new Date(p.createdAt).toLocaleDateString("fr-FR") : ""}</span>
                     <span>{p.personneNom}{p.note ? ` · ${p.note}` : ""}</span>
@@ -5827,6 +5860,9 @@ export default function AlerteClientWifi() {
                     </button>
                   </div>
                 ))}
+                </div>
+                  );
+                })()}
               </div>
             </>
           )}
@@ -5860,6 +5896,8 @@ export default function AlerteClientWifi() {
               <div className="chart-card">
                 <div className="ctitle">AUTRES DÉPENSES ({otherExpenses.length}) — Total : {fmtFCFA(otherExpensesTotal)}</div>
                 {otherExpenses.length === 0 && <div className="empty">Aucune dépense enregistrée.</div>}
+                {otherExpenses.length > 0 && (
+                <div className="scroll-list">
                 {otherExpenses.map((o) => (
                   <div key={o.id} className="rah-item">
                     <span className="rah-date">{o.createdAt ? new Date(o.createdAt).toLocaleDateString("fr-FR") : ""}</span>
@@ -5880,6 +5918,8 @@ export default function AlerteClientWifi() {
                     </button>
                   </div>
                 ))}
+                </div>
+                )}
               </div>
             </>
           )}
