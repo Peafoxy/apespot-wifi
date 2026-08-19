@@ -27,6 +27,17 @@ export default async (req, res) => {
     return;
   }
   if (req.method !== "POST") {
+    // Diagnostic sans données : /api/login?check=1 teste si la clé service
+    // permet bien de joindre la base (renvoie juste le statut, jamais de données).
+    if (req.method === "GET" && String(req.url || "").includes("check=1")) {
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/wifi_users?select=id&limit=1`, { headers: sbHeaders() });
+        res.status(200).json({ ok: r.ok, supabase_status: r.status });
+      } catch (e) {
+        res.status(200).json({ ok: false, supabase_status: 0, error: String(e).slice(0, 200) });
+      }
+      return;
+    }
     res.status(405).json({ ok: false, error: "Méthode non autorisée." });
     return;
   }

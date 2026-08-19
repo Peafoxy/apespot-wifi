@@ -14,6 +14,10 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 // Le RLS étant activé sur wifi_push_subscriptions, il faut la clé service_role
 // pour lire les abonnements (la clé anon ne fonctionne plus).
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+// Clé JWT ("eyJ...") → apikey + Authorization ; nouvelle clé (sb_secret_...) → apikey seul.
+const SB_HEADERS = SUPABASE_KEY && SUPABASE_KEY.startsWith("eyJ")
+  ? { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+  : { apikey: SUPABASE_KEY };
 
 export default async (req, res) => {
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY || !SUPABASE_URL || !SUPABASE_KEY) {
@@ -44,7 +48,7 @@ export default async (req, res) => {
 
   try {
     const listRes = await fetch(`${SUPABASE_URL}/rest/v1/wifi_push_subscriptions?select=*`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      headers: SB_HEADERS,
     });
     let subs = await listRes.json();
     if (audience !== "all") {
@@ -65,7 +69,7 @@ export default async (req, res) => {
           if (err.statusCode === 404 || err.statusCode === 410) {
             await fetch(`${SUPABASE_URL}/rest/v1/wifi_push_subscriptions?id=eq.${s.id}`, {
               method: "DELETE",
-              headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+              headers: SB_HEADERS,
             });
           }
           throw err;

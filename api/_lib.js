@@ -22,11 +22,15 @@ export function envError() {
 }
 
 export function sbHeaders(extra = {}) {
-  return {
-    apikey: SERVICE_KEY,
-    Authorization: `Bearer ${SERVICE_KEY}`,
-    ...extra,
-  };
+  const h = { apikey: SERVICE_KEY };
+  // Les anciennes clés Supabase sont des JWT ("eyJ...") et se passent aussi en
+  // Authorization. Les nouvelles clés (sb_secret_...) ne sont PAS des JWT :
+  // elles se passent uniquement dans l'en-tête apikey — un Authorization:
+  // Bearer avec une clé non-JWT ferait rejeter la requête.
+  if (SERVICE_KEY && SERVICE_KEY.startsWith("eyJ")) {
+    h.Authorization = `Bearer ${SERVICE_KEY}`;
+  }
+  return { ...h, ...extra };
 }
 
 // ---- Jetons de session ----
