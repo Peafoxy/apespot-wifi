@@ -41,7 +41,7 @@ const CLIENT_TABLE_RULES = {
   wifi_messages: { methods: ["GET", "POST", "PATCH"], col: "client_nom", by: "nom" },
   wifi_complaints: { methods: ["GET", "POST"], col: "client_nom", by: "nom" },
   wifi_payment_requests: { methods: ["GET", "POST"], col: "client_nom", by: "nom" },
-  wifi_ticket_requests: { methods: ["GET", "POST", "DELETE"], col: "client_nom", by: "nom" },
+  wifi_ticket_requests: { methods: ["GET", "POST", "PATCH", "DELETE"], col: "client_nom", by: "nom" },
   // Réglages et durées de tickets : configuration partagée, lecture seule.
   wifi_settings: { methods: ["GET"], col: null },
   wifi_ticket_durations: { methods: ["GET"], col: null },
