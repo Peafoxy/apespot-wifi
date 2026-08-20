@@ -1360,7 +1360,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.8</span>
+          <span className="app-version-badge">V7.9</span>
         </div>
 
         {!selected && (
@@ -1422,7 +1422,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint, toast }) {
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-tech-tab") || "complaints");
   useEffect(() => {
     localStorage.setItem("apespot-tech-tab", tab);
@@ -1491,11 +1491,19 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
   const activeThread = threads.find((t) => t.nom === activeThreadClient);
 
-  const sendReply = () => {
-    if (!replyText.trim() || !activeThreadClient) return;
+  const [busyReply, setBusyReply] = useState(false);
+  const sendReply = async () => {
+    if (busyReply || !replyText.trim() || !activeThreadClient) return;
     const client = clients.find((c) => c.nom === activeThreadClient);
-    onSendMessage(client?.id, activeThreadClient, "company", replyText);
-    setReplyText("");
+    setBusyReply(true);
+    try {
+      // On attend l'envoi et on ne vide le champ qu'ensuite : maintenir Entrée
+      // ou double-cliquer n'envoie plus le même message plusieurs fois.
+      await onSendMessage(client?.id, activeThreadClient, "company", replyText.trim());
+      setReplyText("");
+    } finally {
+      setBusyReply(false);
+    }
   };
 
   const [tourLogged, setTourLogged] = useState(false);
@@ -1541,6 +1549,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   return (
     <div className="wifi-app">
       <style>{CSS}</style>
+      {toast && <div className="toast show">{toast}</div>}
       <header>
         <div className="brand">
           <div className="brand-mark brand-mark-logo"><img src={LOGO_DATA_URI} alt="Apé Spot WiFi" /></div>
@@ -1788,8 +1797,8 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                 )) : <div className="empty">Aucun message avec {activeThreadClient} pour l'instant — écris le premier ci-dessous.</div>}
               </div>
               <div className="thread-input">
-                <input placeholder="Répondre..." value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendReply()} />
-                <button className="btn-save" onClick={sendReply}>Envoyer</button>
+                <input placeholder="Répondre..." value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendReply()} disabled={busyReply} />
+                <button className="btn-save" onClick={sendReply} disabled={busyReply}>{busyReply ? "..." : "Envoyer"}</button>
               </div>
             </div>
           )}
@@ -1915,7 +1924,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
 // -------------------- Client view --------------------
 
-function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onMarkMessagesRead, onSaveClientLocation, onLogout, sessionWarningSeconds, onStayConnected }) {
+function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onMarkMessagesRead, onSaveClientLocation, onLogout, sessionWarningSeconds, onStayConnected, toast }) {
   const [tab, setTab] = useState(() => localStorage.getItem(`apespot-client-tab-${client.id}`) || "home");
   useEffect(() => {
     localStorage.setItem(`apespot-client-tab-${client.id}`, tab);
@@ -2127,6 +2136,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
   return (
     <div className="wifi-app">
       <style>{CSS}</style>
+      {toast && <div className="toast show">{toast}</div>}
       <header>
         <div className="brand">
           <div className="brand-mark brand-mark-logo"><img src={LOGO_DATA_URI} alt="Apé Spot WiFi" /></div>
@@ -2148,7 +2158,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
           Message{unreadMessagesCount > 0 && <span className="tab-badge">{unreadMessagesCount}</span>}
         </button>
         <button className={`tab ${tab === "tickets" ? "active" : ""}`} onClick={() => setTab("tickets")}>
-          Ticket{myTicketRequests.some((r) => r.status === "ready") && <span className="tab-badge">1</span>}
+          Ticket{myTicketRequests.filter((r) => r.status === "ready").length > 0 && <span className="tab-badge">{myTicketRequests.filter((r) => r.status === "ready").length}</span>}
         </button>
       </div>
 
@@ -4143,7 +4153,13 @@ export default function AlerteClientWifi() {
     try {
       const url = SUPABASE_CONFIGURED ? await sbStorageSignedUrl(req.filePath) : req.filePath;
       const res = await fetch(url);
+      // On vérifie que le fichier est bien arrivé AVANT de considérer la
+      // livraison faite : sinon un lien expiré renvoyait un message d'erreur
+      // (JSON) enregistré comme « ticket.pdf », et l'ancien code marquait
+      // quand même la demande livrée / supprimait le vrai PDF.
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
+      if (blob.type && blob.type.includes("json")) throw new Error("fichier indisponible");
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
@@ -4153,14 +4169,17 @@ export default function AlerteClientWifi() {
       document.body.removeChild(a);
       URL.revokeObjectURL(blobUrl);
 
+      // Téléchargement confirmé : on marque la demande livrée. Le fichier
+      // physique est nettoyé par l'expiration automatique (45 jours) — le
+      // client n'a pas le droit de supprimer un fichier du stockage.
       if (SUPABASE_CONFIGURED) {
-        await sbStorageDelete(req.filePath);
         await updateTicketRequestRow(req.id, { status: "delivered", file_path: null });
       }
       setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "delivered", filePath: null } : r)));
+      showToast("Ticket téléchargé ✓");
     } catch (e) {
       console.error(e);
-      showToast("Erreur de téléchargement du ticket.");
+      showToast("Téléchargement impossible — réessaie dans un instant.");
     }
   };
 
@@ -4941,6 +4960,7 @@ export default function AlerteClientWifi() {
         authUser={authUser}
         sessionWarningSeconds={sessionWarningSeconds}
         onStayConnected={stayConnected}
+        toast={toast}
       />
     );
   }
@@ -4971,6 +4991,7 @@ export default function AlerteClientWifi() {
         onLogout={handleLogout}
         sessionWarningSeconds={sessionWarningSeconds}
         onStayConnected={stayConnected}
+        toast={toast}
       />
     );
   }
