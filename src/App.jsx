@@ -728,24 +728,26 @@ const complaintToRow = (c) => ({
   approval_status: c.approvalStatus || "none",
 });
 
-// Une table qui échoue (pas encore migrée, etc.) ne doit pas empêcher tout le reste de charger.
+// Une table qui échoue (réseau coupé, 401...) renvoie null — surtout PAS une
+// liste vide : sinon le rafraîchissement automatique écraserait tout l'écran
+// avec du vide au moindre incident réseau. L'appelant conserve alors les
+// données précédentes quand la valeur est null.
 async function safeFetch(label, fn) {
   try {
     return await fn();
   } catch (e) {
     console.error(`Chargement "${label}" échoué :`, e);
-    return [];
+    return null;
   }
 }
 
 async function fetchClients() {
+  // Plus aucune ré-insertion de données de démonstration ici : une table
+  // vide reste vide (sinon les clients de démo réapparaissaient tout seuls
+  // après que l'admin les ait supprimés, et deux sessions ouvertes sur une
+  // table vide les inséraient en double).
   const data = await sbFetch("wifi_clients?select=*&order=date_exp.asc.nullslast");
-  if (data && data.length) return data.map(rowToClient);
-
-  // Table vide : on importe les données de départ une seule fois.
-  const seedRows = SEED_CLIENTS.map((c) => clientToRow(c));
-  const inserted = await sbFetch("wifi_clients", { method: "POST", body: JSON.stringify(seedRows) });
-  return (inserted || []).map(rowToClient);
+  return (data || []).map(rowToClient);
 }
 
 async function fetchPayments() {
@@ -764,16 +766,11 @@ async function fetchComplaints() {
 }
 
 async function fetchUsers() {
+  // Le premier compte Admin est créé côté serveur au premier démarrage
+  // (api/login.js, PIN 2580) : plus de ré-création automatique ici, qui
+  // recréait un Admin/Technicien par défaut après chaque suppression.
   const data = await sbFetch("wifi_users?select=*&order=created_at.asc");
-  if (data && data.length) return data.map(rowToUser);
-
-  // Table vide : on crée un premier compte Admin et Technicien avec les codes par défaut.
-  const seedRows = [
-    { nom: "Admin", role: "admin", pin: DEFAULT_ADMIN_PIN, is_principal: true },
-    { nom: "Technicien", role: "technicien", pin: DEFAULT_TECH_PIN },
-  ];
-  const inserted = await sbFetch("wifi_users", { method: "POST", body: JSON.stringify(seedRows) });
-  return (inserted || []).map(rowToUser);
+  return (data || []).map(rowToUser);
 }
 
 async function fetchPaymentRequests() {
@@ -1363,7 +1360,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.7</span>
+          <span className="app-version-badge">V7.8</span>
         </div>
 
         {!selected && (
@@ -2749,23 +2746,26 @@ export default function AlerteClientWifi() {
           safeFetch("autres dépenses", fetchOtherExpenses),
           safeFetch("journal d'activité", fetchActivityLog),
         ]);
-        setClients(c);
-        setPayments(p);
-        setMessages(m);
-        setComplaints(cp);
-        setUsers(u);
-        setPaymentRequests(pr);
-        setTicketRequests(tr);
-        setExpenseLines(el);
-        setPerdiemExpenses(pd);
-        setOtherExpenses(oe);
-        setActivityLog(al || []);
-        setTicketDurations(td);
+        // On ne remplace un état que si sa donnée est bien arrivée (≠ null) :
+        // une table en échec conserve les valeurs précédentes.
+        if (c !== null) setClients(c);
+        if (p !== null) setPayments(p);
+        if (m !== null) setMessages(m);
+        if (cp !== null) setComplaints(cp);
+        if (u !== null) setUsers(u);
+        if (pr !== null) setPaymentRequests(pr);
+        if (tr !== null) setTicketRequests(tr);
+        if (el !== null) setExpenseLines(el);
+        if (pd !== null) setPerdiemExpenses(pd);
+        if (oe !== null) setOtherExpenses(oe);
+        if (al !== null) setActivityLog(al);
+        if (td !== null) setTicketDurations(td);
         if (st && st.office_lat && st.office_lng) setOfficeLocation({ lat: parseFloat(st.office_lat), lng: parseFloat(st.office_lng) });
         if (st && st.fuel_rate_per_km) setFuelRatePerKm(parseFloat(st.fuel_rate_per_km));
-        setFuelExpenses(fe || []);
-        expireOldTicketsHandler(tr);
-        trimTicketRequestsHandler(tr);
+        if (fe !== null) setFuelExpenses(fe);
+        if (tr !== null) { expireOldTicketsHandler(tr); trimTicketRequestsHandler(tr); }
+        if (c === null) setLoadError("Synchronisation incomplète — vérifie ta connexion internet ; certaines données peuvent manquer.");
+        else setLoadError("");
       } catch (e) {
         console.error(e);
         setLoadError("Connexion au serveur impossible. Vérifie les variables SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / APP_SESSION_SECRET sur Vercel.");
@@ -2796,22 +2796,23 @@ export default function AlerteClientWifi() {
           safeFetch("perdiem", fetchPerdiem),
           safeFetch("autres dépenses", fetchOtherExpenses),
         ]);
-        setClients(c);
-        setPayments(p);
-        setMessages(m);
-        setComplaints(cp);
-        setUsers(u);
-        setPaymentRequests(pr);
-        setTicketRequests(tr);
-        setTicketDurations(td);
+        // Un tick de rafraîchissement qui échoue (réseau) ne doit JAMAIS
+        // vider l'écran : on ne remplace que les données réellement reçues.
+        if (c !== null) setClients(c);
+        if (p !== null) setPayments(p);
+        if (m !== null) setMessages(m);
+        if (cp !== null) setComplaints(cp);
+        if (u !== null) setUsers(u);
+        if (pr !== null) setPaymentRequests(pr);
+        if (tr !== null) setTicketRequests(tr);
+        if (td !== null) setTicketDurations(td);
         if (st && st.office_lat && st.office_lng) setOfficeLocation({ lat: parseFloat(st.office_lat), lng: parseFloat(st.office_lng) });
         if (st && st.fuel_rate_per_km) setFuelRatePerKm(parseFloat(st.fuel_rate_per_km));
-        setFuelExpenses(fe || []);
-        setExpenseLines(el || []);
-        setPerdiemExpenses(pd || []);
-        setOtherExpenses(oe || []);
-        expireOldTicketsHandler(tr);
-        trimTicketRequestsHandler(tr);
+        if (fe !== null) setFuelExpenses(fe);
+        if (el !== null) setExpenseLines(el);
+        if (pd !== null) setPerdiemExpenses(pd);
+        if (oe !== null) setOtherExpenses(oe);
+        if (tr !== null) { expireOldTicketsHandler(tr); trimTicketRequestsHandler(tr); }
       } catch (e) {
         console.error("Rafraîchissement automatique échoué:", e);
       }
@@ -3302,10 +3303,12 @@ export default function AlerteClientWifi() {
     if (!window.confirm(`Transférer le rôle d'administrateur principal à "${target.nom}" ? Tu perdras immédiatement ce pouvoir (accès aux codes des autres, réinitialisation).`)) return;
     try {
       if (SUPABASE_CONFIGURED) {
-        await Promise.all([
-          sbFetch(`wifi_users?id=eq.${authUser.id}`, { method: "PATCH", body: JSON.stringify({ is_principal: false }) }),
-          sbFetch(`wifi_users?id=eq.${target.id}`, { method: "PATCH", body: JSON.stringify({ is_principal: true }) }),
-        ]);
+        // Séquencé, jamais en parallèle : on PROMEUT d'abord la cible, puis on
+        // rétrograde l'ancien. Si la 2e étape échoue, l'état transitoire "deux
+        // principaux" est bénin ; l'ancien ordre parallèle pouvait laisser la
+        // base SANS aucun administrateur principal.
+        await sbFetch(`wifi_users?id=eq.${target.id}`, { method: "PATCH", body: JSON.stringify({ is_principal: true }) });
+        await sbFetch(`wifi_users?id=eq.${authUser.id}`, { method: "PATCH", body: JSON.stringify({ is_principal: false }) });
       }
       setUsers((us) => us.map((u) => {
         if (u.id === authUser.id) return { ...u, isPrincipal: false };
@@ -3703,7 +3706,7 @@ export default function AlerteClientWifi() {
 
   const savePaymentModal = async () => {
     if (busySavePayment) return;
-    const { editingId, clientNom, montant, mode, date, newExpiration, note, _fromRenewal } = paymentModal;
+    const { editingId, clientNom, montant, mode, date, newExpiration, note, _fromRenewal, _created, _prolonged } = paymentModal;
     if (!clientNom.trim()) return showToast("Le nom du client est requis.");
     if (!montant || Number(montant) <= 0) return showToast("Le montant doit être supérieur à 0.");
     if (!date) return showToast("La date du paiement est requise.");
@@ -3722,26 +3725,37 @@ export default function AlerteClientWifi() {
     };
 
     try {
+      // Idempotence : si le paiement a déjà été créé lors d'une tentative
+      // précédente (échec à une étape suivante), on ne le ré-insère pas —
+      // évite les doublons comptables quand l'admin re-clique "Enregistrer".
+      let created = _created || null;
       if (editingId) {
         if (SUPABASE_CONFIGURED) await updatePaymentRow(editingId, payload);
         setPayments((ps) => ps.map((p) => (p.id === editingId ? { ...p, ...payload } : p)));
         showToast("Paiement mis à jour.");
-      } else {
-        const created = SUPABASE_CONFIGURED ? await insertPaymentRow(payload) : { id: uid(), ...payload };
+      } else if (!created) {
+        created = SUPABASE_CONFIGURED ? await insertPaymentRow(payload) : { id: uid(), ...payload };
         setPayments((ps) => [created, ...ps]);
+        setPaymentModal((pm) => (pm ? { ...pm, _created: created } : pm));
         showToast("Paiement enregistré.");
         generateAndAttachReceipt(created);
       }
 
-      if (newExpiration) {
+      // Prolongation de l'abonnement : UNIQUEMENT à l'enregistrement d'un
+      // nouveau paiement (jamais en édition — sinon corriger un vieux paiement
+      // ferait régresser l'échéance actuelle du client), et une seule fois.
+      // On mémorise la date précédente + l'horodatage pour que l'annulation
+      // sous 72h et le délai anti-double-réabonnement fonctionnent.
+      if (!editingId && newExpiration && !_prolonged) {
         const c = findClientByName(clientNom);
         if (c) {
-          if (SUPABASE_CONFIGURED) await updateClientRow(c.id, { ...c, dateExp: newExpiration });
-          setClients((cs) => cs.map((x) => (x.id === c.id ? { ...x, dateExp: newExpiration } : x)));
+          const updated = { ...c, dateExp: newExpiration, previousDateExp: c.dateExp || null, renewedAt: new Date().toISOString() };
+          if (SUPABASE_CONFIGURED) await updateClientRow(c.id, updated);
+          setClients((cs) => cs.map((x) => (x.id === c.id ? updated : x)));
+          setPaymentModal((pm) => (pm ? { ...pm, _prolonged: true } : pm));
           if (_fromRenewal) {
-            const updatedClient = { ...c, dateExp: newExpiration };
-            setRowActionsClient((rc) => (rc && rc.id === c.id ? updatedClient : rc));
-            setRenewConfirmModal({ nom: c.nom, previewDate: newExpiration, client: updatedClient });
+            setRowActionsClient((rc) => (rc && rc.id === c.id ? updated : rc));
+            setRenewConfirmModal({ nom: c.nom, previewDate: newExpiration, client: updated });
           } else {
             showToast("Paiement enregistré · abonnement WiFi prolongé.");
           }
@@ -3758,7 +3772,7 @@ export default function AlerteClientWifi() {
       closePaymentModal();
     } catch (e) {
       console.error(e);
-      showToast("Erreur d'enregistrement Supabase.");
+      showToast("Erreur d'enregistrement — vérifie ta connexion, puis reclique : le paiement ne sera pas dupliqué.");
     } finally {
       setBusySavePayment(false);
     }
