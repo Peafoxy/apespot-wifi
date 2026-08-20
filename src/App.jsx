@@ -1363,7 +1363,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.5</span>
+          <span className="app-version-badge">V7.6</span>
         </div>
 
         {!selected && (
@@ -5616,16 +5616,11 @@ export default function AlerteClientWifi() {
                 <div className="ctitle">TABLEAU DE BORD DÉPENSES (ADMIN PRINCIPAL)</div>
 
                 <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, marginBottom: 8 }}>CE MOIS-CI</div>
-                <div className="rah-item"><span>Total des dépenses</span><span /><span className="rah-amount" style={{ color: "var(--red)" }}>{fmtFCFA(totalMois)}</span></div>
-                <div className="rah-item"><span>Déjà payées</span><span /><span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(cur.paye)}</span></div>
-                <div className="rah-item">
-                  <span>Impayées{lignesARegler > 0 ? " (dont lignes à régler)" : ""}</span><span />
-                  <span className="rah-amount" style={{ color: "var(--amber)" }}>{fmtFCFA(impayeMois)}</span>
-                </div>
-                <div className="rah-item">
-                  <span>Solde du mois (encaissé − dépensé)</span>
-                  <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{fmtFCFA(encaisseMois)} encaissés</span>
-                  <span className="rah-amount" style={{ color: solde >= 0 ? "var(--green)" : "var(--red)" }}>{solde >= 0 ? "+" : ""}{fmtFCFA(solde)}</span>
+                <div className="stats stats-mini">
+                  <div className="stat expire"><div className="n" style={{ color: "var(--red)" }}>{fmtFCFA(totalMois)}</div><div className="l">Dépenses du mois</div></div>
+                  <div className="stat ok"><div className="n" style={{ color: "var(--green)" }}>{fmtFCFA(cur.paye)}</div><div className="l">Déjà payées</div></div>
+                  <div className="stat attention"><div className="n" style={{ color: "var(--amber)" }}>{fmtFCFA(impayeMois)}</div><div className="l">Impayées{lignesARegler > 0 ? " (lignes incluses)" : ""}</div></div>
+                  <div className="stat total"><div className="n" style={{ color: solde >= 0 ? "var(--green)" : "var(--red)" }}>{solde >= 0 ? "+" : ""}{fmtFCFA(solde)}</div><div className="l">Solde du mois · {fmtFCFA(encaisseMois)} encaissés</div></div>
                 </div>
 
                 <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, margin: "16px 0 8px" }}>PAR CATÉGORIE (MOIS EN COURS)</div>
@@ -6878,6 +6873,10 @@ const CSS = `
 .wifi-app .stat.total::before{background:var(--cyan);}
 .wifi-app .stat .n{font-family:var(--mono);font-size:24px;font-weight:700;line-height:1;}
 .wifi-app .stat .l{font-size:12px;color:var(--text-dim);margin-top:6px;letter-spacing:.3px;}
+.wifi-app .stats.stats-mini{grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:6px;}
+.wifi-app .stats-mini .stat{padding:12px 14px;border-radius:12px;}
+.wifi-app .stats-mini .stat .n{font-size:17px;}
+.wifi-app .stats-mini .stat .l{font-size:11px;margin-top:4px;}
 .wifi-app .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
 .wifi-app .search{flex:1;min-width:180px;position:relative;}
 .wifi-app .search input{width:100%;padding:10px 14px 10px 36px;border-radius:10px;background:var(--bg-card);border:1px solid var(--line);color:var(--text);font-size:13.5px;font-family:var(--sans);outline:none;}
