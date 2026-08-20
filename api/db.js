@@ -24,6 +24,29 @@ const STAFF_ONLY_TABLES = new Set([
   "wifi_push_subscriptions",
 ]);
 
+// Cloisonnement des sessions "client" : une session client ne peut atteindre
+// QUE ses propres lignes, et seulement via les méthodes strictement
+// nécessaires à son espace. Sans cela, un client connecté pouvait lire les
+// codes d'accès / paiements / messages de TOUS les clients, ou supprimer des
+// données d'autrui. La colonne de cloisonnement est ajoutée côté serveur à
+// chaque requête de lecture / modification / suppression : le client ne
+// choisit jamais quelles lignes il touche.
+//   - `col` = colonne filtrée ; `by` = "sub" (id du client) ou "nom".
+//   - `methods` = méthodes autorisées pour ce rôle sur cette table.
+const CLIENT_TABLE_RULES = {
+  // Le client lit sa fiche, et peut mettre à jour UNIQUEMENT sa position
+  // (partage de localisation) — jamais sa date d'expiration ni son code.
+  wifi_clients: { methods: ["GET", "PATCH"], col: "id", by: "sub", allowBodyKeys: ["latitude", "longitude"] },
+  wifi_payments: { methods: ["GET"], col: "client_nom", by: "nom" },
+  wifi_messages: { methods: ["GET", "POST", "PATCH"], col: "client_nom", by: "nom" },
+  wifi_complaints: { methods: ["GET", "POST"], col: "client_nom", by: "nom" },
+  wifi_payment_requests: { methods: ["GET", "POST"], col: "client_nom", by: "nom" },
+  wifi_ticket_requests: { methods: ["GET", "POST", "DELETE"], col: "client_nom", by: "nom" },
+  // Réglages et durées de tickets : configuration partagée, lecture seule.
+  wifi_settings: { methods: ["GET"], col: null },
+  wifi_ticket_durations: { methods: ["GET"], col: null },
+};
+
 export default async (req, res) => {
   const err = envError();
   if (err) {
@@ -54,9 +77,55 @@ export default async (req, res) => {
     res.status(403).json({ ok: false, error: "Table non autorisée." });
     return;
   }
-  if (session.role === "client" && STAFF_ONLY_TABLES.has(table)) {
-    res.status(403).json({ ok: false, error: "Table non autorisée pour ce rôle." });
-    return;
+
+  let scopedPath = path;
+
+  if (session.role === "client") {
+    if (STAFF_ONLY_TABLES.has(table)) {
+      res.status(403).json({ ok: false, error: "Table non autorisée pour ce rôle." });
+      return;
+    }
+    const rule = CLIENT_TABLE_RULES[table];
+    if (!rule || !rule.methods.includes(m)) {
+      res.status(403).json({ ok: false, error: "Opération non autorisée pour ce rôle." });
+      return;
+    }
+    // Interdit les sélections imbriquées PostgREST (`table(...)`) qui
+    // permettaient de contourner le cloisonnement en embarquant une table
+    // du personnel dans un select.
+    if (scopedPath.includes("(")) {
+      res.status(403).json({ ok: false, error: "Requête non autorisée pour ce rôle." });
+      return;
+    }
+    // Quand la table restreint les champs modifiables (ex. wifi_clients :
+    // seulement latitude/longitude), on refuse tout autre champ dans le corps
+    // — un client ne doit pas pouvoir changer sa date d'expiration ou son code.
+    if (rule.allowBodyKeys && (m === "POST" || m === "PATCH")) {
+      let parsed = body;
+      if (typeof parsed === "string") {
+        try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+      }
+      const rows = Array.isArray(parsed) ? parsed : [parsed];
+      const invalide = rows.some((row) =>
+        !row || typeof row !== "object" || Object.keys(row).some((k) => !rule.allowBodyKeys.includes(k))
+      );
+      if (invalide) {
+        res.status(403).json({ ok: false, error: "Champ non autorisé pour ce rôle." });
+        return;
+      }
+    }
+    // Cloisonnement : on force le filtre sur les lignes du client pour toute
+    // lecture / modification / suppression. Un filtre déjà présent qui
+    // pointerait ailleurs se combine en ET → aucun résultat (donc sûr).
+    if (rule.col && (m === "GET" || m === "PATCH" || m === "DELETE")) {
+      const value = rule.by === "sub" ? session.sub : session.nom;
+      if (value == null) {
+        res.status(403).json({ ok: false, error: "Session incomplète." });
+        return;
+      }
+      const sep = scopedPath.includes("?") ? "&" : "?";
+      scopedPath = `${scopedPath}${sep}${rule.col}=eq.${encodeURIComponent(value)}`;
+    }
   }
 
   try {
@@ -64,7 +133,7 @@ export default async (req, res) => {
       "Content-Type": "application/json",
       Prefer: prefer || "return=representation",
     });
-    const upstream = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    const upstream = await fetch(`${SUPABASE_URL}/rest/v1/${scopedPath}`, {
       method: m,
       headers,
       body: body === undefined || body === null ? undefined : (typeof body === "string" ? body : JSON.stringify(body)),

@@ -80,6 +80,10 @@ export default async (req, res) => {
     }
 
     if (action === "delete") {
+      if (session.role === "client") {
+        res.status(403).json({ ok: false, error: "Action réservée au personnel." });
+        return;
+      }
       if (!BUCKETS.has(bucket) || badPath(path)) {
         res.status(400).json({ ok: false, error: "Bucket ou chemin invalide." });
         return;

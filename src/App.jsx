@@ -1363,7 +1363,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.6</span>
+          <span className="app-version-badge">V7.7</span>
         </div>
 
         {!selected && (
@@ -3443,15 +3443,31 @@ export default function AlerteClientWifi() {
     if (!nom.trim()) return showToast("Le nom du client est requis.");
     setBusySaveClient(true);
     const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), serveur: (serveur || "").trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase(), latitude: latitude ?? null, longitude: longitude ?? null, previousDateExp: clientModal.previousDateExp || null, renewedAt: clientModal.renewedAt || null };
+
+    // Le code d'accès doit être UNIQUE : deux clients avec le même code
+    // pourraient se connecter dans l'espace l'un de l'autre (le cas se produit
+    // dès que deux clients ont les mêmes 4 derniers chiffres de téléphone et
+    // les mêmes 2 premières lettres du nom, ou pas de téléphone). En cas de
+    // collision, on ajoute des caractères jusqu'à obtenir un code libre.
+    const codeSaisi = payload.accessCode;
+    const codesExistants = new Set(clients.filter((c) => c.id !== editingId).map((c) => (c.accessCode || "").trim().toUpperCase()));
+    if (payload.accessCode) {
+      const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      while (codesExistants.has(payload.accessCode)) {
+        payload.accessCode += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+      }
+    }
+    const codeAjuste = payload.accessCode !== codeSaisi;
+
     try {
       if (editingId) {
         if (SUPABASE_CONFIGURED) await updateClientRow(editingId, payload);
         setClients((cs) => cs.map((c) => (c.id === editingId ? { ...c, ...payload } : c)));
-        showToast("Client mis à jour.");
+        showToast(codeAjuste ? `Client mis à jour · code d'accès ajusté pour rester unique : ${payload.accessCode}` : "Client mis à jour.");
       } else {
         const created = SUPABASE_CONFIGURED ? await insertClientRow(payload) : { id: uid(), ...payload };
         setClients((cs) => [...cs, created]);
-        showToast("Client ajouté.");
+        showToast(codeAjuste ? `Client ajouté · code d'accès ajusté pour rester unique : ${payload.accessCode}` : "Client ajouté.");
         if (normalizePhone(created.telephone)) {
           sendWelcomeWhatsApp(created);
         } else {
