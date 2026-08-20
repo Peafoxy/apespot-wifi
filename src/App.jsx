@@ -1363,7 +1363,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.4</span>
+          <span className="app-version-badge">V7.5</span>
         </div>
 
         {!selected && (
@@ -3221,6 +3221,59 @@ export default function AlerteClientWifi() {
   }, [perdiemExpenses]);
 
   const otherExpensesTotal = useMemo(() => otherExpenses.reduce((s, o) => s + (Number(o.montant) || 0), 0), [otherExpenses]);
+
+  // ---- Tableau de bord Dépenses (admin principal) ----
+  // Toutes les dépenses ramenées à un format commun, groupées par mois.
+  // Les lignes récurrentes n'ont pas d'historique complet (seul le dernier
+  // mois payé est mémorisé) : elles apparaissent dans le mois où elles ont
+  // été réglées, et celles pas encore réglées ce mois-ci comptent en impayé.
+  const expensesDashboard = useMemo(() => {
+    const entries = [];
+    fuelExpenses.forEach((f) => {
+      if (!f.createdAt) return;
+      entries.push({ month: f.createdAt.slice(0, 7), cat: "Carburant", label: `${f.technicienNom} → ${f.clientNom}`, date: f.createdAt.slice(0, 10), montant: Number(f.montant) || 0, paye: f.status !== "a_payer" });
+    });
+    perdiemExpenses.forEach((p) => {
+      if (!p.createdAt) return;
+      entries.push({ month: p.createdAt.slice(0, 7), cat: "Perdiem", label: p.personneNom + (p.note ? ` · ${p.note}` : ""), date: p.createdAt.slice(0, 10), montant: Number(p.montant) || 0, paye: p.status !== "a_payer" });
+    });
+    otherExpenses.forEach((o) => {
+      if (!o.createdAt) return;
+      entries.push({ month: o.createdAt.slice(0, 7), cat: "Autres", label: o.description, date: o.createdAt.slice(0, 10), montant: Number(o.montant) || 0, paye: true });
+    });
+    expenseLines.forEach((l) => {
+      if (!l.lastPaidMonth) return;
+      entries.push({ month: l.lastPaidMonth, cat: "Lignes", label: l.nom, date: null, montant: Number(l.montant) || 0, paye: true });
+    });
+
+    const months = {};
+    entries.forEach((e) => {
+      const m = months[e.month] || (months[e.month] = { total: 0, paye: 0, impaye: 0, count: 0, cats: {}, items: [] });
+      m.total += e.montant;
+      m.count += 1;
+      if (e.paye) m.paye += e.montant; else m.impaye += e.montant;
+      const c = m.cats[e.cat] || (m.cats[e.cat] = { total: 0, count: 0 });
+      c.total += e.montant;
+      c.count += 1;
+      m.items.push(e);
+    });
+    Object.values(months).forEach((m) => m.items.sort((a, b) => (b.date || "").localeCompare(a.date || "")));
+
+    // Encaissements par mois, pour le solde (encaissé − dépensé).
+    const encaissements = {};
+    payments.forEach((p) => {
+      const m = (p.date || "").slice(0, 7);
+      if (m) encaissements[m] = (encaissements[m] || 0) + (Number(p.montant) || 0);
+    });
+
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    // Lignes récurrentes pas encore réglées ce mois-ci : obligation du mois en cours.
+    const lignesARegler = expenseLines.filter((l) => l.lastPaidMonth !== currentMonth).reduce((s, l) => s + (Number(l.montant) || 0), 0);
+
+    const monthKeys = Object.keys(months).sort().reverse();
+    return { months, monthKeys, encaissements, currentMonth, lignesARegler };
+  }, [fuelExpenses, perdiemExpenses, otherExpenses, expenseLines, payments]);
+  const [expenseDashboardMonth, setExpenseDashboardMonth] = useState(null);
 
   // L'admin "principal" est marqué explicitement (isPrincipal) — avec repli sur le tout premier
   // compte Admin créé pour les installations antérieures à ce marquage.
@@ -5548,6 +5601,81 @@ export default function AlerteClientWifi() {
 
       {tab === "fuel" && (
         <div className="view active">
+          {isPrincipalAdmin && (() => {
+            const { months, monthKeys, encaissements, currentMonth, lignesARegler } = expensesDashboard;
+            const cur = months[currentMonth] || { total: 0, paye: 0, impaye: 0, count: 0, cats: {}, items: [] };
+            // Total engagé du mois = dépenses enregistrées + lignes récurrentes pas encore réglées.
+            const totalMois = cur.total + lignesARegler;
+            const impayeMois = cur.impaye + lignesARegler;
+            const encaisseMois = encaissements[currentMonth] || 0;
+            const solde = encaisseMois - totalMois;
+            const selMonth = expenseDashboardMonth || monthKeys[0] || currentMonth;
+            const sel = months[selMonth];
+            return (
+              <div className="chart-card" style={{ marginBottom: 20 }}>
+                <div className="ctitle">TABLEAU DE BORD DÉPENSES (ADMIN PRINCIPAL)</div>
+
+                <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, marginBottom: 8 }}>CE MOIS-CI</div>
+                <div className="rah-item"><span>Total des dépenses</span><span /><span className="rah-amount" style={{ color: "var(--red)" }}>{fmtFCFA(totalMois)}</span></div>
+                <div className="rah-item"><span>Déjà payées</span><span /><span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(cur.paye)}</span></div>
+                <div className="rah-item">
+                  <span>Impayées{lignesARegler > 0 ? " (dont lignes à régler)" : ""}</span><span />
+                  <span className="rah-amount" style={{ color: "var(--amber)" }}>{fmtFCFA(impayeMois)}</span>
+                </div>
+                <div className="rah-item">
+                  <span>Solde du mois (encaissé − dépensé)</span>
+                  <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{fmtFCFA(encaisseMois)} encaissés</span>
+                  <span className="rah-amount" style={{ color: solde >= 0 ? "var(--green)" : "var(--red)" }}>{solde >= 0 ? "+" : ""}{fmtFCFA(solde)}</span>
+                </div>
+
+                <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, margin: "16px 0 8px" }}>PAR CATÉGORIE (MOIS EN COURS)</div>
+                {Object.keys(cur.cats).length === 0 && lignesARegler === 0 && <div className="empty">Aucune dépense ce mois-ci.</div>}
+                {Object.entries(cur.cats).map(([cat, d]) => (
+                  <div key={cat} className="rah-item">
+                    <span>{cat}</span>
+                    <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{d.count} entrée(s)</span>
+                    <span className="rah-amount" style={{ color: "var(--cyan)" }}>{fmtFCFA(d.total)}</span>
+                  </div>
+                ))}
+                {lignesARegler > 0 && (
+                  <div className="rah-item">
+                    <span>Lignes à régler</span>
+                    <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>pas encore payées ce mois</span>
+                    <span className="rah-amount" style={{ color: "var(--amber)" }}>{fmtFCFA(lignesARegler)}</span>
+                  </div>
+                )}
+
+                <div style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 700, margin: "16px 0 8px" }}>HISTORIQUE PAR MOIS</div>
+                {monthKeys.length === 0 ? (
+                  <div className="empty">Aucune dépense enregistrée pour l'instant.</div>
+                ) : (
+                  <>
+                    <div className="field" style={{ marginBottom: 12 }}>
+                      <select value={selMonth} onChange={(e) => setExpenseDashboardMonth(e.target.value)}>
+                        {monthKeys.map((m) => (
+                          <option key={m} value={m}>
+                            {new Date(m + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })} — {months[m].count} dépense(s), {fmtFCFA(months[m].total)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {sel && (
+                      <div className="scroll-list">
+                        {sel.items.map((e, i) => (
+                          <div key={i} className="rah-item">
+                            <span className="rah-date">{e.date ? fmtDate(e.date) : "—"}</span>
+                            <span>{e.cat} · {e.label}</span>
+                            <span className="rah-amount" style={{ color: e.paye ? "var(--green)" : "var(--amber)" }}>{fmtFCFA(e.montant)}{e.paye ? "" : " · impayé"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
           <div className="chips" style={{ marginBottom: 14 }}>
             {["carburant", "lignes", "perdiem", "autres"].map((s) => (
               <button key={s} className={`chip ${expenseSubTab === s ? "active" : ""}`} onClick={() => setExpenseSubTab(s)}>
