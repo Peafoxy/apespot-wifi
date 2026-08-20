@@ -51,8 +51,11 @@ export default async (req, res) => {
 
   try {
     if (role === "client") {
-      // ilike sans joker = égalité insensible à la casse (les codes sont stockés en majuscules).
-      const rows = await sbGet(`wifi_clients?access_code=ilike.${encodeURIComponent(cleanCode.toUpperCase())}&limit=1`);
+      // Recherche insensible à la casse, MAIS on neutralise d'abord les
+      // jokers SQL (%, _, \) : sans cela, taper « % » comme code faisait
+      // correspondre n'importe quel client et ouvrait son espace.
+      const codeEchappe = cleanCode.toUpperCase().replace(/([%_\\])/g, "\\$1");
+      const rows = await sbGet(`wifi_clients?access_code=ilike.${encodeURIComponent(codeEchappe)}&limit=1`);
       const client = rows && rows[0];
       if (!client) {
         await sleep(400); // ralentit les tentatives en rafale
