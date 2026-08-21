@@ -481,6 +481,18 @@ function fmtFCFAForPdf(n) {
   return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " F";
 }
 
+// Nom de fichier lisible pour le reçu : "Recu-NOM-DU-CLIENT-2026-08-20.pdf"
+// au lieu d'un code technique. On retire les caractères interdits dans un nom
+// de fichier tout en gardant les accents.
+function receiptFileName(payment) {
+  const nom = (payment.clientNom || "client")
+    .replace(/[\\/:*?"<>|]+/g, " ")
+    .trim()
+    .replace(/\s+/g, "-") || "client";
+  const d = payment.date ? `-${payment.date}` : "";
+  return `Recu-${nom}${d}.pdf`;
+}
+
 async function generateReceiptPDF(payment) {
   // jsPDF chargé seulement au moment de générer un reçu (allège le
   // demarrage de l'app, surtout sur mobile).
@@ -1362,7 +1374,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V8.1</span>
+          <span className="app-version-badge">V8.2</span>
         </div>
 
         {!selected && (
@@ -2247,7 +2259,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                       if (!url) return;
                       const a = document.createElement("a");
                       a.href = url;
-                      a.download = p.receiptName || "recu.pdf";
+                      a.download = receiptFileName(p);
                       a.target = "_blank";
                       document.body.appendChild(a);
                       a.click();
@@ -3694,7 +3706,7 @@ export default function AlerteClientWifi() {
   const generateAndAttachReceipt = async (payment) => {
     try {
       const blob = await generateReceiptPDF(payment);
-      const fileName = `recu-${(payment.id || "").slice(0, 8) || "apespot"}.pdf`;
+      const fileName = receiptFileName(payment);
       const file = new File([blob], fileName, { type: "application/pdf" });
 
       if (SUPABASE_CONFIGURED) {
@@ -3787,6 +3799,39 @@ export default function AlerteClientWifi() {
       showToast("Erreur d'enregistrement — vérifie ta connexion, puis reclique : le paiement ne sera pas dupliqué.");
     } finally {
       setBusySavePayment(false);
+    }
+  };
+
+  // Téléchargement du reçu par l'admin : utilise le reçu déjà stocké s'il
+  // existe, sinon le génère à la volée (anciens paiements sans reçu). Le
+  // fichier est nommé au nom du client, pas avec un code.
+  const downloadPaymentReceipt = async (p) => {
+    try {
+      const fileName = receiptFileName(p);
+      let blob;
+      if (p.receiptPath && SUPABASE_CONFIGURED) {
+        const url = await sbStorageSignedUrl(p.receiptPath, RECEIPTS_BUCKET);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        blob = await res.blob();
+        if (blob.type && blob.type.includes("json")) throw new Error("indisponible");
+      } else {
+        blob = await generateReceiptPDF(p);
+        // Pas encore de reçu stocké : on l'attache pour les prochaines fois.
+        if (SUPABASE_CONFIGURED && !p.receiptPath) generateAndAttachReceipt(p);
+      }
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+      showToast("Reçu téléchargé ✓");
+    } catch (e) {
+      console.error(e);
+      showToast("Impossible de générer le reçu.");
     }
   };
 
@@ -5405,6 +5450,9 @@ export default function AlerteClientWifi() {
                     <td className="action-text">{p.note || "—"}</td>
                     <td>
                       <div className="row-actions">
+                        <button className="icon-btn" title="Télécharger le reçu (PDF)" onClick={() => downloadPaymentReceipt(p)}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /><path d="M12 18v-6" /><path d="M9 15l3 3 3-3" /></svg>
+                        </button>
                         <button className="icon-btn" title="Modifier" onClick={() => openEditPayment(p)}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                         </button>
