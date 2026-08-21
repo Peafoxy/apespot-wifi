@@ -1408,7 +1408,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V8.6</span>
+          <span className="app-version-badge">V8.7</span>
         </div>
 
         {!selected && (
@@ -2284,31 +2284,22 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                 <span className="rah-date">{fmtDate(p.date)}</span>
                 <span>{p.mode}</span>
                 <span className="rah-amount">{fmtFCFA(p.montant)}</span>
-                {p.receiptPath && (
-                  <button
-                    className="btn-add"
-                    style={{ padding: "5px 10px", fontSize: 10.5, flexShrink: 0 }}
-                    onClick={async () => {
-                      try {
-                        let blob;
-                        if (SUPABASE_CONFIGURED) {
-                          const url = await sbStorageSignedUrl(p.receiptPath, RECEIPTS_BUCKET);
-                          const res = await fetch(url);
-                          if (!res.ok) throw new Error("indisponible");
-                          blob = await res.blob();
-                        } else {
-                          const res = await fetch(p.receiptPath); // dataURL en mode démo
-                          blob = await res.blob();
-                        }
-                        await deliverPdf(blob, receiptFileName(p), "Reçu APESPOT WI-FI");
-                      } catch (err) {
-                        console.error(err);
-                      }
-                    }}
-                  >
-                    Reçu
-                  </button>
-                )}
+                <button
+                  className="btn-add"
+                  style={{ padding: "5px 10px", fontSize: 10.5, flexShrink: 0 }}
+                  onClick={async () => {
+                    // Le reçu est GÉNÉRÉ à la demande à partir des données du
+                    // paiement — rien n'est stocké sur le serveur.
+                    try {
+                      const blob = await generateReceiptPDF(p);
+                      await deliverPdf(blob, receiptFileName(p), "Reçu APESPOT WI-FI");
+                    } catch (err) {
+                      console.error(err);
+                    }
+                  }}
+                >
+                  Reçu
+                </button>
               </div>
             ))}
           </div>
@@ -3748,31 +3739,6 @@ export default function AlerteClientWifi() {
   };
 
   // Génère automatiquement un reçu PDF pour un paiement et le met à disposition du client.
-  const generateAndAttachReceipt = async (payment) => {
-    try {
-      const blob = await generateReceiptPDF(payment);
-      const fileName = receiptFileName(payment);
-      const file = new File([blob], fileName, { type: "application/pdf" });
-
-      if (SUPABASE_CONFIGURED) {
-        const path = `${payment.id}-${Date.now()}.pdf`;
-        await sbStorageUpload(path, file, RECEIPTS_BUCKET);
-        await updatePaymentRow(payment.id, { ...payment, receiptPath: path, receiptName: fileName });
-        setPayments((ps) => ps.map((p) => (p.id === payment.id ? { ...p, receiptPath: path, receiptName: fileName } : p)));
-      } else {
-        const reader = new FileReader();
-        const dataUrl = await new Promise((resolve, reject) => {
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        setPayments((ps) => ps.map((p) => (p.id === payment.id ? { ...p, receiptPath: dataUrl, receiptName: fileName } : p)));
-      }
-    } catch (e) {
-      console.error("Erreur génération/envoi du reçu:", e);
-    }
-  };
-
   const savePaymentModal = async () => {
     if (busySavePayment) return;
     const { editingId, clientNom, montant, mode, date, newExpiration, note, _fromRenewal, _created, _prolonged } = paymentModal;
@@ -3807,7 +3773,8 @@ export default function AlerteClientWifi() {
         setPayments((ps) => [created, ...ps]);
         setPaymentModal((pm) => (pm ? { ...pm, _created: created } : pm));
         showToast("Paiement enregistré.");
-        generateAndAttachReceipt(created);
+        // Le reçu n'est plus stocké : il est généré à la demande lors du
+        // téléchargement (rien n'occupe le stockage Supabase).
       }
 
       // Prolongation de l'abonnement : UNIQUEMENT à l'enregistrement d'un
@@ -3848,32 +3815,17 @@ export default function AlerteClientWifi() {
   };
 
   // Téléchargement du reçu par l'admin : utilise le reçu déjà stocké s'il
-  // existe, sinon le génère à la volée (anciens paiements sans reçu). Le
-  // fichier est nommé au nom du client, pas avec un code.
+  // Le reçu est GÉNÉRÉ à la demande à partir des données du paiement — rien
+  // n'est stocké sur Supabase (le stockage ne se remplit donc jamais).
   const downloadPaymentReceipt = async (p) => {
     try {
-      const fileName = receiptFileName(p);
-      let blob;
-      if (p.receiptPath && SUPABASE_CONFIGURED) {
-        // On RÉCUPÈRE le fichier stocké puis on le remet en téléchargement
-        // direct : un lien direct vers Supabase (autre domaine) serait
-        // seulement OUVERT par le navigateur, jamais téléchargé.
-        const url = await sbStorageSignedUrl(p.receiptPath, RECEIPTS_BUCKET);
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        blob = await res.blob();
-        if (blob.type && blob.type.includes("json")) throw new Error("indisponible");
-      } else {
-        // Ancien paiement sans reçu : on le génère à la volée.
-        blob = await generateReceiptPDF(p);
-        if (SUPABASE_CONFIGURED && !p.receiptPath) generateAndAttachReceipt(p);
-      }
-      const how = await deliverPdf(blob, fileName, `Reçu ${p.clientNom || ""}`.trim());
+      const blob = await generateReceiptPDF(p);
+      const how = await deliverPdf(blob, receiptFileName(p), `Reçu ${p.clientNom || ""}`.trim());
       if (how === "shared") showToast("Reçu prêt — choisis où l'enregistrer ou l'envoyer.");
       else if (how === "downloaded") showToast("Reçu téléchargé (dossier Téléchargements).");
     } catch (e) {
       console.error(e);
-      showToast("Impossible de récupérer le reçu — vérifie ta connexion.");
+      showToast("Impossible de générer le reçu.");
     }
   };
 
