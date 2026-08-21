@@ -1273,7 +1273,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
   const [lockedUntil, setLockedUntil] = useState(null);
   const [now, setNow] = useState(Date.now());
 
-  const newComplaintsCount = complaints ? complaints.filter((c) => !c.read).length : 0;
+  const newComplaintsCount = complaints ? complaints.filter((c) => c.status === "nouveau").length : 0;
 
   useEffect(() => {
     if (!lockedUntil) return;
@@ -1360,7 +1360,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V7.9</span>
+          <span className="app-version-badge">V8.0</span>
         </div>
 
         {!selected && (
@@ -1422,7 +1422,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onMarkComplaintsRead, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint, toast }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint, toast }) {
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-tech-tab") || "complaints");
   useEffect(() => {
     localStorage.setItem("apespot-tech-tab", tab);
@@ -1443,7 +1443,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
   }, [complaintFilter]);
 
   const complaintsSorted = [...complaints].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-  const newComplaintsCount = complaints.filter((c) => !c.read).length;
+  const newComplaintsCount = complaints.filter((c) => c.status === "nouveau").length;
 
   // Tournée suggérée : réclamations non résolues avec position GPS, triées du plus proche
   // au plus loin du local. Le retour au point A est toujours compté par défaut, même si le
@@ -1570,7 +1570,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
       )}
 
       <div className="tabs">
-        <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => { setTab("complaints"); onMarkComplaintsRead(); }}>
+        <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => setTab("complaints")}>
           Réclamations{newComplaintsCount > 0 && <span className="tab-badge">{newComplaintsCount}</span>}
         </button>
         <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); setActiveThreadClient(null); }}>
@@ -3141,7 +3141,7 @@ export default function AlerteClientWifi() {
   );
 
   const newComplaintsCount = useMemo(
-    () => complaints.filter((c) => !c.read).length,
+    () => complaints.filter((c) => c.status === "nouveau").length,
     [complaints]
   );
 
@@ -4697,19 +4697,6 @@ export default function AlerteClientWifi() {
   };
 
 
-  const markComplaintsReadHandler = async () => {
-    const unreadIds = complaints.filter((c) => !c.read).map((c) => c.id);
-    if (unreadIds.length === 0) return;
-    try {
-      if (SUPABASE_CONFIGURED) {
-        await sbFetch(`wifi_complaints?id=in.(${unreadIds.join(",")})`, { method: "PATCH", body: JSON.stringify({ read: true }) });
-      }
-      setComplaints((cs) => cs.map((c) => (unreadIds.includes(c.id) ? { ...c, read: true } : c)));
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   const markClientMessagesReadHandler = async (clientId, clientNom) => {
     try {
       if (SUPABASE_CONFIGURED) await markClientMessagesReadRow(clientId, clientNom);
@@ -4945,7 +4932,6 @@ export default function AlerteClientWifi() {
         perdiemExpenses={perdiemExpenses}
         onSendMessage={sendMessageHandler}
         onUpdateComplaintStatus={updateComplaintStatusHandler}
-        onMarkComplaintsRead={markComplaintsReadHandler}
         onUploadTicketFile={uploadTicketFileHandler}
         onLogFuelExpense={logFuelExpense}
         onRequestApproval={requestInterventionApproval}
@@ -5044,7 +5030,7 @@ export default function AlerteClientWifi() {
         <button className={`tab ${tab === "payments" ? "active" : ""}`} onClick={() => setTab("payments")}>
           Paiements{pendingRequests.length > 0 && <span className="tab-badge">{pendingRequests.length}</span>}
         </button>
-        <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => { setTab("complaints"); markComplaintsReadHandler(); }}>
+        <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => setTab("complaints")}>
           Réclamations{newComplaintsCount > 0 && <span className="tab-badge">{newComplaintsCount}</span>}
         </button>
         <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); setActiveThreadClient(null); }}>
@@ -5115,7 +5101,7 @@ export default function AlerteClientWifi() {
                   <span className="badge ATTENTION">{c.status === "nouveau" ? "Nouveau" : "En cours"}</span>
                 </div>
               ))}
-              <button className="btn-cancel" style={{ width: "100%", marginTop: 10 }} onClick={() => { setTab("complaints"); markComplaintsReadHandler(); }}>Voir dans Réclamations →</button>
+              <button className="btn-cancel" style={{ width: "100%", marginTop: 10 }} onClick={() => setTab("complaints")}>Voir dans Réclamations →</button>
             </div>
           )}
 
