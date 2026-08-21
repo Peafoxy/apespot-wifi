@@ -481,6 +481,23 @@ function fmtFCFAForPdf(n) {
   return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " F";
 }
 
+// Force un VRAI téléchargement de fichier (et non une ouverture d'onglet) :
+// on repasse par un blob local, même origine, avec l'attribut download —
+// c'est ce qui déclenche le gestionnaire de téléchargement du navigateur et
+// sa notification. Un lien direct vers Supabase (autre domaine) serait, lui,
+// seulement affiché dans un nouvel onglet.
+function triggerPdfDownload(blob, fileName) {
+  const pdf = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
+  const blobUrl = URL.createObjectURL(pdf);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+}
+
 // Nom de fichier lisible pour le reçu : "Recu-NOM-DU-CLIENT-2026-08-20.pdf"
 // au lieu d'un code technique. On retire les caractères interdits dans un nom
 // de fichier tout en gardant les accents.
@@ -1374,7 +1391,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V8.2</span>
+          <span className="app-version-badge">V8.3</span>
         </div>
 
         {!selected && (
@@ -2255,15 +2272,21 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                     className="btn-add"
                     style={{ padding: "5px 10px", fontSize: 10.5, flexShrink: 0 }}
                     onClick={async () => {
-                      const url = SUPABASE_CONFIGURED ? await sbStorageSignedUrl(p.receiptPath, RECEIPTS_BUCKET).catch(() => null) : p.receiptPath;
-                      if (!url) return;
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = receiptFileName(p);
-                      a.target = "_blank";
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
+                      try {
+                        let blob;
+                        if (SUPABASE_CONFIGURED) {
+                          const url = await sbStorageSignedUrl(p.receiptPath, RECEIPTS_BUCKET);
+                          const res = await fetch(url);
+                          if (!res.ok) throw new Error("indisponible");
+                          blob = await res.blob();
+                        } else {
+                          const res = await fetch(p.receiptPath); // dataURL en mode démo
+                          blob = await res.blob();
+                        }
+                        triggerPdfDownload(blob, receiptFileName(p));
+                      } catch (err) {
+                        console.error(err);
+                      }
                     }}
                   >
                     Reçu
@@ -3810,28 +3833,24 @@ export default function AlerteClientWifi() {
       const fileName = receiptFileName(p);
       let blob;
       if (p.receiptPath && SUPABASE_CONFIGURED) {
+        // On RÉCUPÈRE le fichier stocké puis on le remet en téléchargement
+        // direct : un lien direct vers Supabase (autre domaine) serait
+        // seulement OUVERT par le navigateur, jamais téléchargé.
         const url = await sbStorageSignedUrl(p.receiptPath, RECEIPTS_BUCKET);
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         blob = await res.blob();
         if (blob.type && blob.type.includes("json")) throw new Error("indisponible");
       } else {
+        // Ancien paiement sans reçu : on le génère à la volée.
         blob = await generateReceiptPDF(p);
-        // Pas encore de reçu stocké : on l'attache pour les prochaines fois.
         if (SUPABASE_CONFIGURED && !p.receiptPath) generateAndAttachReceipt(p);
       }
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
+      triggerPdfDownload(blob, fileName);
       showToast("Reçu téléchargé ✓");
     } catch (e) {
       console.error(e);
-      showToast("Impossible de générer le reçu.");
+      showToast("Impossible de télécharger le reçu — vérifie ta connexion.");
     }
   };
 
