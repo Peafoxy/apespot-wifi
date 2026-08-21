@@ -481,13 +481,29 @@ function fmtFCFAForPdf(n) {
   return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " F";
 }
 
-// Force un VRAI téléchargement de fichier (et non une ouverture d'onglet) :
-// on repasse par un blob local, même origine, avec l'attribut download —
-// c'est ce qui déclenche le gestionnaire de téléchargement du navigateur et
-// sa notification. Un lien direct vers Supabase (autre domaine) serait, lui,
-// seulement affiché dans un nouvel onglet.
-function triggerPdfDownload(blob, fileName) {
+// Remet un PDF entre les mains de l'utilisateur de la façon la PLUS visible
+// selon l'appareil :
+//  1. Sur téléphone : le menu de PARTAGE natif (« Enregistrer dans Fichiers »,
+//     « Envoyer sur WhatsApp »...) — l'utilisateur choisit où va le fichier,
+//     au lieu d'un téléchargement invisible qu'on ne retrouve pas.
+//  2. Sinon (ordinateur) : téléchargement classique dans le dossier
+//     Téléchargements.
+// Renvoie "shared", "downloaded" ou "cancelled".
+async function deliverPdf(blob, fileName, title) {
   const pdf = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
+  try {
+    const file = new File([pdf], fileName, { type: "application/pdf" });
+    if (typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: title || fileName });
+        return "shared";
+      } catch (e) {
+        if (e && e.name === "AbortError") return "cancelled"; // l'utilisateur a fermé le menu
+        // autre erreur : on retombe sur le téléchargement classique
+      }
+    }
+  } catch { /* File non supporté : téléchargement classique */ }
+
   const blobUrl = URL.createObjectURL(pdf);
   const a = document.createElement("a");
   a.href = blobUrl;
@@ -496,6 +512,7 @@ function triggerPdfDownload(blob, fileName) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+  return "downloaded";
 }
 
 // Nom de fichier lisible pour le reçu : "Recu-NOM-DU-CLIENT-2026-08-20.pdf"
@@ -1391,7 +1408,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V8.3</span>
+          <span className="app-version-badge">V8.4</span>
         </div>
 
         {!selected && (
@@ -2283,7 +2300,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                           const res = await fetch(p.receiptPath); // dataURL en mode démo
                           blob = await res.blob();
                         }
-                        triggerPdfDownload(blob, receiptFileName(p));
+                        await deliverPdf(blob, receiptFileName(p), "Reçu APESPOT WI-FI");
                       } catch (err) {
                         console.error(err);
                       }
@@ -3846,11 +3863,12 @@ export default function AlerteClientWifi() {
         blob = await generateReceiptPDF(p);
         if (SUPABASE_CONFIGURED && !p.receiptPath) generateAndAttachReceipt(p);
       }
-      triggerPdfDownload(blob, fileName);
-      showToast("Reçu téléchargé ✓");
+      const how = await deliverPdf(blob, fileName, `Reçu ${p.clientNom || ""}`.trim());
+      if (how === "shared") showToast("Reçu prêt — choisis où l'enregistrer ou l'envoyer.");
+      else if (how === "downloaded") showToast("Reçu téléchargé (dossier Téléchargements).");
     } catch (e) {
       console.error(e);
-      showToast("Impossible de télécharger le reçu — vérifie ta connexion.");
+      showToast("Impossible de récupérer le reçu — vérifie ta connexion.");
     }
   };
 
