@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import jsPDF from "jspdf";
 
 /**
  * Alerte Client WiFi — APESPOT WI-FI
@@ -482,7 +481,10 @@ function fmtFCFAForPdf(n) {
   return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " F";
 }
 
-function generateReceiptPDF(payment) {
+async function generateReceiptPDF(payment) {
+  // jsPDF chargé seulement au moment de générer un reçu (allège le
+  // demarrage de l'app, surtout sur mobile).
+  const { default: jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: "a5" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 15;
@@ -1360,7 +1362,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V8.0</span>
+          <span className="app-version-badge">V8.1</span>
         </div>
 
         {!selected && (
@@ -3065,7 +3067,7 @@ export default function AlerteClientWifi() {
   // Journal d'activité : ne bloque et ne casse jamais l'action en cours, même si l'écriture échoue.
   const logActivity = (action, details) => {
     const entry = { actorNom: authUser?.nom || "Système", actorRole: authUser?.role || null, action, details };
-    setActivityLog((l) => [{ id: uid(), ...entry, createdAt: new Date().toISOString() }, ...l]);
+    setActivityLog((l) => [{ id: uid(), ...entry, createdAt: new Date().toISOString() }, ...l].slice(0, 500));
     if (SUPABASE_CONFIGURED) {
       insertActivityLogRow(entry).catch((e) => console.error("Erreur journal d'activité :", e));
     }
@@ -3691,7 +3693,7 @@ export default function AlerteClientWifi() {
   // Génère automatiquement un reçu PDF pour un paiement et le met à disposition du client.
   const generateAndAttachReceipt = async (payment) => {
     try {
-      const blob = generateReceiptPDF(payment);
+      const blob = await generateReceiptPDF(payment);
       const fileName = `recu-${(payment.id || "").slice(0, 8) || "apespot"}.pdf`;
       const file = new File([blob], fileName, { type: "application/pdf" });
 
@@ -3889,7 +3891,10 @@ export default function AlerteClientWifi() {
   const downloadCSV = (filename, rows) => {
     const csv = rows
       .map((r) => r.map((v) => {
-        const s = String(v ?? "");
+        let s = String(v ?? "");
+        // Neutralise l'injection de formule Excel : une valeur commençant par
+        // = + - @ ou tabulation est préfixée d'une apostrophe (texte inerte).
+        if (/^[=+\-@\t]/.test(s)) s = "'" + s;
         return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
       }).join(";"))
       .join("\r\n");
@@ -4791,16 +4796,24 @@ export default function AlerteClientWifi() {
     const { editingId, nom, role, pin } = userModal;
     if (!nom.trim()) return showToast("Le nom est requis.");
     if (!pin.trim()) return showToast("Le code PIN est requis.");
-    setBusySaveUser(true);
     const payload = { nom: nom.trim(), role, pin: pin.trim() };
+    // Un PIN doit être unique par rôle : deux comptes du même rôle avec le
+    // même PIN, et l'un se connecterait sous l'identité de l'autre.
+    if (users.some((x) => x.id !== editingId && x.role === role && x.pin === payload.pin)) {
+      return showToast("Ce code PIN est déjà utilisé par un autre compte de ce rôle — choisis-en un autre.");
+    }
+    setBusySaveUser(true);
     try {
       if (editingId) {
+        const before = users.find((u) => u.id === editingId);
         if (SUPABASE_CONFIGURED) await updateUserRow(editingId, payload);
         setUsers((us) => us.map((u) => (u.id === editingId ? { ...u, ...payload } : u)));
+        logActivity("update_user", `Compte "${payload.nom}" (${payload.role}) modifié${before && before.pin !== payload.pin ? " · PIN changé" : ""}`);
         showToast("Utilisateur mis à jour.");
       } else {
         const created = SUPABASE_CONFIGURED ? await insertUserRow(payload) : { id: uid(), ...payload, createdAt: new Date().toISOString() };
         setUsers((us) => [...us, created]);
+        logActivity("create_user", `Compte "${payload.nom}" (${payload.role}) créé`);
         showToast("Utilisateur créé.");
       }
       closeUserModal();
@@ -4817,12 +4830,22 @@ export default function AlerteClientWifi() {
       showToast("Impossible de supprimer le dernier compte Admin.");
       return;
     }
-    if (window.confirm(`Supprimer l'utilisateur "${u.nom}" ?`)) {
+    if (u.isPrincipal) {
+      showToast("Transfère d'abord le rôle d'administrateur principal, puis supprime ce compte.");
+      return;
+    }
+    if (u.role === "admin" && !isPrincipalAdmin) {
+      showToast("Seul l'administrateur principal peut supprimer un compte Admin.");
+      return;
+    }
+    const isSelf = u.id === authUser?.id;
+    if (window.confirm(`Supprimer l'utilisateur "${u.nom}" ?${isSelf ? " Tu seras déconnecté immédiatement." : ""}`)) {
       try {
         if (SUPABASE_CONFIGURED) await deleteUserRow(u.id);
         setUsers((us) => us.filter((x) => x.id !== u.id));
         logActivity("delete_user", `Compte "${u.nom}" (${u.role}) supprimé`);
         showToast("Utilisateur supprimé.");
+        if (isSelf) handleLogout();
       } catch (e) {
         console.error(e);
         showToast("Erreur de suppression Supabase.");
@@ -6751,7 +6774,7 @@ export default function AlerteClientWifi() {
             <div className="bilan-toolbar no-print">
               <h2 style={{ margin: 0 }}>Bilan comptable mensuel</h2>
               <div className="bilan-toolbar-actions">
-                <input type="month" value={bilanMonth} onChange={(e) => setBilanMonth(e.target.value)} />
+                <input type="month" value={bilanMonth} onChange={(e) => e.target.value && setBilanMonth(e.target.value)} />
                 <button className="btn-cancel" onClick={closeBilan}>Fermer</button>
                 <button className="btn-save" onClick={printBilan}>Imprimer / Enregistrer en PDF</button>
               </div>
