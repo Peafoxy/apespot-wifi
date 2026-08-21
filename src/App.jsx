@@ -1408,7 +1408,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V8.4</span>
+          <span className="app-version-badge">V8.5</span>
         </div>
 
         {!selected && (
@@ -7057,6 +7057,12 @@ const CSS = `
 .wifi-app .scroll-list{max-height:320px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border:1px solid var(--line);border-radius:12px;padding:0 10px;}
 .wifi-app .table-shell.table-scroll{max-height:65vh;overflow-y:auto;overscroll-behavior:contain;}
 .wifi-app .table-shell.table-scroll thead th{position:sticky;top:0;background:var(--bg-panel);z-index:2;}
+/* Colonne Client épinglée à gauche : reste visible quand on défile vers la
+   droite pour atteindre les boutons de gestion. */
+.wifi-app .table-scroll table td:first-child,
+.wifi-app .table-scroll table th:first-child{position:sticky;left:0;background:var(--bg-panel);z-index:1;box-shadow:2px 0 6px rgba(0,0,0,.28);}
+.wifi-app .table-scroll thead th:first-child{z-index:3;}
+.wifi-app .table-scroll tbody tr:hover td:first-child{background:var(--bg-hover);}
 .wifi-app table{width:100%;min-width:720px;border-collapse:collapse;}
 .wifi-app thead th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-faint);padding:13px 16px;font-weight:600;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;}
 .wifi-app thead th:hover{color:var(--text-dim);}
