@@ -1408,7 +1408,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V8.5</span>
+          <span className="app-version-badge">V8.6</span>
         </div>
 
         {!selected && (
@@ -2626,16 +2626,21 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                 <div className="rah-item" style={{ borderBottom: "none", padding: "4px 0" }}>
                   <span className="rah-date">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("fr-FR") : ""}</span>
                   {editingTicketId !== r.id && <span>{r.note || "—"}</span>}
-                  {r.status === "ready" ? (
+                  {(r.status === "ready" || (r.status === "delivered" && r.filePath)) ? (
                     <button className="btn-add" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={() => onDownloadTicket(r)}>
-                      Télécharger
+                      {r.status === "ready" ? "Télécharger" : "Re-télécharger"}
                     </button>
                   ) : (
                     <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "expired" ? "EXPIRE" : "NA"}`}>
-                      {r.status === "pending" ? "En attente" : r.status === "expired" ? "Expiré (non téléchargé)" : "Livré"}
+                      {r.status === "pending" ? "En attente" : r.status === "expired" ? "Expiré" : "Livré"}
                     </span>
                   )}
                 </div>
+                {r.status === "delivered" && r.filePath && r.readyAt && (
+                  <div style={{ fontSize: 10.5, color: "var(--text-faint)", padding: "0 0 4px" }}>
+                    ✓ Téléchargé · encore disponible {Math.max(0, Math.ceil(24 - (Date.now() - new Date(r.readyAt).getTime()) / 3600000))}h
+                  </div>
+                )}
 
                 {r.status === "pending" && editingTicketId === r.id && (
                   <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
@@ -4194,25 +4199,55 @@ export default function AlerteClientWifi() {
   // Le client télécharge le PDF ; le fichier est ensuite supprimé de Supabase Storage.
   // Ticket "Prêt" jamais téléchargé après 45 jours : le PDF est supprimé du stockage
   // pour ne pas encombrer Supabase indéfiniment.
-  const TICKET_EXPIRY_MS = 45 * 24 * 60 * 60 * 1000;
+  const TICKET_EXPIRY_MS = 45 * 24 * 60 * 60 * 1000;      // jamais téléchargé : 45 jours
+  const TICKET_DELIVERED_KEEP_MS = 24 * 60 * 60 * 1000;    // téléchargé : gardé 24h puis supprimé
   const expireOldTicketsHandler = async (list) => {
     const now = Date.now();
-    const expired = (list || []).filter(
-      (r) => r.status === "ready" && r.readyAt && now - new Date(r.readyAt).getTime() > TICKET_EXPIRY_MS
-    );
-    if (expired.length === 0) return;
-    for (const r of expired) {
+    const isStaff = role !== "client";
+    // À retirer : prêt depuis > 45j (jamais téléchargé) OU livré depuis > 24h.
+    const toExpire = (list || []).filter((r) => {
+      if (!r.readyAt) return false;
+      const age = now - new Date(r.readyAt).getTime();
+      if (r.status === "ready" && age > TICKET_EXPIRY_MS) return true;
+      if (r.status === "delivered" && age > TICKET_DELIVERED_KEEP_MS) return true;
+      return false;
+    });
+    // Le personnel supprime aussi le fichier physique des tickets déjà
+    // expirés dont le PDF traîne encore (laissé par une session client, qui
+    // n'a pas le droit de supprimer un fichier du stockage).
+    const orphans = isStaff ? (list || []).filter((r) => r.status === "expired" && r.filePath) : [];
+    if (toExpire.length === 0 && orphans.length === 0) return;
+
+    for (const r of toExpire) {
       try {
-        if (SUPABASE_CONFIGURED && r.filePath) {
+        if (!SUPABASE_CONFIGURED) continue;
+        if (isStaff && r.filePath) {
           await sbStorageDelete(r.filePath).catch(() => {});
           await updateTicketRequestRow(r.id, { status: "expired", file_path: null });
+        } else {
+          // Session client : on masque le ticket (statut expiré) mais on garde
+          // le chemin pour que le personnel supprime le vrai fichier ensuite.
+          await updateTicketRequestRow(r.id, { status: "expired" });
         }
       } catch (e) {
         console.error("Expiration ticket échouée:", e);
       }
     }
-    const expiredIds = new Set(expired.map((r) => r.id));
-    setTicketRequests((rs) => rs.map((r) => (expiredIds.has(r.id) ? { ...r, status: "expired", filePath: null } : r)));
+    for (const r of orphans) {
+      try {
+        await sbStorageDelete(r.filePath).catch(() => {});
+        await updateTicketRequestRow(r.id, { file_path: null });
+      } catch (e) {
+        console.error("Nettoyage fichier ticket échoué:", e);
+      }
+    }
+    const expiredIds = new Set(toExpire.map((r) => r.id));
+    const orphanIds = new Set(orphans.map((r) => r.id));
+    setTicketRequests((rs) => rs.map((r) => {
+      if (expiredIds.has(r.id)) return { ...r, status: "expired", filePath: isStaff ? null : r.filePath };
+      if (orphanIds.has(r.id)) return { ...r, filePath: null };
+      return r;
+    }));
   };
 
   // Ne garde que les 10 demandes les plus récentes — les plus anciennes sont
@@ -4247,23 +4282,22 @@ export default function AlerteClientWifi() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       if (blob.type && blob.type.includes("json")) throw new Error("fichier indisponible");
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = req.fileName || "ticket.pdf";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
+      await deliverPdf(blob, req.fileName || "ticket.pdf", "Ticket APESPOT WI-FI");
 
-      // Téléchargement confirmé : on marque la demande livrée. Le fichier
-      // physique est nettoyé par l'expiration automatique (45 jours) — le
-      // client n'a pas le droit de supprimer un fichier du stockage.
-      if (SUPABASE_CONFIGURED) {
-        await updateTicketRequestRow(req.id, { status: "delivered", file_path: null });
+      // Première livraison : on marque « livré » et on démarre le compte à
+      // rebours de 24h (réutilise ready_at), MAIS on GARDE le fichier — le
+      // client peut le re-télécharger pendant 24h. La suppression du fichier
+      // se fait automatiquement 24h après (voir expireOldTicketsHandler).
+      if (req.status !== "delivered") {
+        const now = new Date().toISOString();
+        if (SUPABASE_CONFIGURED) {
+          await updateTicketRequestRow(req.id, { status: "delivered", ready_at: now });
+        }
+        setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "delivered", readyAt: now } : r)));
+        showToast("Ticket téléchargé ✓ — disponible encore 24h.");
+      } else {
+        showToast("Ticket téléchargé ✓");
       }
-      setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "delivered", filePath: null } : r)));
-      showToast("Ticket téléchargé ✓");
     } catch (e) {
       console.error(e);
       showToast("Téléchargement impossible — réessaie dans un instant.");
