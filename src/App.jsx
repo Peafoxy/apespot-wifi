@@ -3018,6 +3018,44 @@ export default function AlerteClientWifi() {
     };
   }, [role]);
 
+  // ---------- Présence « personnel en ligne » (pour la relance automatique) ----------
+  // Tant qu'un membre du personnel a l'app ouverte, on signale discrètement au
+  // serveur « je suis là » (toutes les minutes + au retour sur l'onglet). Cela
+  // permet à /api/relance-activite de n'envoyer les rappels QUE si personne n'a
+  // ouvert l'app depuis 10 min. Best-effort : n'interrompt jamais l'usage, et
+  // ne concerne que le personnel (une session client ne compte pas comme « vu »).
+  useEffect(() => {
+    if (role !== "admin" && role !== "technicien") return;
+    if (!SUPABASE_CONFIGURED) return;
+
+    let annule = false;
+    const signaler = () => {
+      if (annule || document.visibilityState === "hidden") return;
+      sbFetch("wifi_presence?on_conflict=id", {
+        method: "POST",
+        body: JSON.stringify({
+          id: 1,
+          last_seen_at: new Date().toISOString(),
+          last_seen_by: (authUser && authUser.nom) || role,
+        }),
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      }).catch(() => { /* présence best-effort : on ignore les erreurs */ });
+    };
+
+    signaler();
+    const interval = setInterval(signaler, 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === "visible") signaler(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", signaler, true);
+
+    return () => {
+      annule = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", signaler, true);
+    };
+  }, [role, authUser]);
+
   // ---- Alerts view state ----
   const [search, setSearch] = useState("");
   const [clientPageSize, setClientPageSize] = useState(40);
