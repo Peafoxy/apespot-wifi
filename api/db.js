@@ -24,6 +24,12 @@ const STAFF_ONLY_TABLES = new Set([
   "wifi_push_subscriptions",
 ]);
 
+// Tables réservées à l'ADMINISTRATEUR (jamais un technicien). wifi_users
+// contient les PIN de connexion : un technicien qui pourrait la lire verrait
+// les codes des admins et se connecterait à leur place. On la réserve donc à
+// l'admin, quel que soit le sens de l'accès (lecture / écriture).
+const ADMIN_ONLY_TABLES = new Set(["wifi_users"]);
+
 // Cloisonnement des sessions "client" : une session client ne peut atteindre
 // QUE ses propres lignes, et seulement via les méthodes strictement
 // nécessaires à son espace. Sans cela, un client connecté pouvait lire les
@@ -75,6 +81,12 @@ export default async (req, res) => {
   const table = path.split("?")[0].split("/")[0];
   if (!/^wifi_[a-z_]+$/.test(table)) {
     res.status(403).json({ ok: false, error: "Table non autorisée." });
+    return;
+  }
+
+  // Tables réservées à l'admin : refusées à tout autre rôle (technicien, client).
+  if (session.role !== "admin" && ADMIN_ONLY_TABLES.has(table)) {
+    res.status(403).json({ ok: false, error: "Table réservée à l'administrateur." });
     return;
   }
 
