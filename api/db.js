@@ -91,6 +91,7 @@ export default async (req, res) => {
   }
 
   let scopedPath = path;
+  let corps = body; // corps de la requête, éventuellement réécrit ci-dessous
 
   if (session.role === "client") {
     if (STAFF_ONLY_TABLES.has(table)) {
@@ -126,6 +127,36 @@ export default async (req, res) => {
         return;
       }
     }
+    // INSERT (POST) : on IMPOSE l'appartenance au client connecté. La colonne
+    // de cloisonnement (client_nom) et l'id propriétaire (client_id) sont
+    // réécrits côté serveur, quelles que soient les valeurs envoyées. Sans
+    // cela, un client pouvait créer un message / une réclamation / une demande
+    // AU NOM d'un autre client (usurpation).
+    if (rule.col && m === "POST") {
+      const value = rule.by === "sub" ? session.sub : session.nom;
+      if (value == null) {
+        res.status(403).json({ ok: false, error: "Session incomplète." });
+        return;
+      }
+      let parsed = corps;
+      if (typeof parsed === "string") {
+        try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+      }
+      if (parsed == null || typeof parsed !== "object") {
+        res.status(400).json({ ok: false, error: "Corps de requête invalide." });
+        return;
+      }
+      const rows = Array.isArray(parsed) ? parsed : [parsed];
+      for (const row of rows) {
+        if (!row || typeof row !== "object") {
+          res.status(400).json({ ok: false, error: "Corps de requête invalide." });
+          return;
+        }
+        row[rule.col] = value; // ex. client_nom = nom du client connecté
+        if (session.sub != null) row.client_id = session.sub; // id propriétaire
+      }
+      corps = Array.isArray(parsed) ? rows : rows[0];
+    }
     // Cloisonnement : on force le filtre sur les lignes du client pour toute
     // lecture / modification / suppression. Un filtre déjà présent qui
     // pointerait ailleurs se combine en ET → aucun résultat (donc sûr).
@@ -148,7 +179,7 @@ export default async (req, res) => {
     const upstream = await fetch(`${SUPABASE_URL}/rest/v1/${scopedPath}`, {
       method: m,
       headers,
-      body: body === undefined || body === null ? undefined : (typeof body === "string" ? body : JSON.stringify(body)),
+      body: corps === undefined || corps === null ? undefined : (typeof corps === "string" ? corps : JSON.stringify(corps)),
     });
     const text = await upstream.text();
     res.status(upstream.status);

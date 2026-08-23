@@ -1425,7 +1425,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V8.7</span>
+          <span className="app-version-badge">V9.0</span>
         </div>
 
         {!selected && (
@@ -3559,6 +3559,13 @@ export default function AlerteClientWifi() {
     const { editingId, nom, offre, telephone, serveur, dateExp, accessCode, latitude, longitude } = clientModal;
     if (editingId && !isPrincipalAdmin) return showToast("Seul l'administrateur principal peut modifier un client.");
     if (!nom.trim()) return showToast("Le nom du client est requis.");
+    // Le nom du client sert de clé de cloisonnement (chaque client ne voit que
+    // ses lignes, filtrées par son nom). Deux clients de même nom verraient
+    // donc les données l'un de l'autre : on impose des noms uniques.
+    const nomNormalise = nom.trim().toLowerCase();
+    if (clients.some((c) => c.id !== editingId && (c.nom || "").trim().toLowerCase() === nomNormalise)) {
+      return showToast("Un client porte déjà ce nom. Ajoute un détail distinctif (ex. « Jean K. ») — l'accès de chaque client est cloisonné par son nom.");
+    }
     setBusySaveClient(true);
     const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), serveur: (serveur || "").trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase(), latitude: latitude ?? null, longitude: longitude ?? null, previousDateExp: clientModal.previousDateExp || null, renewedAt: clientModal.renewedAt || null };
 
