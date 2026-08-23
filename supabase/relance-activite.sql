@@ -61,7 +61,8 @@ select cron.schedule(
 -- Le plan gratuit de Vercel limite les crons (souvent 1×/jour) : « toutes les
 -- 10 min » demande le plan Pro. Dans ce cas, ne PAS lancer le bloc pg_cron
 -- ci-dessus et ajouter plutôt dans vercel.json :
---   { "path": "/api/relance-activite", "schedule": "*/10 * * * *" }
--- (le cron Vercel appelle l'URL en GET sans secret ; l'endpoint reste sûr :
---  il n'envoie que si les conditions présence/horaire/attente sont réunies.)
+--   { "path": "/api/relance-activite?cle=<RELANCE_CRON_SECRET>", "schedule": "*/10 * * * *" }
+-- ⚠️ Le secret est désormais OBLIGATOIRE (l'endpoint refuse tout appel non
+--    authentifié — « fail-closed »). Mettez le même secret que la variable
+--    d'environnement Vercel dans l'URL ci-dessus.
 -- ============================================================================
