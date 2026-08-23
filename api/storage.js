@@ -16,6 +16,25 @@ function badPath(p) {
   return typeof p !== "string" || !p || p.includes("..") || p.startsWith("/");
 }
 
+// Un client ne peut accéder qu'aux fichiers de SES propres demandes de ticket.
+// On vérifie que le chemin demandé correspond bien à une ligne
+// wifi_ticket_requests portant son nom. Best-effort fail-closed : en cas
+// d'erreur, on refuse (le client peut réessayer).
+async function clientPossedeFichier(session, path) {
+  try {
+    const q =
+      `wifi_ticket_requests?select=id&limit=1` +
+      `&file_path=eq.${encodeURIComponent(path)}` +
+      `&client_nom=eq.${encodeURIComponent(session.nom)}`;
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${q}`, { headers: sbHeaders() });
+    if (!r.ok) return false;
+    const rows = await r.json();
+    return Array.isArray(rows) && rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export default async (req, res) => {
   const err = envError();
   if (err) {
@@ -64,6 +83,15 @@ export default async (req, res) => {
       if (!BUCKETS.has(bucket) || badPath(path)) {
         res.status(400).json({ ok: false, error: "Bucket ou chemin invalide." });
         return;
+      }
+      // Un client ne peut signer QUE ses propres fichiers de tickets — sinon,
+      // en devinant le chemin d'un fichier, il pourrait télécharger le ticket
+      // d'un autre client. Le personnel (admin/technicien) n'est pas restreint.
+      if (session.role === "client") {
+        if (bucket !== "tickets" || !(await clientPossedeFichier(session, path))) {
+          res.status(403).json({ ok: false, error: "Accès non autorisé à ce fichier." });
+          return;
+        }
       }
       const upstream = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`, {
         method: "POST",
