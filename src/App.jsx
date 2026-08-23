@@ -441,8 +441,18 @@ function subtractOneDay(dateStr) {
 // pas 1 mois complet. Ne s'applique pas au réabonnement client, qui reste sur 1 mois plein.
 function computeRenewedExpirationLigne(currentDateExp) {
   const { statut } = computeStatus(currentDateExp);
-  const renewed = computeRenewedExpiration(currentDateExp);
-  return statut === "EXPIRE" ? subtractOneDay(renewed) : renewed;
+  // Ligne sans échéance ou déjà expirée : la nouvelle période démarre
+  // aujourd'hui et se termine 1 mois plus tard moins 1 jour.
+  if (!currentDateExp || statut === "EXPIRE") {
+    return subtractOneDay(computeRenewedExpiration(currentDateExp));
+  }
+  // Ligne encore active : la période suivante démarre le LENDEMAIN de l'échéance
+  // actuelle et court « 1 mois moins 1 jour » → fin = (échéance + 1 j) + 1 mois − 1 j.
+  // On NE fait PAS addOneMonthClamped(échéance) directement : pour une échéance
+  // en fin de mois court (le 30, ou février), cela « perd » un jour à chaque
+  // renouvellement (ex. 30 sept. → 30 oct. au lieu du 31 oct.) et dérive.
+  const debutPeriodeSuivante = addDaysToDate(currentDateExp, 1);
+  return subtractOneDay(addOneMonthClamped(debutPeriodeSuivante));
 }
 
 function fmtDate(dateExp) {
@@ -3920,8 +3930,14 @@ export default function AlerteClientWifi() {
     const nbOk = enrichedClients.filter((c) => c.statut === "OK").length;
     const monthFuelExpenses = fuelExpenses.filter((f) => f.createdAt && f.createdAt.startsWith(bilanMonth));
     const fuelTotal = monthFuelExpenses.reduce((s, f) => s + (Number(f.montant) || 0), 0);
-    // Lignes = charge récurrente : le total de TOUTES les lignes actives se déduit chaque mois.
-    const lignesMonthTotal = expenseLines.reduce((s, l) => s + (Number(l.montant) || 0), 0);
+    // Lignes = charge récurrente réglée mois par mois : on ne déduit du bilan
+    // d'un mois QUE les lignes réellement réglées ce mois-là (lastPaidMonth),
+    // exactement comme le tableau de bord Dépenses. Avant : on déduisait le
+    // total de TOUTES les lignes de CHAQUE mois — ce qui faussait le bénéfice
+    // net (lignes déduites sur des mois passés où elles n'existaient pas encore,
+    // ou des mois où elles n'ont pas été réglées).
+    const monthLignes = expenseLines.filter((l) => l.lastPaidMonth === bilanMonth);
+    const lignesMonthTotal = monthLignes.reduce((s, l) => s + (Number(l.montant) || 0), 0);
     const monthPerdiem = perdiemExpenses.filter((p) => p.createdAt && p.createdAt.startsWith(bilanMonth));
     const perdiemMonthTotal = monthPerdiem.reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const monthOtherExpenses = otherExpenses.filter((o) => o.createdAt && o.createdAt.startsWith(bilanMonth));
@@ -3930,7 +3946,7 @@ export default function AlerteClientWifi() {
     return {
       total, count, avg, byMode, sorted, nbExpire, nbAttention, nbOk,
       fuelTotal, fuelCount: monthFuelExpenses.length,
-      lignesMonthTotal, lignesCount: expenseLines.length,
+      lignesMonthTotal, lignesCount: monthLignes.length,
       perdiemMonthTotal, perdiemCount: monthPerdiem.length,
       autresMonthTotal, autresCount: monthOtherExpenses.length,
       netBenefit,
@@ -4240,12 +4256,32 @@ export default function AlerteClientWifi() {
     }));
   };
 
-  // Ne garde que les 10 demandes les plus récentes — les plus anciennes sont
-  // supprimées définitivement (table + fichier PDF s'il en reste un).
+  // Historique de tickets : on garde les 10 demandes les plus récentes PAR
+  // CLIENT (et non 10 au total, ce qui effaçait les tickets d'autres clients),
+  // et on ne supprime JAMAIS une demande encore utile — seules les demandes
+  // déjà « expirées » au-delà des 10 plus récentes de CE client sont retirées
+  // définitivement (table + fichier PDF s'il en reste). Réservé au personnel :
+  // une session client ne fait aucun ménage sur les données partagées.
   const TICKET_HISTORY_LIMIT = 10;
   const trimTicketRequestsHandler = async (list) => {
-    const sorted = [...(list || [])].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-    const toDelete = sorted.slice(TICKET_HISTORY_LIMIT);
+    if (role === "client") return;
+    // Regroupe par client (identifiant si présent, sinon nom), puis applique le
+    // plafond par groupe.
+    const parClient = new Map();
+    for (const r of list || []) {
+      const cle = r.clientId || r.clientNom || "?";
+      if (!parClient.has(cle)) parClient.set(cle, []);
+      parClient.get(cle).push(r);
+    }
+    const toDelete = [];
+    for (const groupe of parClient.values()) {
+      const sorted = [...groupe].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+      for (const r of sorted.slice(TICKET_HISTORY_LIMIT)) {
+        // Au-delà des 10 plus récentes : on ne retire que les demandes terminées
+        // (expirées), jamais une demande en attente / prête / livrée.
+        if (r.status === "expired") toDelete.push(r);
+      }
+    }
     if (toDelete.length === 0) return;
     for (const r of toDelete) {
       try {
