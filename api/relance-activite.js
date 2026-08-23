@@ -48,11 +48,14 @@ export default async (req, res) => {
     return;
   }
 
-  // Autorisation : le secret du planificateur, ou une session personnel valide.
+  // Autorisation : si un secret de planificateur est configuré, il est exigé
+  // (ou une session personnel valide pour les tests manuels). S'il n'y en a
+  // pas, le GET reste ouvert comme le rappel quotidien — l'endpoint n'envoie de
+  // toute façon que si les conditions présence/horaire/attente sont réunies,
+  // ce qui permet aussi d'utiliser le cron Vercel sans passer de secret.
   const cle = (req.query && req.query.cle) || "";
   const session = getSession(req);
-  const autoriseParSecret = RELANCE_CRON_SECRET && cle === RELANCE_CRON_SECRET;
-  if (!autoriseParSecret && !session) {
+  if (RELANCE_CRON_SECRET && cle !== RELANCE_CRON_SECRET && !session) {
     res.status(401).json({ ok: false, error: "Non autorisé." });
     return;
   }
