@@ -36,6 +36,9 @@ self.addEventListener("notificationclick", (event) => {
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && "focus" in client) {
+          // Amène l'onglet existant sur la bonne page AVANT de le mettre au
+          // premier plan (sinon le clic laissait l'utilisateur là où il était).
+          if ("navigate" in client) { try { client.navigate(url); } catch (e) { /* ignore */ } }
           return client.focus();
         }
       }

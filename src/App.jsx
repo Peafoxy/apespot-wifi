@@ -33,6 +33,14 @@ function lireStockageLocal(cle) {
   }
 }
 
+// Écriture localStorage tolérante (même raison que lireStockageLocal : ne
+// jamais laisser un stockage bloqué faire planter l'app).
+function ecrireStockageLocal(cle, valeur) {
+  try {
+    if (typeof window !== "undefined") window.localStorage.setItem(cle, valeur);
+  } catch { /* stockage indisponible : on ignore */ }
+}
+
 // Mode démo sur localhost (vite seul, pas de /api). Pour tester les fonctions
 // serveur en local avec `vercel dev` : localStorage.setItem("apespot-force-backend", "1")
 const IS_LOCAL_DEV =
@@ -1259,8 +1267,8 @@ function MonArgentView({ authUser, fuelExpenses, perdiemExpenses }) {
     (p) => authUser && (p.personneId === authUser.id || p.personneNom === authUser.nom) && p.createdAt && p.createdAt.startsWith(month)
   );
 
-  const fuelTotal = myFuel.reduce((s, f) => s + f.montant, 0);
-  const perdiemTotal = myPerdiem.reduce((s, p) => s + p.montant, 0);
+  const fuelTotal = myFuel.reduce((s, f) => s + (Number(f.montant) || 0), 0);
+  const perdiemTotal = myPerdiem.reduce((s, p) => s + (Number(p.montant) || 0), 0);
   const total = fuelTotal + perdiemTotal;
 
   const combined = [
@@ -1364,7 +1372,13 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 
   useEffect(() => {
     if (!lockedUntil) return;
-    const t = setInterval(() => setNow(Date.now()), 500);
+    const t = setInterval(() => {
+      const maintenant = Date.now();
+      setNow(maintenant);
+      // Une fois le verrou expiré, on l'efface : sans ça, l'intervalle tournait
+      // indéfiniment (re-render toutes les 500 ms) jusqu'au démontage.
+      if (maintenant >= lockedUntil) setLockedUntil(null);
+    }, 500);
     return () => clearInterval(t);
   }, [lockedUntil]);
 
@@ -1452,7 +1466,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V9.1</span>
+          <span className="app-version-badge">V9.2</span>
         </div>
 
         {!selected && (
@@ -1517,7 +1531,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint, toast }) {
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-tech-tab") || "complaints");
   useEffect(() => {
-    localStorage.setItem("apespot-tech-tab", tab);
+    ecrireStockageLocal("apespot-tech-tab", tab);
   }, [tab]);
 
   const [activeThreadClient, setActiveThreadClient] = useState(null);
@@ -2019,10 +2033,20 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onMarkMessagesRead, onSaveClientLocation, onLogout, sessionWarningSeconds, onStayConnected, toast }) {
   const [tab, setTab] = useState(() => localStorage.getItem(`apespot-client-tab-${client.id}`) || "home");
   useEffect(() => {
-    localStorage.setItem(`apespot-client-tab-${client.id}`, tab);
+    ecrireStockageLocal(`apespot-client-tab-${client.id}`, tab);
   }, [tab, client.id]);
 
-  const [complaintForm, setComplaintForm] = useState({ reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: client.latitude ?? null, longitude: client.longitude ?? null });
+  const [complaintForm, setComplaintForm] = useState(() => {
+    const defaut = { reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: client.latitude ?? null, longitude: client.longitude ?? null };
+    const brut = lireStockageLocal(`apespot-complaint-draft-${client.id}`);
+    if (brut) {
+      try {
+        const d = JSON.parse(brut);
+        return { ...defaut, reason: d.reason || defaut.reason, dateDebut: d.dateDebut || "", localisation: d.localisation || "", description: d.description || "" };
+      } catch { /* brouillon illisible : on ignore */ }
+    }
+    return defaut;
+  });
   const [payForm, setPayForm] = useState({ montant: "", mode: "Flooz", note: "", codeSecret: "" });
   const [sentPayRequest, setSentPayRequest] = useState(false);
   const [payError, setPayError] = useState("");
@@ -2073,6 +2097,22 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dialed, payForm.montant, payForm.mode, payForm.note]);
 
+  // Brouillon de réclamation conservé localement : une déconnexion pour
+  // inactivité (l'attente d'un SMS Mobile Money peut dépasser le délai) ne fait
+  // plus perdre ce que le client avait commencé à écrire. Effacé à l'envoi
+  // (le formulaire revient à son état par défaut → brouillon vidé).
+  useEffect(() => {
+    const cle = `apespot-complaint-draft-${client.id}`;
+    const vide = complaintForm.reason === "Connexion lente" && !complaintForm.dateDebut && !complaintForm.localisation && !complaintForm.description;
+    ecrireStockageLocal(cle, vide ? "" : JSON.stringify({
+      reason: complaintForm.reason,
+      dateDebut: complaintForm.dateDebut,
+      localisation: complaintForm.localisation,
+      description: complaintForm.description,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [complaintForm.reason, complaintForm.dateDebut, complaintForm.localisation, complaintForm.description]);
+
   const freshClient = clients.find((c) => c.id === client.id) || client;
   const { statut, action } = computeStatus(freshClient.dateExp);
 
@@ -2097,6 +2137,17 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
     .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 
   const unreadMessagesCount = myMessages.filter((m) => m.sender === "company" && !m.read).length;
+
+  // Marque les messages comme lus dès qu'on est sur l'onglet Messages — couvre
+  // le rechargement direct sur cet onglet ET l'arrivée d'un nouveau message
+  // pendant qu'on y est déjà (avant, le badge « non lus » restait collé tant
+  // qu'on ne rebasculait pas d'onglet).
+  useEffect(() => {
+    if (tab === "messages" && unreadMessagesCount > 0) {
+      onMarkMessagesRead(freshClient.id, freshClient.nom);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, unreadMessagesCount, freshClient.id]);
 
   const requestTicketDuration = async (duree) => {
     setTicketError("");
@@ -2760,7 +2811,7 @@ export default function AlerteClientWifi() {
 
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-admin-tab") || "dashboard");
   useEffect(() => {
-    localStorage.setItem("apespot-admin-tab", tab);
+    ecrireStockageLocal("apespot-admin-tab", tab);
   }, [tab]);
 
 
@@ -2886,7 +2937,7 @@ export default function AlerteClientWifi() {
     const t = setInterval(async () => {
       try {
         const debutTick = Date.now();
-        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe, al] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -2900,6 +2951,7 @@ export default function AlerteClientWifi() {
           safeFetch("lignes de dépenses", fetchExpenseLines),
           safeFetch("perdiem", fetchPerdiem),
           safeFetch("autres dépenses", fetchOtherExpenses),
+          safeFetch("journal d'activité", fetchActivityLog),
         ]);
         // Si une écriture utilisateur a eu lieu PENDANT ces lectures, la
         // réponse peut être antérieure à cette écriture : on ignore ce tick
@@ -2922,6 +2974,7 @@ export default function AlerteClientWifi() {
         if (el !== null) setExpenseLines(el);
         if (pd !== null) setPerdiemExpenses(pd);
         if (oe !== null) setOtherExpenses(oe);
+        if (al !== null) setActivityLog(al);
         if (tr !== null) { expireOldTicketsHandler(tr); trimTicketRequestsHandler(tr); }
       } catch (e) {
         console.error("Rafraîchissement automatique échoué:", e);
@@ -3011,16 +3064,18 @@ export default function AlerteClientWifi() {
   // Sauvegarde la session à chaque connexion / changement de compte.
   useEffect(() => {
     if (!sessionChecked) return;
-    if (!role) {
-      localStorage.removeItem(SESSION_KEY);
-      return;
-    }
-    localStorage.setItem(SESSION_KEY, JSON.stringify({
-      role,
-      user: authUser || null,
-      client: authClient || null,
-      lastActivity: lastActivityRef.current,
-    }));
+    try {
+      if (!role) {
+        localStorage.removeItem(SESSION_KEY);
+        return;
+      }
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        role,
+        user: authUser || null,
+        client: authClient || null,
+        lastActivity: lastActivityRef.current,
+      }));
+    } catch { /* stockage indisponible : la session ne survit pas au rechargement, sans plus */ }
   }, [role, authUser, authClient, sessionChecked]);
 
   // Suit l'activité de l'utilisateur et déconnecte après 2 minutes d'inactivité.
@@ -3501,8 +3556,8 @@ export default function AlerteClientWifi() {
   );
 
   const pendingExpensesTotal = useMemo(() => {
-    const fuel = fuelExpenses.filter((f) => f.status === "a_payer").reduce((s, f) => s + f.montant, 0);
-    const perdiem = perdiemExpenses.filter((p) => p.status === "a_payer").reduce((s, p) => s + p.montant, 0);
+    const fuel = fuelExpenses.filter((f) => f.status === "a_payer").reduce((s, f) => s + (Number(f.montant) || 0), 0);
+    const perdiem = perdiemExpenses.filter((p) => p.status === "a_payer").reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const currentMonth = new Date().toISOString().slice(0, 7);
     const lignes = expenseLines
       .filter((l) => {
@@ -4526,7 +4581,7 @@ export default function AlerteClientWifi() {
   const markAllFuelExpensesPaid = async (technicienNom) => {
     const unpaid = fuelExpenses.filter((f) => f.technicienNom === technicienNom && f.status === "a_payer");
     if (unpaid.length === 0) return;
-    const total = unpaid.reduce((s, f) => s + f.montant, 0);
+    const total = unpaid.reduce((s, f) => s + (Number(f.montant) || 0), 0);
     if (!window.confirm(`Confirmer le paiement de ${fmtFCFA(total)} à "${technicienNom}" (${unpaid.length} déplacement(s)) ? Le compteur repassera à 0.`)) return;
     try {
       if (SUPABASE_CONFIGURED) {
@@ -4688,7 +4743,7 @@ export default function AlerteClientWifi() {
   const markAllPerdiemPaid = async (personneNom) => {
     const unpaid = perdiemExpenses.filter((p) => p.personneNom === personneNom && p.status === "a_payer");
     if (unpaid.length === 0) return;
-    const total = unpaid.reduce((s, p) => s + p.montant, 0);
+    const total = unpaid.reduce((s, p) => s + (Number(p.montant) || 0), 0);
     if (!window.confirm(`Confirmer le paiement de ${fmtFCFA(total)} à "${personneNom}" ?`)) return;
     try {
       if (SUPABASE_CONFIGURED) await Promise.all(unpaid.map((p) => markPerdiemPaidRow(p.id)));
