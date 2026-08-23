@@ -20,12 +20,25 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
  */
 
 const VAPID_PUBLIC_KEY = "BJR_OCj3YzQehhFRzZimm42AE9nvkTYb0JctOl7GM581isdDykE_qztnbtTOjKydXXB6COmzDkF12TMFLBf8_ew";
+// Accès localStorage tolérant : certains navigateurs (Safari en navigation
+// privée, cookies bloqués) lèvent une exception au moindre accès. Sans garde,
+// un simple getItem au chargement du module faisait planter TOUTE l'app (page
+// blanche, avant même qu'un écran d'erreur puisse s'afficher). On renvoie null
+// en cas d'échec.
+function lireStockageLocal(cle) {
+  try {
+    return typeof window !== "undefined" ? window.localStorage.getItem(cle) : null;
+  } catch {
+    return null;
+  }
+}
+
 // Mode démo sur localhost (vite seul, pas de /api). Pour tester les fonctions
 // serveur en local avec `vercel dev` : localStorage.setItem("apespot-force-backend", "1")
 const IS_LOCAL_DEV =
   typeof window !== "undefined" &&
   /^(localhost|127\.|0\.0\.0\.0)/.test(window.location.hostname) &&
-  window.localStorage.getItem("apespot-force-backend") !== "1";
+  lireStockageLocal("apespot-force-backend") !== "1";
 const SUPABASE_CONFIGURED = !IS_LOCAL_DEV;
 
 const LOCAL_CLIENTS_KEY = "bmi-wifi-clients-demo";
@@ -76,7 +89,11 @@ const LOGO_DATA_URI = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAA
 
 // ---- Session côté navigateur : jeton signé délivré par /api/login ----
 const TOKEN_KEY = "apespot-wifi-token";
-let sessionToken = (typeof window !== "undefined" && window.localStorage.getItem(TOKEN_KEY)) || null;
+let sessionToken = lireStockageLocal(TOKEN_KEY) || null;
+// Horodatage de la dernière écriture utilisateur (hors présence) : sert au
+// rafraîchissement automatique pour ne pas écraser une action juste faite avec
+// une lecture serveur plus ancienne (voir la boucle de 90 s).
+let horodatageDerniereEcriture = 0;
 
 function setSessionToken(t) {
   sessionToken = t || null;
@@ -119,14 +136,24 @@ async function sbFetch(path, options = {}) {
     }),
   });
   if (res.status === 401) {
-    // Jeton expiré ou invalide : on nettoie la session, l'app retombera sur
-    // l'écran de connexion (via la déconnexion d'inactivité ou un rechargement).
+    // Jeton expiré ou invalide : on nettoie la session ET on prévient l'app
+    // (événement) pour qu'elle revienne VRAIMENT à l'écran de connexion. Sans
+    // ça, l'app restait « connectée » en apparence mais toute lecture renvoyait
+    // des données figées et toute écriture échouait en silence.
     setSessionToken(null);
     try { localStorage.removeItem(SESSION_KEY); } catch (e) { console.error(e); }
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("apespot-session-expiree"));
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Supabase ${options.method || "GET"} ${path} — ${res.status} ${text}`);
+  }
+  // Marque l'heure de la dernière écriture utilisateur (hors présence, qui bat
+  // toutes les minutes) : le rafraîchissement automatique s'en sert pour ne pas
+  // écraser une action juste faite avec une lecture serveur plus ancienne.
+  const methode = (options.method || "GET").toUpperCase();
+  if (methode !== "GET" && !path.startsWith("wifi_presence")) {
+    horodatageDerniereEcriture = Date.now();
   }
   if (res.status === 204) return null;
   return res.json();
@@ -1425,7 +1452,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V9.0</span>
+          <span className="app-version-badge">V9.1</span>
         </div>
 
         {!selected && (
@@ -2858,6 +2885,7 @@ export default function AlerteClientWifi() {
     if (!SUPABASE_CONFIGURED || !role) return;
     const t = setInterval(async () => {
       try {
+        const debutTick = Date.now();
         const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
@@ -2873,6 +2901,11 @@ export default function AlerteClientWifi() {
           safeFetch("perdiem", fetchPerdiem),
           safeFetch("autres dépenses", fetchOtherExpenses),
         ]);
+        // Si une écriture utilisateur a eu lieu PENDANT ces lectures, la
+        // réponse peut être antérieure à cette écriture : on ignore ce tick
+        // pour ne pas faire « revenir en arrière » l'action (le prochain tick
+        // reconciliera). La présence (battement 60 s) est exclue de ce garde.
+        if (horodatageDerniereEcriture >= debutTick) return;
         // Un tick de rafraîchissement qui échoue (réseau) ne doit JAMAIS
         // vider l'écran : on ne remplace que les données réellement reçues.
         if (c !== null) setClients(c);
@@ -3072,6 +3105,24 @@ export default function AlerteClientWifi() {
       window.removeEventListener("focus", signaler, true);
     };
   }, [role, authUser]);
+
+  // Session expirée côté serveur (401) : sbFetch émet un événement, on ramène
+  // alors VRAIMENT l'app à l'écran de connexion (au lieu de la laisser figée,
+  // « connectée » en apparence mais incapable de lire/écrire).
+  useEffect(() => {
+    const surExpiration = () => {
+      setRole(null);
+      setAuthUser(null);
+      setAuthClient(null);
+      setSessionToken(null);
+      setSessionWarningSeconds(0);
+      try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+      showToast("Session expirée — reconnecte-toi.");
+    };
+    window.addEventListener("apespot-session-expiree", surExpiration);
+    return () => window.removeEventListener("apespot-session-expiree", surExpiration);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- Alerts view state ----
   const [search, setSearch] = useState("");

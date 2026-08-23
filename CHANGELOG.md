@@ -1,5 +1,16 @@
 # Journal des versions — APESPOT WI-FI
 
+## V9.1
+Robustesse des sessions et de l'affichage.
+
+- **Session expirée** : l'application revient désormais vraiment à l'écran de
+  connexion (avant, elle semblait connectée mais ne pouvait plus rien
+  enregistrer).
+- **Page blanche évitée** : accès au stockage local sécurisé (Safari en
+  navigation privée / cookies bloqués ne font plus planter l'app).
+- **Rafraîchissement automatique** : n'écrase plus une action juste effectuée
+  (plus de « retour en arrière » passager d'un paiement marqué payé, etc.).
+
 ## V9.0
 Améliorations issues de l'audit de fiabilité et de sécurité.
 
