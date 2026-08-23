@@ -1,5 +1,16 @@
 # Journal des versions — APESPOT WI-FI
 
+## V9.2
+Finitions (petits détails d'usage).
+
+- Le clic sur une notification ouvre désormais la bonne page.
+- Badge « messages non lus » qui se met à jour dès qu'on ouvre l'onglet.
+- Brouillon de réclamation conservé si l'app se déconnecte pour inactivité.
+- Écran de connexion : la minuterie de blocage s'arrête proprement.
+- Journal d'activité rafraîchi automatiquement (comptes multiples).
+- Accès au stockage local encore renforcé (aucune page blanche).
+- Quelques totaux protégés contre un affichage erroné.
+
 ## V9.1
 Robustesse des sessions et de l'affichage.
 
