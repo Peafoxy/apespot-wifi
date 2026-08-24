@@ -24,12 +24,12 @@ const HEURE_DEBUT = 7; // à partir de 07h
 const HEURE_FIN = 21; // jusqu'à 21h (exclus)
 // On considère que « quelqu'un regarde » si l'app a été active il y a moins que ça.
 const FENETRE_PRESENCE_MS = 10 * 60 * 1000;
-// Abonnements « à surveiller » : ceux qui expirent bientôt (sous ce nb de jours)
-// OU qui viennent d'expirer (dans les JOURS_APRES_EXPIRATION derniers jours).
-// On NE compte PAS les clients coupés depuis longtemps : sinon le rappel ne
-// s'éteindrait jamais (un vieux client jamais renouvelé le maintiendrait actif).
-const JOURS_AVANT_EXPIRATION = 2;
-const JOURS_APRES_EXPIRATION = 7;
+// Rappels WhatsApp : notre rôle n'est pas de renouveler (c'est le client), mais
+// d'ENVOYER le rappel WhatsApp aux clients dont l'échéance approche. On les
+// compte tant qu'ils sont dans la fenêtre « à notifier » AVANT l'expiration
+// (échéance entre aujourd'hui et +N jours) ET pas encore relancés aujourd'hui.
+// Une fois expirés, plus de rappel automatique (libre à l'administration).
+const JOURS_FENETRE_RELANCE = 4;
 // Anti-répétition : pas deux relances à moins de X l'une de l'autre, même si
 // l'endpoint est appelé plusieurs fois dans la fenêtre (double planificateur,
 // appels répétés). < 10 min pour ne pas gêner la cadence normale du cron.
@@ -115,25 +115,34 @@ export default async (req, res) => {
     // 2) Éléments en attente d'un traitement du personnel.
     const jour = (decalageMs) =>
       new Date(maintenant.getTime() + decalageMs).toISOString().slice(0, 10); // AAAA-MM-JJ
-    const borneHaute = jour(JOURS_AVANT_EXPIRATION * 86400000); // expire bientôt
-    const borneBasse = jour(-JOURS_APRES_EXPIRATION * 86400000); // vient d'expirer
-    const [paiements, tickets, reclamations, expires] = await Promise.all([
+    const aujourdHui = jour(0);
+    const finFenetre = jour(JOURS_FENETRE_RELANCE * 86400000);
+    // Clients à relancer par WhatsApp = échéance dans la fenêtre (aujourd'hui →
+    // +N j, donc AVANT expiration) ET pas encore relancés aujourd'hui
+    // (relance_le). Repli si la colonne relance_le n'existe pas encore : on
+    // compte la fenêtre sans le filtre du jour (dégradation propre avant migration).
+    const compterRelance = async () => {
+      try {
+        return await compter(
+          `wifi_clients?date_exp=gte.${aujourdHui}&date_exp=lte.${finFenetre}` +
+          `&or=(relance_le.is.null,relance_le.lt.${aujourdHui})`
+        );
+      } catch {
+        return await compter(`wifi_clients?date_exp=gte.${aujourdHui}&date_exp=lte.${finFenetre}`);
+      }
+    };
+    const [paiements, tickets, reclamations, aRelancer] = await Promise.all([
       compter("wifi_payment_requests?status=eq.pending"),
       compter("wifi_ticket_requests?status=eq.pending"),
       compter("wifi_complaints?status=eq.nouveau"),
-      // Fenêtre ACTIONNABLE seulement : expirant sous 2 j, ou expiré depuis moins
-      // de 7 j. La borne basse écarte aussi les date_exp vides/aberrantes. Un
-      // client coupé depuis longtemps ne relance donc plus indéfiniment.
-      compter(
-        `wifi_clients?date_exp=gte.${borneBasse}&date_exp=lte.${borneHaute}`
-      ),
+      compterRelance(),
     ]);
 
     const parties = [];
     if (paiements) parties.push(`${paiements} paiement${paiements > 1 ? "s" : ""} à valider`);
     if (reclamations) parties.push(`${reclamations} réclamation${reclamations > 1 ? "s" : ""}`);
     if (tickets) parties.push(`${tickets} demande${tickets > 1 ? "s" : ""} de ticket`);
-    if (expires) parties.push(`${expires} abonnement${expires > 1 ? "s" : ""} à renouveler`);
+    if (aRelancer) parties.push(`${aRelancer} rappel${aRelancer > 1 ? "s" : ""} WhatsApp à envoyer`);
 
     if (parties.length === 0) {
       res.status(200).json({ ok: true, envoye: false, raison: "rien_en_attente" });
@@ -196,7 +205,7 @@ export default async (req, res) => {
       envoye: true,
       sent,
       total: subs.length,
-      counts: { paiements, tickets, reclamations, expires },
+      counts: { paiements, tickets, reclamations, aRelancer },
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });

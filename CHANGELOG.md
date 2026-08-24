@@ -1,5 +1,18 @@
 # Journal des versions — APESPOT WI-FI
 
+## V9.3
+Notification recadrée sur le vrai travail : **envoyer les rappels WhatsApp**.
+
+- La notification dit désormais « X rappels WhatsApp à envoyer » (au lieu de
+  « à renouveler ») — c'est le client qui renouvelle, notre rôle est d'envoyer
+  le message.
+- Ne compte que les clients dont l'échéance approche (avant expiration) et qui
+  n'ont pas encore reçu leur rappel du jour.
+- Dès que le rappel WhatsApp d'un client est envoyé, il disparaît du compteur
+  pour la journée (il y revient le lendemain s'il n'a pas renouvelé).
+- Une fois un client expiré, plus de rappel automatique (envoi manuel toujours
+  possible).
+
 ## V9.2
 Finitions (petits détails d'usage).
 
