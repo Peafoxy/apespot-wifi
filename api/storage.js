@@ -17,19 +17,20 @@ function badPath(p) {
 }
 
 // Un client ne peut accéder qu'aux fichiers de SES propres demandes de ticket.
-// On vérifie que le chemin demandé correspond bien à une ligne
-// wifi_ticket_requests portant son nom. Best-effort fail-closed : en cas
-// d'erreur, on refuse (le client peut réessayer).
+// On liste les chemins de fichiers de ses demandes (filtrées sur son nom, une
+// valeur maîtrisée issue du jeton) et on compare le chemin demandé EN JS. On NE
+// met PAS le chemin (nom de fichier avec espaces/parenthèses/accents) dans le
+// filtre PostgREST : c'était la cause d'un refus à tort du téléchargement.
 async function clientPossedeFichier(session, path) {
   try {
-    const q =
-      `wifi_ticket_requests?select=id&limit=1` +
-      `&file_path=eq.${encodeURIComponent(path)}` +
-      `&client_nom=eq.${encodeURIComponent(session.nom)}`;
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${q}`, { headers: sbHeaders() });
+    if (session.nom == null) return false;
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/wifi_ticket_requests?select=file_path&client_nom=eq.${encodeURIComponent(session.nom)}`,
+      { headers: sbHeaders() }
+    );
     if (!r.ok) return false;
     const rows = await r.json();
-    return Array.isArray(rows) && rows.length > 0;
+    return Array.isArray(rows) && rows.some((row) => row.file_path === path);
   } catch {
     return false;
   }

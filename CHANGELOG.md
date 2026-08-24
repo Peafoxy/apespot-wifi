@@ -1,5 +1,14 @@
 # Journal des versions — APESPOT WI-FI
 
+## V9.4
+Correctif : téléchargement des tickets PDF par le client.
+
+- Le contrôle d'accès aux fichiers (ajouté en V9.0) refusait à tort le
+  téléchargement d'un ticket dont le nom de fichier contenait des espaces,
+  parenthèses ou accents. La vérification de propriété se fait désormais de
+  façon fiable (comparaison en mémoire), sans passer le nom de fichier dans le
+  filtre de la base.
+
 ## V9.3
 Notification recadrée sur le vrai travail : **envoyer les rappels WhatsApp**.
 
