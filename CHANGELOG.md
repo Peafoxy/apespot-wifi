@@ -1,5 +1,13 @@
 # Journal des versions — APESPOT WI-FI
 
+## V9.5
+Correctif : ouverture de WhatsApp plus fiable.
+
+- Après un réabonnement/paiement (et lors de tout envoi WhatsApp), l'ouverture
+  de WhatsApp se faisait via un nouvel onglet souvent bloqué sur mobile
+  (« rien ne se passe »). On bascule maintenant automatiquement dans l'onglet
+  courant en cas de blocage → WhatsApp s'ouvre à coup sûr.
+
 ## V9.4
 Correctif : téléchargement des tickets PDF par le client.
 
