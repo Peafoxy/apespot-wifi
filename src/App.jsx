@@ -655,6 +655,17 @@ function normalizePhone(raw) {
   return d; // suppose que l'indicatif est déjà inclus
 }
 
+// Ouvre WhatsApp de façon fiable. window.open(_blank) est souvent bloqué sur
+// mobile (le nouvel onglet ne s'ouvre pas → « rien ne se passe ») : on bascule
+// alors dans l'onglet courant, ce qui lance WhatsApp à coup sûr.
+function ouvrirWhatsApp(url) {
+  let w = null;
+  try { w = window.open(url, "_blank"); } catch { w = null; }
+  if (!w || w.closed || typeof w.closed === "undefined") {
+    window.location.href = url;
+  }
+}
+
 function buildWaMessage(c) {
   const { jours, statut } = computeStatus(c.dateExp);
   const dateTxt = fmtDate(c.dateExp);
@@ -1466,7 +1477,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V9.4</span>
+          <span className="app-version-badge">V9.5</span>
         </div>
 
         {!selected && (
@@ -3738,7 +3749,7 @@ export default function AlerteClientWifi() {
       return;
     }
     const msg = buildWaMessage(c);
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+    ouvrirWhatsApp(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`);
     // On mémorise que le rappel de ce client est parti aujourd'hui.
     marquerRelance(c);
   };
@@ -3760,7 +3771,7 @@ export default function AlerteClientWifi() {
       const phone = normalizePhone(client.telephone);
       if (phone) {
         const msg = `${greeting()} ${client.nom}\n\nBonne nouvelle ! Tu as reçu ${n} ${unitLabel} de bonus de la part de APESPOT WI-FI. 🎁\n\nTa nouvelle échéance : ${fmtDate(newDateExp)}.\n\nClick sur :\n\nhttps://apespot-wifi.vercel.app\n\nVas sur *client*\n\nTON CODE : ${client.accessCode || "(demande ton code à APESPOT WI-FI)"}\n\nAccède à ton espace pour payer ou soumettre une réclamation`;
-        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+        ouvrirWhatsApp(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`);
       } else {
         showToast("Aucun numéro WhatsApp enregistré — le bonus est appliqué mais le client n'a pas été prévenu.");
       }
@@ -3797,7 +3808,7 @@ export default function AlerteClientWifi() {
     const phone = normalizePhone(c.telephone);
     if (!phone) return;
     const msg = buildWelcomeMessage(c);
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+    ouvrirWhatsApp(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`);
   };
 
   const renewClientSubscription = async (client) => {
