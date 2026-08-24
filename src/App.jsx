@@ -714,7 +714,7 @@ function saveLocal(key, value) {
 }
 
 // ---- Supabase mapping helpers (DB uses snake_case, app state uses camelCase) ----
-const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, serveur: r.serveur, latitude: r.latitude, longitude: r.longitude, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, accessCode: r.access_code });
+const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, serveur: r.serveur, latitude: r.latitude, longitude: r.longitude, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, accessCode: r.access_code, relanceLe: r.relance_le });
 const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, serveur: c.serveur || null, latitude: c.latitude ?? null, longitude: c.longitude ?? null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, renewed_at: c.renewedAt || null, access_code: c.accessCode || null });
 
 const rowToPayment = (r) => ({
@@ -1466,7 +1466,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V9.2</span>
+          <span className="app-version-badge">V9.3</span>
         </div>
 
         {!selected && (
@@ -3714,6 +3714,22 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // Note la date du dernier rappel WhatsApp envoyé à un client. Le client sort
+  // alors du compteur « à relancer » pour la journée (il y reviendra demain
+  // s'il n'a pas encore renouvelé). PATCH minimal : ne touche que relance_le.
+  const marquerRelance = async (c) => {
+    const t = todayMidnight();
+    const pad = (n) => String(n).padStart(2, "0");
+    const jour = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+    if (c.relanceLe === jour) return; // déjà noté aujourd'hui
+    try {
+      if (SUPABASE_CONFIGURED) await sbFetch(`wifi_clients?id=eq.${c.id}`, { method: "PATCH", body: JSON.stringify({ relance_le: jour }) });
+      setClients((cs) => cs.map((x) => (x.id === c.id ? { ...x, relanceLe: jour } : x)));
+    } catch (e) {
+      console.error("Enregistrement du rappel échoué:", e);
+    }
+  };
+
   const sendWhatsApp = (c) => {
     const phone = normalizePhone(c.telephone);
     if (!phone) {
@@ -3723,6 +3739,8 @@ export default function AlerteClientWifi() {
     }
     const msg = buildWaMessage(c);
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+    // On mémorise que le rappel de ce client est parti aujourd'hui.
+    marquerRelance(c);
   };
 
   const applyBonus = async (client, unit, amountRaw) => {
