@@ -1,5 +1,14 @@
 # Journal des versions — APESPOT WI-FI
 
+## V9.6
+Rappels WhatsApp : voir qui a déjà été relancé (coordination entre admins).
+
+- Chaque client à notifier affiche désormais **✓ relancé** (vert) ou
+  **⏳ à relancer** (orange) dans la liste. L'info est partagée entre tous les
+  admins : dès qu'un admin envoie le rappel, les autres le voient.
+- La « Relance groupée » ne repropose plus les clients déjà relancés
+  aujourd'hui — un autre admin ne voit que ceux qui restent à faire.
+
 ## V9.5
 Correctif : ouverture de WhatsApp plus fiable.
 
