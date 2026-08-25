@@ -1477,7 +1477,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V9.5</span>
+          <span className="app-version-badge">V9.6</span>
         </div>
 
         {!selected && (
@@ -4192,12 +4192,30 @@ export default function AlerteClientWifi() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkSkippedNoPhone, setBulkSkippedNoPhone] = useState(0);
 
+  // Date du jour (AAAA-MM-JJ) pour repérer les clients déjà relancés aujourd'hui
+  // (relance_le est partagé entre tous les admins via la base).
+  const jourRelanceStr = (() => {
+    const t = todayMidnight();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  })();
+  const dejaRelanceAujourdhui = (c) => c.relanceLe === jourRelanceStr;
+
   const openBulkNotify = () => {
     const atRisk = enrichedClients.filter((c) => c.statut === "EXPIRE" || c.statut === "ATTENTION");
     const withPhone = atRisk.filter((c) => normalizePhone(c.telephone));
+    // On ne repropose PAS les clients déjà relancés aujourd'hui (par n'importe
+    // quel admin) : ainsi un autre admin ne voit que ceux qui restent à faire.
+    const aFaire = withPhone.filter((c) => !dejaRelanceAujourdhui(c));
+    const dejaFaits = withPhone.length - aFaire.length;
     if (atRisk.length === 0) { showToast("Aucun client à risque actuellement. 🎉"); return; }
-    if (withPhone.length === 0) { showToast("Aucun de ces clients n'a de numéro WhatsApp enregistré."); return; }
-    setBulkQueue(withPhone);
+    if (aFaire.length === 0) {
+      showToast(dejaFaits > 0
+        ? `Tous les clients à risque ont déjà été relancés aujourd'hui. ✓ (${dejaFaits})`
+        : "Aucun de ces clients n'a de numéro WhatsApp enregistré.");
+      return;
+    }
+    setBulkQueue(aFaire);
     setBulkIndex(0);
     setBulkSkippedNoPhone(atRisk.length - withPhone.length);
     setBulkOpen(true);
@@ -5531,6 +5549,14 @@ export default function AlerteClientWifi() {
                         <span className="exp-date">{fmtDate(c.dateExp)}</span>
                         <span className="dot">·</span>
                         <span className={`action-text ${actionCls}`}>{c.action}</span>
+                        {c.statut === "ATTENTION" && (
+                          <>
+                            <span className="dot">·</span>
+                            {dejaRelanceAujourdhui(c)
+                              ? <span style={{ color: "#25D366", fontWeight: 700 }}>✓ relancé</span>
+                              : <span style={{ color: "#e8a33d", fontWeight: 700 }}>⏳ à relancer</span>}
+                          </>
+                        )}
                       </div>
                     </div>
                   );
