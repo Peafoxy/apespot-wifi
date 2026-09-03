@@ -1,5 +1,11 @@
 # Journal des versions — APESPOT WI-FI
 
+## V9.9
+Fiche client (technicien) : plus d'espace entre les boutons.
+
+- Le bouton **📞 Appeler** et le bouton **Enregistrer la position** ne sont
+  plus collés — un espacement a été ajouté pour éviter les appuis par erreur.
+
 ## V9.8
 Espace technicien : le numéro s'affiche après avoir ouvert le client.
 
