@@ -1,5 +1,14 @@
 # Journal des versions — APESPOT WI-FI
 
+## V9.7
+Espace technicien : appeler le client directement.
+
+- Chaque client de la liste du technicien affiche maintenant un bouton
+  **📞 Appeler** avec le numéro du client. Un appui lance directement l'appel
+  téléphonique (aucune redirection WhatsApp).
+- Si le numéro n'est pas renseigné, la mention « Numéro non renseigné »
+  s'affiche à la place.
+
 ## V9.6
 Rappels WhatsApp : voir qui a déjà été relancé (coordination entre admins).
 
