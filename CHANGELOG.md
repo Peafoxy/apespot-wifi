@@ -1,5 +1,16 @@
 # Journal des versions — APESPOT WI-FI
 
+## V10.1
+Position du client : enfin fonctionnelle pour le technicien (règle unique).
+
+- **Cause du bug** : l'écran du technicien n'affichait pas le dialogue
+  « Es-tu chez le client ? ». Le clic sur « Enregistrer la position » fermait
+  simplement la fiche sans jamais lancer la capture GPS ni l'enregistrement.
+- **Correctif** : le dialogue de position est désormais un **composant unique
+  partagé** (`PositionDialogs`), affiché aussi bien côté admin que côté
+  technicien. Une seule et même règle gère l'enregistrement de la position
+  dans toute l'application.
+
 ## V10.0
 Position du client : message honnête (fini le faux « enregistré »).
 
