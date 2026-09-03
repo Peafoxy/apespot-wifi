@@ -1477,7 +1477,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V9.7</span>
+          <span className="app-version-badge">V9.8</span>
         </div>
 
         {!selected && (
@@ -1998,20 +1998,6 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
                   <span className="dot">·</span>
                   <span>{c.action}</span>
                 </div>
-                {normalizePhone(c.telephone) ? (
-                  <a
-                    className="tech-call-btn"
-                    href={`tel:${normalizePhone(c.telephone)}`}
-                    onClick={(e) => e.stopPropagation()}
-                    title="Appeler le client"
-                  >
-                    <span className="tech-call-ico">📞</span>
-                    <span className="tech-call-txt">Appeler</span>
-                    <span className="tech-call-num">{c.telephone}</span>
-                  </a>
-                ) : (
-                  <div className="tech-call-none">Numéro non renseigné</div>
-                )}
               </div>
             ))}
             {enrichedClients.filter((c) => clientFilter === "ALL" || c.statut === clientFilter).length === 0 && (
@@ -2034,6 +2020,15 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setLocClient(null)}>
           <div className="modal">
             <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>{locClient.nom}</h2>
+            {normalizePhone(locClient.telephone) ? (
+              <a className="tech-call-btn" href={`tel:${normalizePhone(locClient.telephone)}`} title="Appeler le client">
+                <span className="tech-call-ico">📞</span>
+                <span className="tech-call-txt">Appeler</span>
+                <span className="tech-call-num">{locClient.telephone}</span>
+              </a>
+            ) : (
+              <div className="tech-call-none">Numéro non renseigné</div>
+            )}
             <button
               className="row-action-btn"
               onClick={() => { onCaptureClientLocation(locClient); setLocClient(null); }}
@@ -7390,11 +7385,11 @@ const CSS = `
 .wifi-app .client-row-name{font-weight:600;font-size:13.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wifi-app .client-row-meta{display:flex;align-items:center;gap:6px;font-size:11.5px;font-family:var(--mono);color:var(--text-dim);flex-wrap:wrap;padding-left:22px;}
 .wifi-app .client-row-meta .dot{color:var(--text-faint);}
-.wifi-app .tech-call-btn{margin-top:8px;margin-left:22px;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:10px;background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.45);color:#4ade80;text-decoration:none;font-family:var(--sans);font-weight:700;font-size:13px;transition:background .15s;}
+.wifi-app .tech-call-btn{width:100%;box-sizing:border-box;margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 14px;border-radius:10px;background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.45);color:#4ade80;text-decoration:none;font-family:var(--sans);font-weight:700;font-size:15px;transition:background .15s;}
 .wifi-app .tech-call-btn:active{background:rgba(34,197,94,.28);}
-.wifi-app .tech-call-btn .tech-call-ico{font-size:15px;}
+.wifi-app .tech-call-btn .tech-call-ico{font-size:17px;}
 .wifi-app .tech-call-btn .tech-call-num{font-family:var(--mono);font-weight:600;color:#bbf7d0;letter-spacing:.3px;}
-.wifi-app .tech-call-none{margin-top:8px;margin-left:22px;font-size:11.5px;font-style:italic;color:var(--text-faint);}
+.wifi-app .tech-call-none{margin-top:14px;text-align:center;font-size:12.5px;font-style:italic;color:var(--text-faint);}
 .wifi-app .client-row-meta .jours{font-size:11.5px;}
 .wifi-app .client-row-meta .action-text{font-size:11.5px;font-family:var(--sans);}
 .wifi-app .client-list-scroll{max-height:344px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent;}

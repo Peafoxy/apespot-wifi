@@ -1,11 +1,19 @@
 # Journal des versions — APESPOT WI-FI
 
+## V9.8
+Espace technicien : le numéro s'affiche après avoir ouvert le client.
+
+- Le bouton **📞 Appeler** n'apparaît plus dans la liste : il s'affiche
+  quand le technicien **appuie d'abord sur le client** (dans sa fiche).
+- La liste reste épurée ; l'appel se lance depuis la fiche du client
+  (toujours un appel téléphonique, aucune redirection WhatsApp).
+
 ## V9.7
 Espace technicien : appeler le client directement.
 
-- Chaque client de la liste du technicien affiche maintenant un bouton
-  **📞 Appeler** avec le numéro du client. Un appui lance directement l'appel
-  téléphonique (aucune redirection WhatsApp).
+- Chaque client de la liste du technicien affiche un bouton **📞 Appeler**
+  avec le numéro du client. Un appui lance directement l'appel téléphonique
+  (aucune redirection WhatsApp).
 - Si le numéro n'est pas renseigné, la mention « Numéro non renseigné »
   s'affiche à la place.
 
