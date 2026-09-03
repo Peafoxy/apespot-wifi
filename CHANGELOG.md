@@ -1,5 +1,16 @@
 # Journal des versions — APESPOT WI-FI
 
+## V10.2
+Position du local (dépenses admin) : confirmation « Es-tu à la base ? ».
+
+- Avant d'enregistrer la position du local, l'app demande maintenant à l'admin
+  **« Es-tu à la base principale ? »**.
+  - **Oui** → capture GPS et enregistrement.
+  - **Non** → rappel : *« Attends d'être à la base principale avant
+    d'enregistrer sa position. »* (rien n'est enregistré).
+- Même règle unique que pour la position des clients : un seul composant
+  gère les deux cas (client / base), avec le bon libellé.
+
 ## V10.1
 Position du client : enfin fonctionnelle pour le technicien (règle unique).
 
