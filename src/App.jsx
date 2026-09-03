@@ -1477,7 +1477,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V10.1</span>
+          <span className="app-version-badge">V10.2</span>
         </div>
 
         {!selected && (
@@ -1543,26 +1543,41 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
 // l'utilisateur n'est pas sur place, le rappel « Merci ». Toute vue qui permet
 // d'enregistrer une position DOIT afficher ce composant, sinon le clic ne
 // déclenche rien (le dialogue n'existe pas dans son écran).
-function PositionDialogs({ posConfirmAction, setPosConfirmAction, posThanksOpen, setPosThanksOpen }) {
+// Textes des deux contextes d'enregistrement de position. Une même règle,
+// deux libellés : le client (sur place chez lui) et la base principale (le local).
+const POS_CONTEXTE_CLIENT = {
+  hint: "Pour enregistrer sa localisation, rapproche-toi de son routeur, là où le problème se pose. Sinon, attends d'être à proximité de l'installation du client avant de l'enregistrer.",
+  question: "Es-tu chez le client ?",
+  thanks: "Pense à enregistrer sa position dès ton arrivée chez le client.",
+};
+const POS_CONTEXTE_BASE = {
+  hint: "La position du local sert de point de départ pour calculer les distances et le carburant. Enregistre-la uniquement quand tu es physiquement à la base principale.",
+  question: "Es-tu à la base principale ?",
+  thanks: "Attends d'être à la base principale avant d'enregistrer sa position.",
+};
+
+// posConfirm : { run, hint, question, thanks } | null   → dialogue de confirmation
+// posThanks  : string | null                            → rappel « reviens plus tard »
+function PositionDialogs({ posConfirm, setPosConfirm, posThanks, setPosThanks }) {
   return (
     <>
-      {posConfirmAction && (
-        <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setPosConfirmAction(null)}>
+      {posConfirm && (
+        <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setPosConfirm(null)}>
           <div className="modal">
             <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Confirme la position</h2>
             <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 14 }}>
-              Pour enregistrer sa localisation, rapproche-toi de son routeur, là où le problème se pose.
-              Sinon, attends d'être à proximité de l'installation du client avant de l'enregistrer.
+              {posConfirm.hint}
             </div>
             <div style={{ fontSize: 14, color: "#FFFFFF", fontWeight: 700, marginBottom: 18 }}>
-              Es-tu chez le client ?
+              {posConfirm.question}
             </div>
             <div className="modal-actions">
               <button
                 className="btn-cancel"
                 onClick={() => {
-                  setPosConfirmAction(null);
-                  setPosThanksOpen(true);
+                  const thanks = posConfirm.thanks;
+                  setPosConfirm(null);
+                  if (thanks) setPosThanks(thanks);
                 }}
               >
                 Non
@@ -1570,8 +1585,9 @@ function PositionDialogs({ posConfirmAction, setPosConfirmAction, posThanksOpen,
               <button
                 className="btn-save"
                 onClick={() => {
-                  posConfirmAction();
-                  setPosConfirmAction(null);
+                  const run = posConfirm.run;
+                  setPosConfirm(null);
+                  if (run) run();
                 }}
               >
                 Oui
@@ -1580,15 +1596,15 @@ function PositionDialogs({ posConfirmAction, setPosConfirmAction, posThanksOpen,
           </div>
         </div>
       )}
-      {posThanksOpen && (
-        <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setPosThanksOpen(false)}>
+      {posThanks && (
+        <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setPosThanks(null)}>
           <div className="modal">
             <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Merci</h2>
             <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6, marginBottom: 18 }}>
-              Pense à enregistrer sa position dès ton arrivée chez le client.
+              {posThanks}
             </div>
             <div className="modal-actions">
-              <button className="btn-save" style={{ width: "100%" }} onClick={() => setPosThanksOpen(false)}>OK</button>
+              <button className="btn-save" style={{ width: "100%" }} onClick={() => setPosThanks(null)}>OK</button>
             </div>
           </div>
         </div>
@@ -1599,7 +1615,7 @@ function PositionDialogs({ posConfirmAction, setPosConfirmAction, posThanksOpen,
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint, toast, posConfirmAction, setPosConfirmAction, posThanksOpen, setPosThanksOpen }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint, toast, posConfirm, setPosConfirm, posThanks, setPosThanks }) {
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-tech-tab") || "complaints");
   useEffect(() => {
     ecrireStockageLocal("apespot-tech-tab", tab);
@@ -2103,7 +2119,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
       <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
       <NewComplaintModal newComplaintModal={newComplaintModal} setNewComplaintModal={setNewComplaintModal} clients={clients} saveNewComplaint={saveNewComplaint} />
 
-      <PositionDialogs posConfirmAction={posConfirmAction} setPosConfirmAction={setPosConfirmAction} posThanksOpen={posThanksOpen} setPosThanksOpen={setPosThanksOpen} />
+      <PositionDialogs posConfirm={posConfirm} setPosConfirm={setPosConfirm} posThanks={posThanks} setPosThanks={setPosThanks} />
 
       <footer>Espace Technicien · ajout de client possible, modification réservée à l'Admin</footer>
     </div>
@@ -5018,10 +5034,11 @@ export default function AlerteClientWifi() {
     );
   };
 
-  const [posConfirmAction, setPosConfirmAction] = useState(null); // null | () => void
-  const [posThanksOpen, setPosThanksOpen] = useState(false);
-  const requestSetClientLocation = (complaint) => setPosConfirmAction(() => () => captureClientLocationByTechnicien(complaint));
-  const requestCaptureClientLocationDirect = (client) => setPosConfirmAction(() => () => captureClientLocationDirect(client));
+  const [posConfirm, setPosConfirm] = useState(null); // { run, hint, question, thanks } | null
+  const [posThanks, setPosThanks] = useState(null);   // message de rappel | null
+  const requestSetClientLocation = (complaint) => setPosConfirm({ run: () => captureClientLocationByTechnicien(complaint), ...POS_CONTEXTE_CLIENT });
+  const requestCaptureClientLocationDirect = (client) => setPosConfirm({ run: () => captureClientLocationDirect(client), ...POS_CONTEXTE_CLIENT });
+  const requestCaptureOfficeLocation = () => setPosConfirm({ run: () => captureOfficeLocation(), ...POS_CONTEXTE_BASE });
 
   const captureClientLocationByTechnicien = (complaint) => {
     if (!navigator.geolocation) {
@@ -5372,10 +5389,10 @@ export default function AlerteClientWifi() {
         sessionWarningSeconds={sessionWarningSeconds}
         onStayConnected={stayConnected}
         toast={toast}
-        posConfirmAction={posConfirmAction}
-        setPosConfirmAction={setPosConfirmAction}
-        posThanksOpen={posThanksOpen}
-        setPosThanksOpen={setPosThanksOpen}
+        posConfirm={posConfirm}
+        setPosConfirm={setPosConfirm}
+        posThanks={posThanks}
+        setPosThanks={setPosThanks}
       />
     );
   }
@@ -6171,7 +6188,7 @@ export default function AlerteClientWifi() {
                 Aucune position enregistrée — le calcul du carburant ne peut pas se faire sans elle.
               </div>
             )}
-            <button className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={captureOfficeLocation}>
+            <button className="btn-add" style={{ width: "100%", justifyContent: "center" }} onClick={requestCaptureOfficeLocation}>
               📍 {officeLocation ? "Mettre à jour ma position actuelle" : "Utiliser ma position actuelle"}
             </button>
           </div>
@@ -6886,7 +6903,7 @@ export default function AlerteClientWifi() {
       <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
 
 
-      <PositionDialogs posConfirmAction={posConfirmAction} setPosConfirmAction={setPosConfirmAction} posThanksOpen={posThanksOpen} setPosThanksOpen={setPosThanksOpen} />
+      <PositionDialogs posConfirm={posConfirm} setPosConfirm={setPosConfirm} posThanks={posThanks} setPosThanks={setPosThanks} />
       <NewComplaintModal newComplaintModal={newComplaintModal} setNewComplaintModal={setNewComplaintModal} clients={clients} saveNewComplaint={saveNewComplaint} />
 
       {/* ---- Payment modal ---- */}
