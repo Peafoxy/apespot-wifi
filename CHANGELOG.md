@@ -1,5 +1,14 @@
 # Journal des versions — APESPOT WI-FI
 
+## V10.0
+Position du client : message honnête (fini le faux « enregistré »).
+
+- Avant, l'app affichait « Position enregistrée » même quand la sauvegarde
+  échouait (erreur avalée en silence). Corrigé : le succès n'est affiché que
+  si la position est **réellement** enregistrée en base.
+- En cas d'échec, un message précis explique la cause : autorisation de
+  localisation refusée, GPS désactivé, délai dépassé, ou erreur base.
+
 ## V9.9
 Fiche client (technicien) : plus d'espace entre les boutons.
 

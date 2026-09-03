@@ -1477,7 +1477,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V9.9</span>
+          <span className="app-version-badge">V10.0</span>
         </div>
 
         {!selected && (
@@ -4998,10 +4998,21 @@ export default function AlerteClientWifi() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const lat = pos.coords.latitude, lng = pos.coords.longitude;
-        await saveClientLocationHandler(client.id, lat, lng);
-        showToast(`Position de "${client.nom}" enregistrée.`);
+        try {
+          await saveClientLocationHandler(client.id, lat, lng);
+          showToast(`Position de "${client.nom}" enregistrée.`);
+        } catch (e) {
+          console.error(e);
+          showToast(`Échec de l'enregistrement : ${e.message || e}`);
+        }
       },
-      () => showToast("Impossible de récupérer ta position. Vérifie que la localisation est activée."),
+      (err) => {
+        const msg = err && err.code === 1 ? "Autorisation de localisation refusée — active-la pour l'application dans les réglages du navigateur."
+          : err && err.code === 2 ? "Position indisponible — vérifie que le GPS du téléphone est activé."
+          : err && err.code === 3 ? "Délai dépassé — réessaie avec une meilleure réception (en extérieur)."
+          : "Impossible de récupérer ta position. Vérifie que la localisation est activée.";
+        showToast(msg);
+      },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
@@ -5030,13 +5041,16 @@ export default function AlerteClientWifi() {
   };
 
   const saveClientLocationHandler = async (clientId, latitude, longitude) => {
-    if (!clientId) return;
-    try {
-      if (SUPABASE_CONFIGURED) await sbFetch(`wifi_clients?id=eq.${clientId}`, { method: "PATCH", body: JSON.stringify({ latitude, longitude }) });
-      setClients((cs) => cs.map((c) => (c.id === clientId ? { ...c, latitude, longitude } : c)));
-    } catch (e) {
-      console.error(e);
+    if (!clientId) throw new Error("Client introuvable (identifiant manquant).");
+    if (SUPABASE_CONFIGURED) {
+      const rows = await sbFetch(`wifi_clients?id=eq.${clientId}`, { method: "PATCH", body: JSON.stringify({ latitude, longitude }) });
+      // PostgREST renvoie les lignes modifiées. Un tableau vide = aucune ligne
+      // touchée (client introuvable côté base) : c'est un échec, pas un succès.
+      if (Array.isArray(rows) && rows.length === 0) {
+        throw new Error("Aucune ligne mise à jour côté base.");
+      }
     }
+    setClients((cs) => cs.map((c) => (c.id === clientId ? { ...c, latitude, longitude } : c)));
   };
 
   // ---------- Demandes de paiement initiées par le client ----------
