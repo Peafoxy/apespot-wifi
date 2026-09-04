@@ -647,6 +647,181 @@ async function generateReceiptPDF(payment) {
   return doc.output("blob");
 }
 
+// Bilan comptable mensuel en PDF réel (jsPDF), au lieu de window.print() dont
+// le rendu sur mobile chevauchait les tableaux. Multi-pages, en-têtes répétés.
+async function generateBilanPDF(bilanData, monthLabel, totalClients) {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX = 15;
+  const contentW = pageW - marginX * 2;
+  const bottomLimit = pageH - 18;
+  let y = 0;
+
+  const INK = [14, 21, 32], MUTE = [92, 108, 126], RED = [179, 38, 30];
+  const LINE = [226, 230, 235], ZEBRA = [244, 246, 248], HEAD = [244, 246, 248];
+
+  const newPage = () => { doc.addPage(); y = 18; };
+  const ensure = (h) => { if (y + h > bottomLimit) newPage(); };
+
+  // ---- En-tête (page 1) ----
+  y = 18;
+  doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(18);
+  doc.text("APESPOT WI-FI", pageW / 2, y, { align: "center" });
+  y += 6;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(...MUTE);
+  doc.text("Bilan comptable mensuel", pageW / 2, y, { align: "center" });
+  y += 5;
+  doc.setFontSize(9.5);
+  const dateGen = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  doc.text(`Période : ${monthLabel}  ·  Généré le ${dateGen}`, pageW / 2, y, { align: "center" });
+  y += 5;
+  doc.setDrawColor(62, 216, 195); doc.setLineWidth(0.8);
+  doc.line(pageW / 2 - 18, y, pageW / 2 + 18, y);
+  y += 10;
+
+  // ---- Cartes résumé (2 lignes de 2) ----
+  const cards = [
+    [fmtFCFAForPdf(bilanData.total), "Total encaissé"],
+    [String(bilanData.count), "Paiements"],
+    [fmtFCFAForPdf(bilanData.avg), "Montant moyen"],
+    [String(totalClients), "Clients au total"],
+  ];
+  const cardW = (contentW - 8) / 2, cardH = 16;
+  cards.forEach(([n, l], i) => {
+    const cx = marginX + (i % 2) * (cardW + 8);
+    const cy = y + Math.floor(i / 2) * (cardH + 6);
+    doc.setDrawColor(...LINE); doc.setLineWidth(0.3);
+    doc.roundedRect(cx, cy, cardW, cardH, 2, 2);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(...INK);
+    doc.text(n, cx + 5, cy + 8);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...MUTE);
+    doc.text(l.toUpperCase(), cx + 5, cy + 13);
+  });
+  y += cardH * 2 + 6 + 8;
+
+  // ---- Rendu d'une section titrée avec tableau paginé ----
+  const sectionTitle = (title) => {
+    ensure(14);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...MUTE);
+    doc.text(title.toUpperCase(), marginX, y);
+    y += 2;
+    doc.setDrawColor(...LINE); doc.setLineWidth(0.3);
+    doc.line(marginX, y, marginX + contentW, y);
+    y += 5;
+  };
+
+  // cols: [{ w (0..1 of contentW), align, header }]
+  const table = (cols, rows, { totalRow } = {}) => {
+    const rowH = 8, headH = 8;
+    const xs = []; let acc = marginX;
+    cols.forEach((c) => { xs.push(acc); acc += c.w * contentW; });
+    const drawHeader = () => {
+      doc.setFillColor(...HEAD); doc.rect(marginX, y, contentW, headH, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...MUTE);
+      cols.forEach((c, i) => {
+        const tx = c.align === "right" ? xs[i] + c.w * contentW - 3 : xs[i] + 3;
+        doc.text(c.header.toUpperCase(), tx, y + 5.4, { align: c.align === "right" ? "right" : "left" });
+      });
+      doc.setDrawColor(...LINE); doc.setLineWidth(0.3);
+      doc.line(marginX, y + headH, marginX + contentW, y + headH);
+      y += headH;
+    };
+    ensure(headH + rowH);
+    drawHeader();
+    const drawRow = (cells, { bold, fill } = {}) => {
+      if (y + rowH > bottomLimit) { newPage(); drawHeader(); }
+      if (fill) { doc.setFillColor(...ZEBRA); doc.rect(marginX, y, contentW, rowH, "F"); }
+      doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(8.5);
+      cells.forEach((cell, i) => {
+        doc.setTextColor(...(cell.color || INK));
+        const c = cols[i];
+        const tx = c.align === "right" ? xs[i] + c.w * contentW - 3 : xs[i] + 3;
+        const maxW = c.w * contentW - 6;
+        doc.text(String(cell.t), tx, y + 5.3, { align: c.align === "right" ? "right" : "left", maxWidth: maxW });
+      });
+      doc.setDrawColor(...LINE); doc.setLineWidth(0.2);
+      doc.line(marginX, y + rowH, marginX + contentW, y + rowH);
+      y += rowH;
+    };
+    rows.forEach((r, i) => drawRow(r, { fill: i % 2 === 0 }));
+    if (totalRow) drawRow(totalRow, { bold: true, fill: true });
+    y += 8;
+  };
+
+  // ---- Répartition par mode ----
+  sectionTitle("Répartition par mode de paiement");
+  const modeCols = [
+    { w: 0.40, header: "Mode" },
+    { w: 0.15, header: "Nb", align: "right" },
+    { w: 0.27, header: "Montant", align: "right" },
+    { w: 0.18, header: "Part", align: "right" },
+  ];
+  if (bilanData.byMode.length === 0) {
+    table(modeCols, [[{ t: "Aucun paiement enregistré pour ce mois.", color: MUTE }, { t: "" }, { t: "" }, { t: "" }]]);
+  } else {
+    table(
+      modeCols,
+      bilanData.byMode.map((r) => [
+        { t: r.mode }, { t: r.count, align: "right" },
+        { t: fmtFCFAForPdf(r.sum) },
+        { t: (bilanData.total ? Math.round((r.sum / bilanData.total) * 100) : 0) + "%" },
+      ]),
+      { totalRow: [{ t: "Total" }, { t: bilanData.count }, { t: fmtFCFAForPdf(bilanData.total) }, { t: "100%" }] }
+    );
+  }
+
+  // ---- Charges & bénéfice net ----
+  sectionTitle("Charges & bénéfice net");
+  const chargeCols = [{ w: 0.70, header: "Poste" }, { w: 0.30, header: "Montant", align: "right" }];
+  table(chargeCols, [
+    [{ t: "Total encaissé (abonnements)" }, { t: fmtFCFAForPdf(bilanData.total) }],
+    [{ t: `Carburant technicien (${bilanData.fuelCount} déplacement${bilanData.fuelCount > 1 ? "s" : ""})` }, { t: "- " + fmtFCFAForPdf(bilanData.fuelTotal), color: RED }],
+    [{ t: `Lignes (${bilanData.lignesCount} ligne${bilanData.lignesCount > 1 ? "s" : ""} active${bilanData.lignesCount > 1 ? "s" : ""})` }, { t: "- " + fmtFCFAForPdf(bilanData.lignesMonthTotal), color: RED }],
+    [{ t: `Perdiem (${bilanData.perdiemCount} versement${bilanData.perdiemCount > 1 ? "s" : ""})` }, { t: "- " + fmtFCFAForPdf(bilanData.perdiemMonthTotal), color: RED }],
+    [{ t: `Autres dépenses (${bilanData.autresCount})` }, { t: "- " + fmtFCFAForPdf(bilanData.autresMonthTotal), color: RED }],
+  ], { totalRow: [{ t: "Bénéfice net du mois" }, { t: fmtFCFAForPdf(bilanData.netBenefit) }] });
+
+  // ---- Détail des paiements ----
+  sectionTitle("Détail des paiements du mois");
+  const payCols = [
+    { w: 0.16, header: "Date" },
+    { w: 0.30, header: "Client" },
+    { w: 0.20, header: "Mode" },
+    { w: 0.18, header: "Montant", align: "right" },
+    { w: 0.16, header: "Note" },
+  ];
+  if (bilanData.sorted.length === 0) {
+    table(payCols, [[{ t: "Aucun paiement enregistré pour ce mois.", color: MUTE }, { t: "" }, { t: "" }, { t: "" }, { t: "" }]]);
+  } else {
+    table(payCols, bilanData.sorted.map((p) => [
+      { t: fmtDate(p.date) }, { t: p.clientNom || "-" }, { t: p.mode || "-" },
+      { t: fmtFCFAForPdf(p.montant), align: "right" }, { t: p.note || "-" },
+    ]));
+  }
+
+  // ---- État du parc ----
+  sectionTitle("État du parc clients WiFi (à la date de génération)");
+  const parcCols = [{ w: 0.70, header: "Statut" }, { w: 0.30, header: "Nombre", align: "right" }];
+  table(parcCols, [
+    [{ t: "Expirés" }, { t: bilanData.nbExpire }],
+    [{ t: "À surveiller" }, { t: bilanData.nbAttention }],
+    [{ t: "À jour" }, { t: bilanData.nbOk }],
+  ], { totalRow: [{ t: "Total clients" }, { t: totalClients }] });
+
+  // ---- Pied de page sur chaque page ----
+  const pages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "italic"); doc.setFontSize(8); doc.setTextColor(...MUTE);
+    doc.text("APESPOT WI-FI · Document généré automatiquement", pageW / 2, pageH - 10, { align: "center" });
+    doc.text(`Page ${i} / ${pages}`, pageW - marginX, pageH - 10, { align: "right" });
+  }
+
+  return doc.output("blob");
+}
+
 function normalizePhone(raw) {
   let d = (raw || "").replace(/[^\d]/g, "");
   if (!d) return "";
@@ -1477,7 +1652,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V10.2</span>
+          <span className="app-version-badge">V10.3</span>
         </div>
 
         {!selected && (
@@ -4196,7 +4371,21 @@ export default function AlerteClientWifi() {
 
   const openBilan = () => setBilanOpen(true);
   const closeBilan = () => setBilanOpen(false);
-  const printBilan = () => window.print();
+  const [busyBilanPdf, setBusyBilanPdf] = useState(false);
+  const printBilan = async () => {
+    if (busyBilanPdf) return;
+    setBusyBilanPdf(true);
+    try {
+      const blob = await generateBilanPDF(bilanData, bilanMonthLabel, clients.length);
+      const fileName = `Bilan-APESPOT-${bilanMonth}.pdf`;
+      await deliverPdf(blob, fileName, `Bilan comptable ${bilanMonthLabel}`);
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur lors de la génération du PDF.");
+    } finally {
+      setBusyBilanPdf(false);
+    }
+  };
 
   const loyaltyStats = useMemo(() => {
     const totalClients = clients.length;
@@ -7164,7 +7353,7 @@ export default function AlerteClientWifi() {
               <div className="bilan-toolbar-actions">
                 <input type="month" value={bilanMonth} onChange={(e) => e.target.value && setBilanMonth(e.target.value)} />
                 <button className="btn-cancel" onClick={closeBilan}>Fermer</button>
-                <button className="btn-save" onClick={printBilan}>Imprimer / Enregistrer en PDF</button>
+                <button className="btn-save" onClick={printBilan} disabled={busyBilanPdf}>{busyBilanPdf ? "Génération…" : "Enregistrer en PDF"}</button>
               </div>
             </div>
             <div className="bilan-print">

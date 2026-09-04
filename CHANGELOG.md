@@ -1,5 +1,16 @@
 # Journal des versions — APESPOT WI-FI
 
+## V10.3
+Bilan comptable : PDF propre (fini les tableaux qui se chevauchent).
+
+- **Bug** : sur mobile, l'export du bilan (via l'impression du navigateur)
+  superposait les tableaux — document illisible.
+- **Correctif** : le bilan est désormais généré comme un **vrai fichier PDF**
+  (même moteur que les reçus), en A4, multi-pages, avec en-têtes de colonnes
+  répétés à chaque page et numéros de page. Sur téléphone, le menu de partage
+  s'ouvre (« Enregistrer dans Fichiers », WhatsApp…) ; sur ordinateur, le PDF
+  se télécharge.
+
 ## V10.2
 Position du local (dépenses admin) : confirmation « Es-tu à la base ? ».
 
