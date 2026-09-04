@@ -1,5 +1,15 @@
 # Journal des versions — APESPOT WI-FI
 
+## V10.5
+PDF sur ordinateur : téléchargement direct (plus de menu « Partager »).
+
+- Sur **ordinateur**, les PDF (bilan et reçus) se **téléchargent** directement
+  dans le dossier Téléchargements. On n'ouvre plus le menu « Partager » de
+  Windows (qui ne proposait que téléphone/WhatsApp). Pour imprimer : ouvrir le
+  fichier téléchargé puis **Ctrl+P**.
+- Sur **téléphone**, rien ne change : le menu de partage s'ouvre toujours
+  (« Enregistrer dans Fichiers », WhatsApp…).
+
 ## V10.4
 Bilan PDF : le mois apparaît dans le nom du fichier.
 
