@@ -528,19 +528,33 @@ function fmtFCFAForPdf(n) {
   return String(num).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " F";
 }
 
+// Détecte un vrai téléphone / tablette (pas un ordinateur). Sur PC, même quand
+// le navigateur supporte le partage natif (Edge/Windows), on ne veut PAS ouvrir
+// le menu « Partager » (qui ne propose que téléphone/WhatsApp) : un simple
+// téléchargement est attendu, et l'utilisateur imprime ensuite depuis le PDF.
+function estAppareilMobile() {
+  if (typeof navigator === "undefined") return false;
+  try {
+    if (navigator.userAgentData && typeof navigator.userAgentData.mobile === "boolean") {
+      return navigator.userAgentData.mobile;
+    }
+  } catch { /* userAgentData indisponible */ }
+  return /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(navigator.userAgent || "");
+}
+
 // Remet un PDF entre les mains de l'utilisateur de la façon la PLUS visible
 // selon l'appareil :
 //  1. Sur téléphone : le menu de PARTAGE natif (« Enregistrer dans Fichiers »,
 //     « Envoyer sur WhatsApp »...) — l'utilisateur choisit où va le fichier,
 //     au lieu d'un téléchargement invisible qu'on ne retrouve pas.
-//  2. Sinon (ordinateur) : téléchargement classique dans le dossier
-//     Téléchargements.
+//  2. Sur ordinateur : téléchargement classique dans le dossier Téléchargements
+//     (on n'ouvre jamais le menu « Partager » de Windows).
 // Renvoie "shared", "downloaded" ou "cancelled".
 async function deliverPdf(blob, fileName, title) {
   const pdf = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
   try {
     const file = new File([pdf], fileName, { type: "application/pdf" });
-    if (typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
+    if (estAppareilMobile() && typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: title || fileName });
         return "shared";
@@ -1652,7 +1666,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V10.4</span>
+          <span className="app-version-badge">V10.5</span>
         </div>
 
         {!selected && (
