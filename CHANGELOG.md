@@ -1,5 +1,12 @@
 # Journal des versions — APESPOT WI-FI
 
+## V10.4
+Bilan PDF : le mois apparaît dans le nom du fichier.
+
+- Le fichier s'enregistre désormais avec le mois en lettres, ex.
+  **`Bilan-APESPOT-aout-2026.pdf`** (au lieu de `2026-08`), pour retrouver
+  facilement chaque bilan.
+
 ## V10.3
 Bilan comptable : PDF propre (fini les tableaux qui se chevauchent).
 
