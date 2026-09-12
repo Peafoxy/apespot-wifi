@@ -856,6 +856,44 @@ function ouvrirWhatsApp(url) {
   }
 }
 
+// Récupère la position de façon FIABLE, surtout en intérieur (chez le client,
+// près du routeur) où le GPS haute précision peut dépasser 10 s. On tente
+// d'abord la haute précision avec un délai généreux ; si ça échoue/traîne, on
+// retombe sur une localisation réseau/cellule (moins précise mais rapide) au
+// lieu d'abandonner. Renvoie une Promise<GeolocationPosition>.
+function obtenirPositionFiable() {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject({ code: 0, message: "Géolocalisation indisponible" });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      resolve,
+      (err1) => {
+        // 2e essai plus permissif : réseau/cellule, tolère un point récent
+        // (mieux qu'un échec total en intérieur).
+        navigator.geolocation.getCurrentPosition(
+          resolve,
+          () => reject(err1),
+          { enableHighAccuracy: false, timeout: 12000, maximumAge: 60000 }
+        );
+      },
+      // Primaire : position FRAÎCHE et haute précision (maximumAge 0), avec un
+      // délai généreux pour laisser le temps au GPS de capter en intérieur.
+      // Fraîche = pas de risque de récupérer une position « prise ailleurs ».
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
+  });
+}
+
+// Message clair selon le code d'erreur de géolocalisation.
+function messageErreurGeoloc(err) {
+  if (err && err.code === 1) return "Autorisation de localisation refusée — active-la pour l'application dans les réglages du navigateur.";
+  if (err && err.code === 2) return "Position indisponible — vérifie que le GPS du téléphone est activé.";
+  if (err && err.code === 3) return "Le GPS met trop de temps — réessaie près d'une fenêtre ou en extérieur.";
+  return "Impossible de récupérer ta position. Vérifie que la localisation est activée.";
+}
+
 function buildWaMessage(c) {
   const { jours, statut } = computeStatus(c.dateExp);
   const dateTxt = fmtDate(c.dateExp);
@@ -1699,7 +1737,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V11.1</span>
+          <span className="app-version-badge">V11.2</span>
         </div>
 
         {!selected && (
@@ -4935,31 +4973,29 @@ export default function AlerteClientWifi() {
   };
 
   // ---------- Carburant (frais de déplacement technicien) ----------
-  const captureOfficeLocation = () => {
-    if (!navigator.geolocation) {
-      showToast("La géolocalisation n'est pas disponible sur cet appareil.");
+  const captureOfficeLocation = async () => {
+    showToast("Recherche de la position en cours…");
+    let pos;
+    try {
+      pos = await obtenirPositionFiable();
+    } catch (err) {
+      showToast(messageErreurGeoloc(err));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        try {
-          if (SUPABASE_CONFIGURED) {
-            await Promise.all([
-              saveSetting("office_lat", String(loc.lat)),
-              saveSetting("office_lng", String(loc.lng)),
-            ]);
-          }
-          setOfficeLocation(loc);
-          showToast("Position du local enregistrée.");
-        } catch (e) {
-          console.error(e);
-          showToast("Erreur d'enregistrement de la position.");
-        }
-      },
-      () => showToast("Impossible de récupérer ta position. Vérifie que la localisation est activée."),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    try {
+      if (SUPABASE_CONFIGURED) {
+        await Promise.all([
+          saveSetting("office_lat", String(loc.lat)),
+          saveSetting("office_lng", String(loc.lng)),
+        ]);
+      }
+      setOfficeLocation(loc);
+      showToast("Position du local enregistrée.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'enregistrement de la position.");
+    }
   };
 
   const updateFuelRate = async (value) => {
@@ -5324,26 +5360,24 @@ export default function AlerteClientWifi() {
 
   // Le technicien capture sa position réelle juste avant de partir (remplace le local comme point A
   // pour le calcul du carburant de cette intervention précise).
-  const captureTechnicienStartPosition = (complaint) => {
-    if (!navigator.geolocation) {
-      showToast("La géolocalisation n'est pas disponible sur cet appareil.");
+  const captureTechnicienStartPosition = async (complaint) => {
+    showToast("Recherche de la position en cours…");
+    let pos;
+    try {
+      pos = await obtenirPositionFiable();
+    } catch (err) {
+      showToast(messageErreurGeoloc(err));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude, lng = pos.coords.longitude;
-        try {
-          if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { technicien_start_lat: lat, technicien_start_lng: lng });
-          setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, technicienStartLat: lat, technicienStartLng: lng } : c)));
-          showToast("Position de départ enregistrée.");
-        } catch (e) {
-          console.error(e);
-          showToast("Erreur d'enregistrement de la position.");
-        }
-      },
-      () => showToast("Impossible de récupérer ta position. Vérifie que la localisation est activée."),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    try {
+      if (SUPABASE_CONFIGURED) await updateComplaintRow(complaint.id, { technicien_start_lat: lat, technicien_start_lng: lng });
+      setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, technicienStartLat: lat, technicienStartLng: lng } : c)));
+      showToast("Position de départ enregistrée.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'enregistrement de la position.");
+    }
   };
 
   const [posConfirm, setPosConfirm] = useState(null); // { run, hint, question, thanks } | null
@@ -5352,60 +5386,50 @@ export default function AlerteClientWifi() {
   const requestCaptureClientLocationDirect = (client) => setPosConfirm({ run: () => captureClientLocationDirect(client), ...POS_CONTEXTE_CLIENT });
   const requestCaptureOfficeLocation = () => setPosConfirm({ run: () => captureOfficeLocation(), ...POS_CONTEXTE_BASE });
 
-  const captureClientLocationByTechnicien = (complaint) => {
-    if (!navigator.geolocation) {
-      showToast("La géolocalisation n'est pas disponible sur cet appareil.");
+  const captureClientLocationByTechnicien = async (complaint) => {
+    showToast("Recherche de la position en cours…");
+    let pos;
+    try {
+      pos = await obtenirPositionFiable();
+    } catch (err) {
+      showToast(messageErreurGeoloc(err));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude, lng = pos.coords.longitude;
-        try {
-          if (SUPABASE_CONFIGURED) {
-            await updateComplaintRow(complaint.id, { latitude: lat, longitude: lng });
-          }
-          setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, latitude: lat, longitude: lng } : c)));
-          // Mémorise aussi cette position sur la fiche client, pour ses prochaines réclamations.
-          const client = clients.find((cl) => cl.nom === complaint.clientNom);
-          if (client) await saveClientLocationHandler(client.id, lat, lng);
-          showToast("Position du client enregistrée et mémorisée.");
-        } catch (e) {
-          console.error(e);
-          showToast("Erreur d'enregistrement de la position.");
-        }
-      },
-      () => showToast("Impossible de récupérer ta position. Vérifie que la localisation est activée."),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    try {
+      if (SUPABASE_CONFIGURED) {
+        await updateComplaintRow(complaint.id, { latitude: lat, longitude: lng });
+      }
+      setComplaints((cs) => cs.map((c) => (c.id === complaint.id ? { ...c, latitude: lat, longitude: lng } : c)));
+      // Mémorise aussi cette position sur la fiche client, pour ses prochaines réclamations.
+      const client = clients.find((cl) => cl.nom === complaint.clientNom);
+      if (client) await saveClientLocationHandler(client.id, lat, lng);
+      showToast("Position du client enregistrée et mémorisée.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'enregistrement de la position.");
+    }
   };
 
   // Capture directe, depuis la fiche client — utile quand le client n'a jamais fait de
   // réclamation via l'app et qu'aucune position n'est donc mémorisée pour lui.
-  const captureClientLocationDirect = (client) => {
-    if (!navigator.geolocation) {
-      showToast("La géolocalisation n'est pas disponible sur cet appareil.");
+  const captureClientLocationDirect = async (client) => {
+    showToast("Recherche de la position en cours…");
+    let pos;
+    try {
+      pos = await obtenirPositionFiable();
+    } catch (err) {
+      showToast(messageErreurGeoloc(err));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude, lng = pos.coords.longitude;
-        try {
-          await saveClientLocationHandler(client.id, lat, lng);
-          showToast(`Position de "${client.nom}" enregistrée.`);
-        } catch (e) {
-          console.error(e);
-          showToast(`Échec de l'enregistrement : ${e.message || e}`);
-        }
-      },
-      (err) => {
-        const msg = err && err.code === 1 ? "Autorisation de localisation refusée — active-la pour l'application dans les réglages du navigateur."
-          : err && err.code === 2 ? "Position indisponible — vérifie que le GPS du téléphone est activé."
-          : err && err.code === 3 ? "Délai dépassé — réessaie avec une meilleure réception (en extérieur)."
-          : "Impossible de récupérer ta position. Vérifie que la localisation est activée.";
-        showToast(msg);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    try {
+      await saveClientLocationHandler(client.id, lat, lng);
+      showToast(`Position de "${client.nom}" enregistrée.`);
+    } catch (e) {
+      console.error(e);
+      showToast(`Échec de l'enregistrement : ${e.message || e}`);
+    }
   };
 
   const saveTechnicienComment = async (complaint, text) => {

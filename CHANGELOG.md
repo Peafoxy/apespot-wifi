@@ -1,5 +1,20 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.2
+Position : capture GPS fiable en intérieur (mise à jour enfin possible).
+
+- **Problème** : chez le client (en intérieur, près du routeur), le GPS haute
+  précision dépassait souvent 10 s → échec → le technicien n'arrivait pas à
+  (ré)actualiser la position.
+- **Correctif** : nouvelle capture en 2 temps — d'abord GPS haute précision
+  **frais** avec un délai généreux (20 s), puis, si le GPS traîne, un **2ᵉ essai
+  réseau/cellule** rapide au lieu d'abandonner. Un message « Recherche de la
+  position en cours… » s'affiche, et en cas d'échec la cause exacte est indiquée.
+- La position primaire est toujours **fraîche** : aucun risque de récupérer une
+  ancienne position « prise ailleurs ».
+- Appliqué partout : position client (fiche & réclamation), position de départ
+  du technicien, et position du local.
+
 ## V11.1
 Onglets plus lisibles.
 
