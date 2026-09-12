@@ -1,5 +1,11 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.1
+Onglets plus lisibles.
+
+- Les onglets inactifs passent d'un gris foncé à un **blanc cassé** bien
+  visible ; l'onglet survolé devient **blanc**. L'onglet actif reste teal.
+
 ## V11.0
 Nouveau look : fond sombre soigné, cartes avec de la profondeur.
 
