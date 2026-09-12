@@ -1,18 +1,25 @@
 # Journal des versions — APESPOT WI-FI
 
-## V10.6
-Caisse & versements : suivi de l'argent en main, par personne.
+## V10.7
+Caisse : caisse commune, dépenses déduites automatiquement.
 
-- Nouvel onglet **Caisse** (admin) : pour chaque personne, l'app affiche
-  **Encaissé**, **Versé** et **Reste en caisse** (encaissé − versé).
-- Chaque nouveau paiement mémorise **qui a encaissé**. Les anciens paiements
-  (sans collecteur) apparaissent sous « Non attribué ».
-- Bouton **Enregistrer un versement** : qui verse, montant, date, reçu par,
-  note. La liste des versements est consultable et supprimable.
-- **⚠️ Migration à exécuter** dans Supabase (SQL Editor) :
-  `supabase/caisse-versements.sql` — ajoute qui-encaisse aux paiements et crée
-  la table des versements. Tant qu'elle n'est pas lancée, l'onglet Caisse
-  reste vide mais l'app fonctionne normalement.
+- La caisse est désormais **commune** (plus de distinction par personne).
+- **Reste à verser = Total encaissé − Dépenses (carburant + perdiem + autres)
+  − Déjà versé** — les dépenses sont soustraites automatiquement.
+- L'onglet Caisse montre le **calcul détaillé** (encaissé, chaque dépense
+  déduite, déjà versé, reste à verser) + l'historique des versements.
+- Le formulaire de versement est simplifié : montant, date, remis par
+  (optionnel), reçu par (optionnel), note.
+- Les « lignes » (abonnements récurrents) ne sont pas déduites de la caisse
+  (elles restent une charge du bilan comptable).
+- **Correctif important** : le champ « qui encaisse » (V10.6) est retiré des
+  paiements — il aurait fait échouer l'enregistrement d'un paiement tant que la
+  migration n'était pas lancée.
+- **Migration à exécuter** dans Supabase (SQL Editor) :
+  `supabase/caisse-versements.sql` — crée uniquement la table des versements.
+
+## V10.6
+Caisse & versements : première version (par personne) — remplacée par V10.7.
 
 ## V10.5
 PDF sur ordinateur : téléchargement direct (plus de menu « Partager »).

@@ -928,8 +928,6 @@ const rowToPayment = (r) => ({
   note: r.note,
   receiptPath: r.receipt_path,
   receiptName: r.receipt_name,
-  encaissePar: r.encaisse_par || null,
-  encaisseParId: r.encaisse_par_id || null,
 });
 const paymentToRow = (p) => ({
   client_nom: p.clientNom,
@@ -940,8 +938,6 @@ const paymentToRow = (p) => ({
   note: p.note || null,
   receipt_path: p.receiptPath || null,
   receipt_name: p.receiptName || null,
-  encaisse_par: p.encaissePar || null,
-  encaisse_par_id: p.encaisseParId || null,
 });
 
 // ---- Versements (caisse) ----
@@ -1703,7 +1699,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V10.6</span>
+          <span className="app-version-badge">V10.7</span>
         </div>
 
         {!selected && (
@@ -3888,54 +3884,40 @@ export default function AlerteClientWifi() {
     [enrichedClients]
   );
 
-  // ---------- Caisse : encaissé / versé / solde en main, PAR PERSONNE ----------
+  // ---------- Caisse GLOBALE : encaissé − dépenses − versé = reste à verser ----------
+  // Une seule caisse pour toute l'équipe (pas de distinction par personne). Les
+  // dépenses en espèces (carburant, perdiem, autres) sont soustraites
+  // automatiquement. Les « lignes » (abonnements récurrents) ne sont PAS
+  // déduites de la caisse : elles restent une charge du bilan comptable.
   const caisseData = useMemo(() => {
-    const keyFor = (nom) => (nom && String(nom).trim()) ? String(nom).trim() : "Non attribué";
-    const map = new Map();
-    const get = (k, id) => {
-      if (!map.has(k)) map.set(k, { personne: k, personneId: id || null, encaisse: 0, verse: 0 });
-      const e = map.get(k);
-      if (!e.personneId && id) e.personneId = id;
-      return e;
-    };
-    payments.forEach((p) => { get(keyFor(p.encaissePar), p.encaisseParId).encaisse += Number(p.montant) || 0; });
-    versements.forEach((v) => { get(keyFor(v.versePar), v.verseParId).verse += Number(v.montant) || 0; });
-    const rows = [...map.values()].map((r) => ({ ...r, solde: r.encaisse - r.verse }));
-    rows.sort((a, b) => b.solde - a.solde);
-    const totalEncaisse = rows.reduce((s, r) => s + r.encaisse, 0);
-    const totalVerse = rows.reduce((s, r) => s + r.verse, 0);
-    return { rows, totalEncaisse, totalVerse, totalSolde: totalEncaisse - totalVerse };
-  }, [payments, versements]);
+    const totalEncaisse = payments.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const totalFuel = fuelExpenses.reduce((s, f) => s + (Number(f.montant) || 0), 0);
+    const totalPerdiem = perdiemExpenses.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const totalAutres = otherExpenses.reduce((s, o) => s + (Number(o.montant) || 0), 0);
+    const totalDepenses = totalFuel + totalPerdiem + totalAutres;
+    const totalVerse = versements.reduce((s, v) => s + (Number(v.montant) || 0), 0);
+    const resteAVerser = totalEncaisse - totalDepenses - totalVerse;
+    return { totalEncaisse, totalFuel, totalPerdiem, totalAutres, totalDepenses, totalVerse, resteAVerser };
+  }, [payments, fuelExpenses, perdiemExpenses, otherExpenses, versements]);
 
-  // Liste des personnes proposées quand on enregistre un versement : le
-  // personnel connu + toute personne ayant déjà encaissé.
-  const collecteurs = useMemo(() => {
-    const m = new Map();
-    users.forEach((u) => { if (u.nom) m.set(u.nom, u.id); });
-    caisseData.rows.forEach((r) => { if (r.personne !== "Non attribué" && !m.has(r.personne)) m.set(r.personne, r.personneId); });
-    return [...m.entries()].map(([nom, id]) => ({ nom, id }));
-  }, [users, caisseData]);
-
-  const [versementModal, setVersementModal] = useState(null); // { versePar, verseParId, montant, date, recuPar, note } | null
+  const [versementModal, setVersementModal] = useState(null); // { montant, date, remisPar, recuPar, note } | null
   const [busyVersement, setBusyVersement] = useState(false);
-  const openVersement = (prefill) => setVersementModal({
-    versePar: prefill?.versePar || "",
-    verseParId: prefill?.verseParId || null,
+  const openVersement = () => setVersementModal({
     montant: "",
     date: new Date().toISOString().slice(0, 10),
+    remisPar: authUser?.nom || "",
     recuPar: "",
     note: "",
   });
   const saveVersement = async () => {
     if (busyVersement || !versementModal) return;
-    const { versePar, verseParId, montant, date, recuPar, note } = versementModal;
-    if (!versePar || !versePar.trim()) return showToast("Indique qui verse l'argent.");
+    const { montant, date, remisPar, recuPar, note } = versementModal;
     if (!montant || Number(montant) <= 0) return showToast("Le montant doit être supérieur à 0.");
     if (!date) return showToast("La date du versement est requise.");
     setBusyVersement(true);
     const payload = {
-      versePar: versePar.trim(),
-      verseParId: verseParId || null,
+      versePar: (remisPar || "").trim() || null,
+      verseParId: null,
       montant: Number(montant),
       date,
       recuPar: (recuPar || "").trim() || null,
@@ -4353,10 +4335,6 @@ export default function AlerteClientWifi() {
       note: note.trim(),
       receiptPath: original?.receiptPath || null,
       receiptName: original?.receiptName || null,
-      // Caisse : on mémorise QUI encaisse. En édition, on conserve le collecteur
-      // d'origine (ne pas réattribuer un ancien paiement à celui qui le corrige).
-      encaissePar: editingId ? (original?.encaissePar || null) : (authUser?.nom || null),
-      encaisseParId: editingId ? (original?.encaisseParId || null) : (authUser?.id || null),
     };
 
     try {
@@ -6886,34 +6864,31 @@ export default function AlerteClientWifi() {
         <div className="view active">
           <div className="stats">
             <div className="stat total"><div className="n">{fmtFCFA(caisseData.totalEncaisse)}</div><div className="l">Total encaissé</div></div>
-            <div className="stat ok"><div className="n">{fmtFCFA(caisseData.totalVerse)}</div><div className="l">Total versé</div></div>
-            <div className="stat attention"><div className="n">{fmtFCFA(caisseData.totalSolde)}</div><div className="l">Reste en caisse (à verser)</div></div>
-            <div className="stat expire"><div className="n">{caisseData.rows.length}</div><div className="l">Personnes</div></div>
+            <div className="stat expire"><div className="n">{fmtFCFA(caisseData.totalDepenses)}</div><div className="l">Dépenses (déduites)</div></div>
+            <div className="stat ok"><div className="n">{fmtFCFA(caisseData.totalVerse)}</div><div className="l">Déjà versé</div></div>
+            <div className="stat attention"><div className="n">{fmtFCFA(caisseData.resteAVerser)}</div><div className="l">Reste à verser</div></div>
           </div>
 
           <div className="toolbar">
             <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
-              Suivi de l'argent encaissé, des versements et de ce qui reste en main — par personne.
+              Caisse commune. Le reste à verser = tout l'encaissé − les dépenses (carburant, perdiem, autres) − ce qui est déjà versé.
             </div>
             <button className="btn-add" onClick={() => openVersement()}>+ Enregistrer un versement</button>
           </div>
 
           <div className="chart-card">
-            <div className="ctitle">CAISSE PAR PERSONNE</div>
-            {caisseData.rows.length === 0 && <div className="empty">Aucun encaissement enregistré pour l'instant.</div>}
-            {caisseData.rows.map((r) => (
-              <div key={r.personne} className="caisse-row">
-                <div className="caisse-person">{r.personne}</div>
-                <div className="caisse-nums">
-                  <span>Encaissé&nbsp;<b>{fmtFCFA(r.encaisse)}</b></span>
-                  <span>Versé&nbsp;<b>{fmtFCFA(r.verse)}</b></span>
-                  <span className={r.solde > 0 ? "caisse-solde due" : "caisse-solde ok"}>Reste&nbsp;<b>{fmtFCFA(r.solde)}</b></span>
-                </div>
-                {r.personne !== "Non attribué" && (
-                  <button className="btn-cancel caisse-verser" onClick={() => openVersement({ versePar: r.personne, verseParId: r.personneId })}>Verser</button>
-                )}
-              </div>
-            ))}
+            <div className="ctitle">CALCUL DU RESTE À VERSER</div>
+            <div className="caisse-calc">
+              <div className="caisse-calc-row"><span>Total encaissé</span><b>{fmtFCFA(caisseData.totalEncaisse)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Carburant</span><b>− {fmtFCFA(caisseData.totalFuel)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Perdiem</span><b>− {fmtFCFA(caisseData.totalPerdiem)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Autres dépenses</span><b>− {fmtFCFA(caisseData.totalAutres)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Déjà versé</span><b>− {fmtFCFA(caisseData.totalVerse)}</b></div>
+              <div className="caisse-calc-row total"><span>Reste à verser</span><b>{fmtFCFA(caisseData.resteAVerser)}</b></div>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 12 }}>
+              Les « lignes » (abonnements récurrents) ne sont pas déduites ici — elles restent une charge du bilan comptable.
+            </div>
           </div>
 
           <div className="chart-card">
@@ -6922,7 +6897,7 @@ export default function AlerteClientWifi() {
             {versements.map((v) => (
               <div key={v.id} className="versement-row">
                 <div>
-                  <div className="versement-main">{v.versePar || "—"} · <b>{fmtFCFA(v.montant)}</b></div>
+                  <div className="versement-main"><b>{fmtFCFA(v.montant)}</b>{v.versePar ? ` · remis par ${v.versePar}` : ""}</div>
                   <div className="versement-sub">{fmtDate(v.date)}{v.recuPar ? ` · reçu par ${v.recuPar}` : ""}{v.note ? ` · ${v.note}` : ""}</div>
                 </div>
                 <button className="icon-btn" onClick={() => deleteVersement(v)} title="Supprimer le versement">🗑</button>
@@ -7550,21 +7525,7 @@ export default function AlerteClientWifi() {
           <div className="modal">
             <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Enregistrer un versement</h2>
             <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginBottom: 14 }}>
-              L'argent remis par une personne (à l'administration ou déposé). Ça fait baisser ce qui reste dans sa caisse.
-            </div>
-            <div className="field">
-              <label>Qui verse</label>
-              <select
-                value={versementModal.versePar}
-                onChange={(e) => {
-                  const nom = e.target.value;
-                  const found = collecteurs.find((x) => x.nom === nom);
-                  setVersementModal((m) => ({ ...m, versePar: nom, verseParId: found ? found.id : null }));
-                }}
-              >
-                <option value="">— Choisir la personne —</option>
-                {collecteurs.map((c) => <option key={c.nom} value={c.nom}>{c.nom}</option>)}
-              </select>
+              L'argent remis à l'administration (ou déposé). Ça fait baisser le « reste à verser » de la caisse.
             </div>
             <div className="field">
               <label>Montant versé (F)</label>
@@ -7573,6 +7534,10 @@ export default function AlerteClientWifi() {
             <div className="field">
               <label>Date du versement</label>
               <DatePickerInput id="versement-date" value={versementModal.date} onChange={(e) => setVersementModal((m) => ({ ...m, date: e.target.value }))} />
+            </div>
+            <div className="field">
+              <label>Remis par (optionnel)</label>
+              <input type="text" value={versementModal.remisPar} onChange={(e) => setVersementModal((m) => ({ ...m, remisPar: e.target.value }))} placeholder="Nom de la personne qui remet l'argent" />
             </div>
             <div className="field">
               <label>Reçu par (optionnel)</label>
@@ -7773,14 +7738,13 @@ const CSS = `
 .wifi-app .btn-add svg{width:14px;height:14px;flex-shrink:0;}
 .wifi-app .chart-card{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px;}
 .wifi-app .chart-card .ctitle{font-size:12px;color:var(--text-dim);letter-spacing:.3px;margin-bottom:16px;}
-.wifi-app .caisse-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;}
-.wifi-app .caisse-row:last-child{border-bottom:none;}
-.wifi-app .caisse-person{font-weight:700;color:var(--text);min-width:120px;flex:1;}
-.wifi-app .caisse-nums{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--text-dim);font-family:var(--mono);}
-.wifi-app .caisse-nums b{color:var(--text);font-weight:700;}
-.wifi-app .caisse-solde.due b{color:var(--amber);}
-.wifi-app .caisse-solde.ok b{color:var(--green);}
-.wifi-app .caisse-verser{padding:6px 14px;font-size:12.5px;}
+.wifi-app .caisse-calc{font-family:var(--mono);font-size:13.5px;}
+.wifi-app .caisse-calc-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);color:var(--text-dim);}
+.wifi-app .caisse-calc-row b{color:var(--text);font-weight:700;}
+.wifi-app .caisse-calc-row.neg b{color:var(--red);}
+.wifi-app .caisse-calc-row.total{border-bottom:none;border-top:2px solid var(--text-faint);margin-top:4px;padding-top:12px;font-size:15px;}
+.wifi-app .caisse-calc-row.total span{color:var(--text);font-weight:700;}
+.wifi-app .caisse-calc-row.total b{color:var(--green);}
 .wifi-app .versement-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
 .wifi-app .versement-row:last-child{border-bottom:none;}
 .wifi-app .versement-main{font-size:13.5px;color:var(--text);}

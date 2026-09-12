@@ -1,31 +1,26 @@
 -- ============================================================================
--- APESPOT WI-FI — Caisse & versements (suivi de l'argent en main)
+-- APESPOT WI-FI — Caisse & versements (suivi de l'argent à verser)
 -- ============================================================================
--- Objectif : suivre, PAR PERSONNE, l'argent encaissé auprès des clients, les
--- versements (argent remis à l'administration / déposé), et ce qui reste en
--- main (solde de caisse = encaissé − versé).
+-- Objectif : suivre une CAISSE COMMUNE. Le « reste à verser » est calculé
+-- automatiquement :
 --
--- 1) On mémorise QUI encaisse chaque paiement (colonnes ajoutées à wifi_payments).
---    Les anciens paiements restent sans collecteur : ils apparaissent regroupés
---    sous « Non attribué » dans la caisse.
--- 2) Nouvelle table wifi_versements : chaque remise d'argent (qui verse, combien,
---    quand, à qui, note).
+--     Reste à verser = Total encaissé − Dépenses (carburant + perdiem + autres)
+--                                       − Total déjà versé
+--
+-- Cette migration crée UNIQUEMENT la table des versements (l'argent remis à
+-- l'administration / déposé). Le reste du calcul utilise les paiements et les
+-- dépenses déjà existants — aucune autre modification de schéma nécessaire.
 --
 -- À exécuter UNE FOIS dans le SQL Editor de Supabase. Sans effet si déjà fait.
--- Tant que ce n'est pas exécuté : l'app continue de fonctionner, mais la section
--- Caisse restera vide (aucun collecteur mémorisé, aucun versement possible).
+-- Tant que ce n'est pas exécuté : l'app fonctionne, mais on ne peut pas
+-- enregistrer de versement (l'onglet Caisse affiche quand même l'encaissé et
+-- les dépenses ; « déjà versé » reste à 0).
 -- ============================================================================
 
--- 1. Qui a encaissé chaque paiement
-alter table public.wifi_payments
-  add column if not exists encaisse_par    text,
-  add column if not exists encaisse_par_id text;
-
--- 2. Table des versements
 create table if not exists public.wifi_versements (
   id            uuid primary key default gen_random_uuid(),
-  verse_par     text,                       -- nom de la personne qui verse
-  verse_par_id  text,                       -- id de la personne qui verse
+  verse_par     text,                       -- nom de la personne qui remet l'argent (info)
+  verse_par_id  text,                       -- réservé (non utilisé aujourd'hui)
   montant       numeric not null,
   date          date not null,
   recu_par      text,                       -- à qui l'argent est remis (optionnel)
