@@ -1,5 +1,13 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.3
+Logo sans fond blanc, intégré au thème sombre.
+
+- Le fond blanc du logo a été **retiré** (rendu transparent) et l'image
+  ré-encodée proprement — fini le carré blanc autour du logo.
+- Le carré/ombre blanc en CSS a été supprimé : le logo s'affiche directement
+  sur le fond sombre, dans l'en-tête comme sur l'écran de connexion.
+
 ## V11.2
 Position : capture GPS fiable en intérieur (mise à jour enfin possible).
 
