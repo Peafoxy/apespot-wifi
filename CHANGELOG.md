@@ -1,5 +1,13 @@
 # Journal des versions — APESPOT WI-FI
 
+## V10.9
+Affichage : l'app occupe toute la largeur de l'écran.
+
+- Suppression de la largeur fixe (1126 px) héritée du gabarit de départ qui
+  laissait des **bandes blanches** de chaque côté sur grand écran.
+- Le fond de page est désormais sombre (couleur de l'app) — plus de blanc sur
+  les côtés ni au rebond de défilement.
+
 ## V10.8
 Connexion : l'œil (afficher/masquer le code) est maintenant dans la ligne.
 

@@ -50,19 +50,18 @@
   }
 }
 
+html,
 body {
   margin: 0;
+  background: #0E1520; /* fond sombre de l'app, pour éviter les bandes blanches sur les côtés / au rebond */
 }
 
 #root {
-  width: 1126px;
+  width: 100%;
   max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
+  margin: 0;
+  text-align: left;
   min-height: 100svh;
-  display: flex;
-  flex-direction: column;
   box-sizing: border-box;
 }
 
