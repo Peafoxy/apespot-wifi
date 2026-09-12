@@ -51,6 +51,7 @@ const SUPABASE_CONFIGURED = !IS_LOCAL_DEV;
 
 const LOCAL_CLIENTS_KEY = "bmi-wifi-clients-demo";
 const LOCAL_PAYMENTS_KEY = "bmi-wifi-payments-demo";
+const LOCAL_VERSEMENTS_KEY = "bmi-wifi-versements-demo";
 const LOCAL_MESSAGES_KEY = "bmi-wifi-messages-demo";
 const LOCAL_COMPLAINTS_KEY = "bmi-wifi-complaints-demo";
 const LOCAL_USERS_KEY = "bmi-wifi-users-demo";
@@ -927,6 +928,8 @@ const rowToPayment = (r) => ({
   note: r.note,
   receiptPath: r.receipt_path,
   receiptName: r.receipt_name,
+  encaissePar: r.encaisse_par || null,
+  encaisseParId: r.encaisse_par_id || null,
 });
 const paymentToRow = (p) => ({
   client_nom: p.clientNom,
@@ -937,6 +940,28 @@ const paymentToRow = (p) => ({
   note: p.note || null,
   receipt_path: p.receiptPath || null,
   receipt_name: p.receiptName || null,
+  encaisse_par: p.encaissePar || null,
+  encaisse_par_id: p.encaisseParId || null,
+});
+
+// ---- Versements (caisse) ----
+const rowToVersement = (r) => ({
+  id: r.id,
+  versePar: r.verse_par || null,
+  verseParId: r.verse_par_id || null,
+  montant: r.montant,
+  date: r.date,
+  recuPar: r.recu_par || null,
+  note: r.note || null,
+  createdAt: r.created_at,
+});
+const versementToRow = (v) => ({
+  verse_par: v.versePar || null,
+  verse_par_id: v.verseParId || null,
+  montant: v.montant,
+  date: v.date,
+  recu_par: v.recuPar || null,
+  note: v.note || null,
 });
 
 const rowToMessage = (r) => ({ id: r.id, clientId: r.client_id, clientNom: r.client_nom, sender: r.sender, body: r.body, read: r.read ?? false, createdAt: r.created_at });
@@ -1048,6 +1073,18 @@ async function fetchClients() {
 async function fetchPayments() {
   const data = await sbFetch("wifi_payments?select=*&order=date.desc");
   return (data || []).map(rowToPayment);
+}
+
+async function fetchVersements() {
+  const data = await sbFetch("wifi_versements?select=*&order=date.desc");
+  return (data || []).map(rowToVersement);
+}
+async function insertVersementRow(v) {
+  const data = await sbFetch("wifi_versements", { method: "POST", body: JSON.stringify(versementToRow(v)) });
+  return rowToVersement(data[0]);
+}
+async function deleteVersementRow(id) {
+  await sbFetch(`wifi_versements?id=eq.${id}`, { method: "DELETE" });
 }
 
 async function fetchMessages() {
@@ -1666,7 +1703,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V10.5</span>
+          <span className="app-version-badge">V10.6</span>
         </div>
 
         {!selected && (
@@ -3104,6 +3141,7 @@ export default function AlerteClientWifi() {
 
   const [clients, setClients] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [versements, setVersements] = useState([]);
   const [messages, setMessages] = useState([]);
   const [complaints, setComplaints] = useState([]);
   const [users, setUsers] = useState([]);
@@ -3147,6 +3185,7 @@ export default function AlerteClientWifi() {
       saveLocal(LOCAL_TICKET_DURATIONS_KEY, demoTicketDurations);
       setClients(demoClients);
       setPayments(demoPayments);
+      setVersements(loadLocal(LOCAL_VERSEMENTS_KEY, []));
       setMessages(demoMessages);
       setComplaints(demoComplaints);
       setUsers(demoUsers);
@@ -3172,7 +3211,7 @@ export default function AlerteClientWifi() {
     setLoading(true);
     (async () => {
       try {
-        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe, al] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe, al, vs] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -3187,11 +3226,13 @@ export default function AlerteClientWifi() {
           safeFetch("perdiem", fetchPerdiem),
           safeFetch("autres dépenses", fetchOtherExpenses),
           safeFetch("journal d'activité", fetchActivityLog),
+          safeFetch("versements", fetchVersements),
         ]);
         // On ne remplace un état que si sa donnée est bien arrivée (≠ null) :
         // une table en échec conserve les valeurs précédentes.
         if (c !== null) setClients(c);
         if (p !== null) setPayments(p);
+        if (vs !== null) setVersements(vs);
         if (m !== null) setMessages(m);
         if (cp !== null) setComplaints(cp);
         if (u !== null) setUsers(u);
@@ -3224,7 +3265,7 @@ export default function AlerteClientWifi() {
     const t = setInterval(async () => {
       try {
         const debutTick = Date.now();
-        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe, al] = await Promise.all([
+        const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe, al, vs] = await Promise.all([
           safeFetch("clients", fetchClients),
           safeFetch("paiements", fetchPayments),
           safeFetch("messages", fetchMessages),
@@ -3239,6 +3280,7 @@ export default function AlerteClientWifi() {
           safeFetch("perdiem", fetchPerdiem),
           safeFetch("autres dépenses", fetchOtherExpenses),
           safeFetch("journal d'activité", fetchActivityLog),
+          safeFetch("versements", fetchVersements),
         ]);
         // Si une écriture utilisateur a eu lieu PENDANT ces lectures, la
         // réponse peut être antérieure à cette écriture : on ignore ce tick
@@ -3249,6 +3291,7 @@ export default function AlerteClientWifi() {
         // vider l'écran : on ne remplace que les données réellement reçues.
         if (c !== null) setClients(c);
         if (p !== null) setPayments(p);
+        if (vs !== null) setVersements(vs);
         if (m !== null) setMessages(m);
         if (cp !== null) setComplaints(cp);
         if (u !== null) setUsers(u);
@@ -3277,6 +3320,9 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_PAYMENTS_KEY, payments);
   }, [payments, loading]);
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_VERSEMENTS_KEY, versements);
+  }, [versements, loading]);
   useEffect(() => {
     if (!SUPABASE_CONFIGURED && !loading) saveLocal(LOCAL_MESSAGES_KEY, messages);
   }, [messages, loading]);
@@ -3842,6 +3888,83 @@ export default function AlerteClientWifi() {
     [enrichedClients]
   );
 
+  // ---------- Caisse : encaissé / versé / solde en main, PAR PERSONNE ----------
+  const caisseData = useMemo(() => {
+    const keyFor = (nom) => (nom && String(nom).trim()) ? String(nom).trim() : "Non attribué";
+    const map = new Map();
+    const get = (k, id) => {
+      if (!map.has(k)) map.set(k, { personne: k, personneId: id || null, encaisse: 0, verse: 0 });
+      const e = map.get(k);
+      if (!e.personneId && id) e.personneId = id;
+      return e;
+    };
+    payments.forEach((p) => { get(keyFor(p.encaissePar), p.encaisseParId).encaisse += Number(p.montant) || 0; });
+    versements.forEach((v) => { get(keyFor(v.versePar), v.verseParId).verse += Number(v.montant) || 0; });
+    const rows = [...map.values()].map((r) => ({ ...r, solde: r.encaisse - r.verse }));
+    rows.sort((a, b) => b.solde - a.solde);
+    const totalEncaisse = rows.reduce((s, r) => s + r.encaisse, 0);
+    const totalVerse = rows.reduce((s, r) => s + r.verse, 0);
+    return { rows, totalEncaisse, totalVerse, totalSolde: totalEncaisse - totalVerse };
+  }, [payments, versements]);
+
+  // Liste des personnes proposées quand on enregistre un versement : le
+  // personnel connu + toute personne ayant déjà encaissé.
+  const collecteurs = useMemo(() => {
+    const m = new Map();
+    users.forEach((u) => { if (u.nom) m.set(u.nom, u.id); });
+    caisseData.rows.forEach((r) => { if (r.personne !== "Non attribué" && !m.has(r.personne)) m.set(r.personne, r.personneId); });
+    return [...m.entries()].map(([nom, id]) => ({ nom, id }));
+  }, [users, caisseData]);
+
+  const [versementModal, setVersementModal] = useState(null); // { versePar, verseParId, montant, date, recuPar, note } | null
+  const [busyVersement, setBusyVersement] = useState(false);
+  const openVersement = (prefill) => setVersementModal({
+    versePar: prefill?.versePar || "",
+    verseParId: prefill?.verseParId || null,
+    montant: "",
+    date: new Date().toISOString().slice(0, 10),
+    recuPar: "",
+    note: "",
+  });
+  const saveVersement = async () => {
+    if (busyVersement || !versementModal) return;
+    const { versePar, verseParId, montant, date, recuPar, note } = versementModal;
+    if (!versePar || !versePar.trim()) return showToast("Indique qui verse l'argent.");
+    if (!montant || Number(montant) <= 0) return showToast("Le montant doit être supérieur à 0.");
+    if (!date) return showToast("La date du versement est requise.");
+    setBusyVersement(true);
+    const payload = {
+      versePar: versePar.trim(),
+      verseParId: verseParId || null,
+      montant: Number(montant),
+      date,
+      recuPar: (recuPar || "").trim() || null,
+      note: (note || "").trim() || null,
+    };
+    try {
+      const created = SUPABASE_CONFIGURED ? await insertVersementRow(payload) : { id: uid(), ...payload, createdAt: new Date().toISOString() };
+      setVersements((vs) => [created, ...vs]);
+      setVersementModal(null);
+      showToast("Versement enregistré.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur d'enregistrement du versement.");
+    } finally {
+      setBusyVersement(false);
+    }
+  };
+  const deleteVersement = async (v) => {
+    if (typeof window !== "undefined" && !window.confirm(`Supprimer ce versement de ${fmtFCFA(v.montant)} par ${v.versePar || "?"} ?`)) return;
+    try {
+      if (SUPABASE_CONFIGURED) await deleteVersementRow(v.id);
+      setVersements((vs) => vs.filter((x) => x.id !== v.id));
+      showToast("Versement supprimé.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de suppression du versement.");
+    }
+  };
+
   const pendingExpensesTotal = useMemo(() => {
     const fuel = fuelExpenses.filter((f) => f.status === "a_payer").reduce((s, f) => s + (Number(f.montant) || 0), 0);
     const perdiem = perdiemExpenses.filter((p) => p.status === "a_payer").reduce((s, p) => s + (Number(p.montant) || 0), 0);
@@ -4230,6 +4353,10 @@ export default function AlerteClientWifi() {
       note: note.trim(),
       receiptPath: original?.receiptPath || null,
       receiptName: original?.receiptName || null,
+      // Caisse : on mémorise QUI encaisse. En édition, on conserve le collecteur
+      // d'origine (ne pas réattribuer un ancien paiement à celui qui le corrige).
+      encaissePar: editingId ? (original?.encaissePar || null) : (authUser?.nom || null),
+      encaisseParId: editingId ? (original?.encaisseParId || null) : (authUser?.id || null),
     };
 
     try {
@@ -5492,6 +5619,7 @@ export default function AlerteClientWifi() {
       if (SUPABASE_CONFIGURED) {
         await Promise.all([
           sbFetch("wifi_payments?id=not.is.null", { method: "DELETE" }),
+          sbFetch("wifi_versements?id=not.is.null", { method: "DELETE" }).catch(() => {}),
           sbFetch("wifi_messages?id=not.is.null", { method: "DELETE" }),
           sbFetch("wifi_complaints?id=not.is.null", { method: "DELETE" }),
           sbFetch("wifi_payment_requests?id=not.is.null", { method: "DELETE" }),
@@ -5500,19 +5628,20 @@ export default function AlerteClientWifi() {
         // Best-effort : vide aussi les fichiers restants dans les buckets (tickets, reçus).
         await Promise.all([sbStorageClearBucket(TICKETS_BUCKET), sbStorageClearBucket(RECEIPTS_BUCKET)]).catch(() => {});
       } else {
-        [LOCAL_PAYMENTS_KEY, LOCAL_MESSAGES_KEY, LOCAL_COMPLAINTS_KEY, LOCAL_PAYMENT_REQUESTS_KEY, LOCAL_TICKET_REQUESTS_KEY].forEach((k) =>
+        [LOCAL_PAYMENTS_KEY, LOCAL_VERSEMENTS_KEY, LOCAL_MESSAGES_KEY, LOCAL_COMPLAINTS_KEY, LOCAL_PAYMENT_REQUESTS_KEY, LOCAL_TICKET_REQUESTS_KEY].forEach((k) =>
           localStorage.removeItem(k)
         );
       }
 
       setPayments([]);
+      setVersements([]);
       setMessages([]);
       setComplaints([]);
       setPaymentRequests([]);
       setTicketRequests([]);
 
       setResetAppModal(null);
-      logActivity("reset_application", "Réinitialisation complète de l'application (paiements, messages, réclamations, demandes)");
+      logActivity("reset_application", "Réinitialisation complète de l'application (paiements, versements, messages, réclamations, demandes)");
       showToast("Application réinitialisée. Clients et comptes Admin/Technicien conservés.");
     } catch (e) {
       console.error(e);
@@ -5694,6 +5823,9 @@ export default function AlerteClientWifi() {
         </button>
         <button className={`tab ${tab === "fuel" ? "active" : ""}`} onClick={() => setTab("fuel")}>
           Dépenses{(unpaidFuelCount + unpaidPerdiemCount) > 0 && <span className="tab-badge">{unpaidFuelCount + unpaidPerdiemCount}</span>}
+        </button>
+        <button className={`tab ${tab === "caisse" ? "active" : ""}`} onClick={() => setTab("caisse")}>
+          Caisse
         </button>
         <button className={`tab ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>
           Utilisateurs
@@ -6750,6 +6882,56 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
+      {tab === "caisse" && (
+        <div className="view active">
+          <div className="stats">
+            <div className="stat total"><div className="n">{fmtFCFA(caisseData.totalEncaisse)}</div><div className="l">Total encaissé</div></div>
+            <div className="stat ok"><div className="n">{fmtFCFA(caisseData.totalVerse)}</div><div className="l">Total versé</div></div>
+            <div className="stat attention"><div className="n">{fmtFCFA(caisseData.totalSolde)}</div><div className="l">Reste en caisse (à verser)</div></div>
+            <div className="stat expire"><div className="n">{caisseData.rows.length}</div><div className="l">Personnes</div></div>
+          </div>
+
+          <div className="toolbar">
+            <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
+              Suivi de l'argent encaissé, des versements et de ce qui reste en main — par personne.
+            </div>
+            <button className="btn-add" onClick={() => openVersement()}>+ Enregistrer un versement</button>
+          </div>
+
+          <div className="chart-card">
+            <div className="ctitle">CAISSE PAR PERSONNE</div>
+            {caisseData.rows.length === 0 && <div className="empty">Aucun encaissement enregistré pour l'instant.</div>}
+            {caisseData.rows.map((r) => (
+              <div key={r.personne} className="caisse-row">
+                <div className="caisse-person">{r.personne}</div>
+                <div className="caisse-nums">
+                  <span>Encaissé&nbsp;<b>{fmtFCFA(r.encaisse)}</b></span>
+                  <span>Versé&nbsp;<b>{fmtFCFA(r.verse)}</b></span>
+                  <span className={r.solde > 0 ? "caisse-solde due" : "caisse-solde ok"}>Reste&nbsp;<b>{fmtFCFA(r.solde)}</b></span>
+                </div>
+                {r.personne !== "Non attribué" && (
+                  <button className="btn-cancel caisse-verser" onClick={() => openVersement({ versePar: r.personne, verseParId: r.personneId })}>Verser</button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="chart-card">
+            <div className="ctitle">HISTORIQUE DES VERSEMENTS</div>
+            {versements.length === 0 && <div className="empty">Aucun versement enregistré.</div>}
+            {versements.map((v) => (
+              <div key={v.id} className="versement-row">
+                <div>
+                  <div className="versement-main">{v.versePar || "—"} · <b>{fmtFCFA(v.montant)}</b></div>
+                  <div className="versement-sub">{fmtDate(v.date)}{v.recuPar ? ` · reçu par ${v.recuPar}` : ""}{v.note ? ` · ${v.note}` : ""}</div>
+                </div>
+                <button className="icon-btn" onClick={() => deleteVersement(v)} title="Supprimer le versement">🗑</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {tab === "users" && (
         <div className="view active">
           <div className="toolbar">
@@ -7363,6 +7545,51 @@ export default function AlerteClientWifi() {
       )}
 
       {/* ---- Bilan mensuel (printable report) ---- */}
+      {versementModal && (
+        <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && setVersementModal(null)}>
+          <div className="modal">
+            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Enregistrer un versement</h2>
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginBottom: 14 }}>
+              L'argent remis par une personne (à l'administration ou déposé). Ça fait baisser ce qui reste dans sa caisse.
+            </div>
+            <div className="field">
+              <label>Qui verse</label>
+              <select
+                value={versementModal.versePar}
+                onChange={(e) => {
+                  const nom = e.target.value;
+                  const found = collecteurs.find((x) => x.nom === nom);
+                  setVersementModal((m) => ({ ...m, versePar: nom, verseParId: found ? found.id : null }));
+                }}
+              >
+                <option value="">— Choisir la personne —</option>
+                {collecteurs.map((c) => <option key={c.nom} value={c.nom}>{c.nom}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Montant versé (F)</label>
+              <input type="number" inputMode="numeric" min="0" value={versementModal.montant} onChange={(e) => setVersementModal((m) => ({ ...m, montant: e.target.value }))} placeholder="0" />
+            </div>
+            <div className="field">
+              <label>Date du versement</label>
+              <DatePickerInput id="versement-date" value={versementModal.date} onChange={(e) => setVersementModal((m) => ({ ...m, date: e.target.value }))} />
+            </div>
+            <div className="field">
+              <label>Reçu par (optionnel)</label>
+              <input type="text" value={versementModal.recuPar} onChange={(e) => setVersementModal((m) => ({ ...m, recuPar: e.target.value }))} placeholder="Ex. Administrateur principal" />
+            </div>
+            <div className="field">
+              <label>Note (optionnel)</label>
+              <input type="text" value={versementModal.note} onChange={(e) => setVersementModal((m) => ({ ...m, note: e.target.value }))} placeholder="Ex. espèces, dépôt banque…" />
+            </div>
+            <div className="modal-actions">
+              <button className="btn-cancel" onClick={() => setVersementModal(null)}>Annuler</button>
+              <button className="btn-save" onClick={saveVersement} disabled={busyVersement}>{busyVersement ? "Enregistrement…" : "Enregistrer"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {bilanOpen && (
         <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && closeBilan()}>
           <div className="modal bilan-modal">
@@ -7546,6 +7773,18 @@ const CSS = `
 .wifi-app .btn-add svg{width:14px;height:14px;flex-shrink:0;}
 .wifi-app .chart-card{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px;}
 .wifi-app .chart-card .ctitle{font-size:12px;color:var(--text-dim);letter-spacing:.3px;margin-bottom:16px;}
+.wifi-app .caisse-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.wifi-app .caisse-row:last-child{border-bottom:none;}
+.wifi-app .caisse-person{font-weight:700;color:var(--text);min-width:120px;flex:1;}
+.wifi-app .caisse-nums{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--text-dim);font-family:var(--mono);}
+.wifi-app .caisse-nums b{color:var(--text);font-weight:700;}
+.wifi-app .caisse-solde.due b{color:var(--amber);}
+.wifi-app .caisse-solde.ok b{color:var(--green);}
+.wifi-app .caisse-verser{padding:6px 14px;font-size:12.5px;}
+.wifi-app .versement-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
+.wifi-app .versement-row:last-child{border-bottom:none;}
+.wifi-app .versement-main{font-size:13.5px;color:var(--text);}
+.wifi-app .versement-sub{font-size:11.5px;color:var(--text-faint);margin-top:3px;}
 .wifi-app .chart-bars{display:flex;align-items:flex-end;gap:14px;height:120px;}
 .wifi-app .chart-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:8px;}
 .wifi-app .chart-col .bar{width:100%;max-width:38px;border-radius:5px 5px 2px 2px;background:linear-gradient(180deg,var(--cyan),var(--cyan-dim));min-height:3px;transition:height .3s;}

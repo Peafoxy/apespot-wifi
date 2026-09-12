@@ -22,6 +22,7 @@ const STAFF_ONLY_TABLES = new Set([
   "wifi_perdiem",
   "wifi_other_expenses",
   "wifi_push_subscriptions",
+  "wifi_versements",
 ]);
 
 // Tables réservées à l'ADMINISTRATEUR (jamais un technicien). wifi_users

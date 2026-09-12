@@ -1,5 +1,19 @@
 # Journal des versions — APESPOT WI-FI
 
+## V10.6
+Caisse & versements : suivi de l'argent en main, par personne.
+
+- Nouvel onglet **Caisse** (admin) : pour chaque personne, l'app affiche
+  **Encaissé**, **Versé** et **Reste en caisse** (encaissé − versé).
+- Chaque nouveau paiement mémorise **qui a encaissé**. Les anciens paiements
+  (sans collecteur) apparaissent sous « Non attribué ».
+- Bouton **Enregistrer un versement** : qui verse, montant, date, reçu par,
+  note. La liste des versements est consultable et supprimable.
+- **⚠️ Migration à exécuter** dans Supabase (SQL Editor) :
+  `supabase/caisse-versements.sql` — ajoute qui-encaisse aux paiements et crée
+  la table des versements. Tant qu'elle n'est pas lancée, l'onglet Caisse
+  reste vide mais l'app fonctionne normalement.
+
 ## V10.5
 PDF sur ordinateur : téléchargement direct (plus de menu « Partager »).
 
