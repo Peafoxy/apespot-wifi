@@ -1,5 +1,11 @@
 # Journal des versions — APESPOT WI-FI
 
+## V10.8
+Connexion : l'œil (afficher/masquer le code) est maintenant dans la ligne.
+
+- L'icône œil du champ « Code d'accès » est placée **à l'intérieur** du champ
+  (à droite), au lieu d'un carré séparé à côté. Le texte reste centré.
+
 ## V10.7
 Caisse : caisse commune, dépenses déduites automatiquement.
 

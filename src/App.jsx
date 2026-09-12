@@ -1699,7 +1699,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V10.7</span>
+          <span className="app-version-badge">V10.8</span>
         </div>
 
         {!selected && (
@@ -1725,10 +1725,10 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         {selected && (
           <div className="login-form">
             <label>{selected === "client" ? "Ton code d'accès" : `Code d'accès ${selected === "admin" ? "Admin" : "Technicien"}`}</label>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ position: "relative" }}>
               <input
                 autoFocus
-                style={{ flex: 1, minWidth: 0, letterSpacing: 3, textAlign: "center", fontFamily: "var(--mono)", fontWeight: 700, fontSize: 18, textTransform: "uppercase" }}
+                style={{ width: "100%", boxSizing: "border-box", letterSpacing: 3, textAlign: "center", fontFamily: "var(--mono)", fontWeight: 700, fontSize: 18, textTransform: "uppercase", ...(selected !== "client" ? { paddingLeft: 46, paddingRight: 46 } : {}) }}
                 type={selected === "client" || showLoginCode ? "text" : "password"}
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
@@ -1738,9 +1738,9 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
               {selected !== "client" && (
                 <button
                   type="button"
-                  className="btn-cancel"
-                  style={{ flex: "0 0 auto", padding: "0 14px" }}
                   onClick={() => setShowLoginCode((v) => !v)}
+                  aria-label={showLoginCode ? "Masquer le code" : "Afficher le code"}
+                  style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 6 }}
                 >
                   {showLoginCode ? "🙈" : "👁"}
                 </button>
