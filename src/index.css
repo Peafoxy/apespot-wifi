@@ -53,7 +53,7 @@
 html,
 body {
   margin: 0;
-  background: #0E1520; /* fond sombre de l'app, pour éviter les bandes blanches sur les côtés / au rebond */
+  background: #080C13; /* fond sombre de l'app, pour éviter les bandes blanches sur les côtés / au rebond */
 }
 
 #root {

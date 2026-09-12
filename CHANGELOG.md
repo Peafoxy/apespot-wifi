@@ -1,5 +1,16 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.0
+Nouveau look : fond sombre soigné, cartes avec de la profondeur.
+
+- Fond profond avec une **lueur teal** signature (dégradés discrets) au lieu du
+  fond plat.
+- Les **cartes** (statistiques, panneaux, tableaux) ont un léger dégradé, un
+  **filet lumineux** et une **ombre douce** — effet de relief.
+- Les **cartes de statistiques** ont une **lueur de couleur** selon leur état
+  (rouge / orange / vert / cyan) et une barre d'accent lumineuse.
+- L'**onglet actif** brille légèrement (teal).
+
 ## V10.9
 Affichage : l'app occupe toute la largeur de l'écran.
 

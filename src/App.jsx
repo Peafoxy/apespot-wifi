@@ -1699,7 +1699,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V10.9</span>
+          <span className="app-version-badge">V11.0</span>
         </div>
 
         {!selected && (
@@ -7679,15 +7679,21 @@ export default function AlerteClientWifi() {
 // -------------------- Styles (same design language as the HTML version) --------------------
 const CSS = `
 .wifi-app{
-  --bg:#0E1520; --bg-panel:#161F2C; --bg-card:#1B2635; --bg-hover:#212D3D; --line:#2A3747;
-  --text:#E7EDF4; --text-dim:#8FA0B3; --text-faint:#5C6C7E;
-  --cyan:#3ED8C3; --cyan-dim:#1E5850; --red:#F0555F; --red-dim:#3C1E24;
+  --bg:#080C13; --bg-panel:#121A26; --bg-card:#151E2B; --bg-hover:#1D2836; --line:#26313F;
+  --card-top:#1A2432; --card-bot:#131B27;                 /* dégradé subtil des cartes */
+  --hair:rgba(255,255,255,.06);                            /* filet lumineux */
+  --shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 10px 30px -14px rgba(0,0,0,.7);
+  --text:#EAF1F8; --text-dim:#93A3B5; --text-faint:#5E6C7D;
+  --cyan:#3ED8C3; --cyan-dim:#12463F; --red:#F0555F; --red-dim:#3C1E24;
   --amber:#F5AC3C; --amber-dim:#402C12; --green:#3FD684; --green-dim:#123425;
   --mono:ui-monospace,SFMono-Regular,'JetBrains Mono',Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
-  background:radial-gradient(circle at 15% 0%, #14202e 0%, transparent 45%),
-             radial-gradient(circle at 90% 10%, #142722 0%, transparent 40%), var(--bg);
-  color:var(--text); font-family:var(--sans); min-height:100vh; padding:28px 20px 60px; border-radius:8px;
+  background:
+    radial-gradient(1100px 560px at 8% -8%, rgba(62,216,195,.11), transparent 55%),
+    radial-gradient(1000px 680px at 100% -4%, rgba(56,120,190,.10), transparent 52%),
+    radial-gradient(900px 900px at 50% 120%, rgba(62,216,195,.05), transparent 60%),
+    linear-gradient(180deg,#0B111B 0%, var(--bg) 60%);
+  color:var(--text); font-family:var(--sans); min-height:100vh; padding:28px 20px 60px;
   overflow-x:hidden;
 }
 .wifi-app *{box-sizing:border-box;}
@@ -7706,19 +7712,25 @@ const CSS = `
 .wifi-app .tabs{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
 .wifi-app .tabs::-webkit-scrollbar{display:none;}
 .wifi-app .tab{padding:10px 12px;margin-bottom:-1px;background:none;border:none;color:var(--text-faint);font-size:13.5px;font-weight:800;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
-.wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);font-weight:800;}
+.wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);font-weight:800;text-shadow:0 0 16px rgba(62,216,195,.45);}
+.wifi-app .tab:hover{color:var(--text-dim);}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
 .wifi-app .session-warning{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--amber-dim);border:1px solid var(--amber);color:var(--amber);padding:10px 14px;border-radius:10px;font-size:12.5px;font-weight:600;margin-bottom:16px;}
 .wifi-app .renew-confirm-box{background:var(--green-dim);border:1px solid var(--green);color:var(--green);padding:14px 16px;border-radius:10px;font-size:14px;font-weight:600;text-align:center;margin:16px 0;}
 .wifi-app .session-warning button{flex-shrink:0;padding:6px 14px;font-size:11.5px;}
 .wifi-app .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;}
-.wifi-app .stat{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden;}
-.wifi-app .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;}
-.wifi-app .stat.expire::before{background:var(--red);}
-.wifi-app .stat.attention::before{background:var(--amber);}
-.wifi-app .stat.ok::before{background:var(--green);}
-.wifi-app .stat.total::before{background:var(--cyan);}
-.wifi-app .stat .n{font-family:var(--mono);font-size:24px;font-weight:700;line-height:1;}
+.wifi-app .stat{background:linear-gradient(160deg,var(--card-top) 0%,var(--card-bot) 100%);border:1px solid var(--hair);border-radius:16px;padding:16px 18px;position:relative;overflow:hidden;box-shadow:var(--shadow);}
+.wifi-app .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px;}
+.wifi-app .stat::after{content:"";position:absolute;right:-40px;top:-40px;width:120px;height:120px;border-radius:50%;opacity:.10;filter:blur(6px);pointer-events:none;}
+.wifi-app .stat.expire::before{background:var(--red);box-shadow:0 0 14px 1px var(--red);}
+.wifi-app .stat.attention::before{background:var(--amber);box-shadow:0 0 14px 1px var(--amber);}
+.wifi-app .stat.ok::before{background:var(--green);box-shadow:0 0 14px 1px var(--green);}
+.wifi-app .stat.total::before{background:var(--cyan);box-shadow:0 0 14px 1px var(--cyan);}
+.wifi-app .stat.expire::after{background:var(--red);}
+.wifi-app .stat.attention::after{background:var(--amber);}
+.wifi-app .stat.ok::after{background:var(--green);}
+.wifi-app .stat.total::after{background:var(--cyan);}
+.wifi-app .stat .n{font-family:var(--mono);font-size:24px;font-weight:700;line-height:1;position:relative;}
 .wifi-app .stat .l{font-size:12px;color:var(--text-dim);margin-top:6px;letter-spacing:.3px;}
 .wifi-app .stats.stats-mini{grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:6px;}
 .wifi-app .stats-mini .stat{padding:12px 14px;border-radius:12px;}
@@ -7736,7 +7748,7 @@ const CSS = `
 .wifi-app .btn-add{padding:8px 13px;border-radius:9px;border:none;background:var(--cyan);color:#08201C;font-weight:700;font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;flex-shrink:0;}
 .wifi-app .btn-add:hover{filter:brightness(1.08);}
 .wifi-app .btn-add svg{width:14px;height:14px;flex-shrink:0;}
-.wifi-app .chart-card{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px;}
+.wifi-app .chart-card{background:linear-gradient(160deg,var(--card-top) 0%,var(--card-bot) 100%);border:1px solid var(--hair);border-radius:16px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow);}
 .wifi-app .chart-card .ctitle{font-size:12px;color:var(--text-dim);letter-spacing:.3px;margin-bottom:16px;}
 .wifi-app .caisse-calc{font-family:var(--mono);font-size:13.5px;}
 .wifi-app .caisse-calc-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);color:var(--text-dim);}
@@ -7766,7 +7778,7 @@ const CSS = `
 .wifi-app .rah-date{color:var(--text-dim);font-family:var(--mono);font-size:11px;flex-shrink:0;}
 .wifi-app .rah-amount{color:var(--green);font-weight:700;font-family:var(--mono);flex-shrink:0;}
 .wifi-app .rah-empty{font-size:12px;color:var(--text-faint);}
-.wifi-app .table-shell{background:var(--bg-panel);border:1px solid var(--line);border-radius:16px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.wifi-app .table-shell{background:linear-gradient(160deg,var(--card-top) 0%,var(--card-bot) 100%);border:1px solid var(--hair);border-radius:16px;overflow-x:auto;-webkit-overflow-scrolling:touch;box-shadow:var(--shadow);}
 .wifi-app .scroll-list{max-height:320px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border:1px solid var(--line);border-radius:12px;padding:0 10px;}
 .wifi-app .table-shell.table-scroll{max-height:65vh;overflow-y:auto;overscroll-behavior:contain;}
 .wifi-app .table-shell.table-scroll thead th{position:sticky;top:0;background:var(--bg-panel);z-index:2;}
