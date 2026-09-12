@@ -1,5 +1,14 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.4
+Logo agrandi et rendu plus net.
+
+- Logo ré-généré en plus grande résolution (×3) avec un renforcement de
+  netteté, et légèrement agrandi (en-tête et écran de connexion).
+- Note : la netteté finale reste limitée par la petite taille du fichier
+  d'origine — pour un rendu vraiment HD, fournir le logo original haute
+  résolution (PNG transparent ou SVG).
+
 ## V11.3
 Logo sans fond blanc, intégré au thème sombre.
 
