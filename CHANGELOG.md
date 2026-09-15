@@ -1,5 +1,14 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.5
+Reconnexion : la barre d'onglets se cale sur l'onglet affiché.
+
+- À la reconnexion, l'app rouvrait le dernier onglet utilisé (ex. Dépenses) et
+  affichait son contenu, mais la barre d'onglets restait au début — l'onglet
+  actif était hors écran, donc aucun ne paraissait sélectionné.
+- Désormais la barre **défile automatiquement jusqu'à l'onglet actif** (centré
+  et souligné), côté admin, technicien et client.
+
 ## V11.4
 Logo agrandi et rendu plus net.
 

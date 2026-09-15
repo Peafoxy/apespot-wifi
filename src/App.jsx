@@ -1737,7 +1737,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V11.4</span>
+          <span className="app-version-badge">V11.5</span>
         </div>
 
         {!selected && (
@@ -1877,8 +1877,29 @@ function PositionDialogs({ posConfirm, setPosConfirm, posThanks, setPosThanks })
 
 function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint, toast, posConfirm, setPosConfirm, posThanks, setPosThanks }) {
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-tech-tab") || "complaints");
+  const tabsRef = useRef(null);
   useEffect(() => {
     ecrireStockageLocal("apespot-tech-tab", tab);
+  }, [tab]);
+  useEffect(() => {
+    // À la reconnexion, l'onglet mémorisé peut être hors écran à droite. On
+    // centre la barre sur l'onglet actif. On RÉESSAIE brièvement car, pendant
+    // l'écran de chargement, la barre n'est pas encore dans le DOM (sans ce
+    // rappel, le contenu s'affichait mais aucun onglet ne paraissait choisi).
+    let essais = 0, raf = 0, to = 0;
+    const placer = () => {
+      const bar = tabsRef.current;
+      const actif = bar && bar.querySelector(".tab.active");
+      if (!bar || !actif) {
+        if (essais++ < 20) to = setTimeout(placer, 100);
+        return;
+      }
+      const br = bar.getBoundingClientRect();
+      const ar = actif.getBoundingClientRect();
+      bar.scrollBy({ left: (ar.left - br.left) - (br.width - ar.width) / 2, behavior: "auto" });
+    };
+    raf = requestAnimationFrame(placer);
+    return () => { cancelAnimationFrame(raf); clearTimeout(to); };
   }, [tab]);
 
   const [activeThreadClient, setActiveThreadClient] = useState(null);
@@ -2022,7 +2043,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         </div>
       )}
 
-      <div className="tabs">
+      <div className="tabs" ref={tabsRef}>
         <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => setTab("complaints")}>
           Réclamations{newComplaintsCount > 0 && <span className="tab-badge">{newComplaintsCount}</span>}
         </button>
@@ -2390,9 +2411,30 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
 
 function ClientView({ client, clients, payments, paymentRequests, complaints, messages, ticketRequests, ticketDurations, onSendMessage, onAddComplaint, onSubmitPaymentRequest, onSubmitTicketRequest, onEditTicketRequest, onDeleteTicketRequest, onDownloadTicket, onAddTicketDuration, onEditTicketDuration, onDeleteTicketDuration, onMarkMessagesRead, onSaveClientLocation, onLogout, sessionWarningSeconds, onStayConnected, toast }) {
   const [tab, setTab] = useState(() => localStorage.getItem(`apespot-client-tab-${client.id}`) || "home");
+  const tabsRef = useRef(null);
   useEffect(() => {
     ecrireStockageLocal(`apespot-client-tab-${client.id}`, tab);
   }, [tab, client.id]);
+  useEffect(() => {
+    // À la reconnexion, l'onglet mémorisé peut être hors écran à droite. On
+    // centre la barre sur l'onglet actif. On RÉESSAIE brièvement car, pendant
+    // l'écran de chargement, la barre n'est pas encore dans le DOM (sans ce
+    // rappel, le contenu s'affichait mais aucun onglet ne paraissait choisi).
+    let essais = 0, raf = 0, to = 0;
+    const placer = () => {
+      const bar = tabsRef.current;
+      const actif = bar && bar.querySelector(".tab.active");
+      if (!bar || !actif) {
+        if (essais++ < 20) to = setTimeout(placer, 100);
+        return;
+      }
+      const br = bar.getBoundingClientRect();
+      const ar = actif.getBoundingClientRect();
+      bar.scrollBy({ left: (ar.left - br.left) - (br.width - ar.width) / 2, behavior: "auto" });
+    };
+    raf = requestAnimationFrame(placer);
+    return () => { cancelAnimationFrame(raf); clearTimeout(to); };
+  }, [tab]);
 
   const [complaintForm, setComplaintForm] = useState(() => {
     const defaut = { reason: "Connexion lente", dateDebut: "", localisation: "", description: "", latitude: client.latitude ?? null, longitude: client.longitude ?? null };
@@ -2653,7 +2695,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
         </div>
       )}
 
-      <div className="tabs">
+      <div className="tabs" ref={tabsRef}>
         <button className={`tab ${tab === "home" ? "active" : ""}`} onClick={() => setTab("home")}>Mon compte</button>
         <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); if (unreadMessagesCount > 0) onMarkMessagesRead(freshClient.id, freshClient.nom); }}>
           Message{unreadMessagesCount > 0 && <span className="tab-badge">{unreadMessagesCount}</span>}
@@ -3168,8 +3210,32 @@ export default function AlerteClientWifi() {
   const [sessionWarningSeconds, setSessionWarningSeconds] = useState(0); // > 0 = avertissement affiché
 
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-admin-tab") || "dashboard");
+  const tabsRef = useRef(null);
   useEffect(() => {
     ecrireStockageLocal("apespot-admin-tab", tab);
+  }, [tab]);
+  // Fait défiler la barre d'onglets jusqu'à l'onglet actif : à la reconnexion,
+  // l'onglet mémorisé (ex. Dépenses) peut être hors écran à droite — sans ça,
+  // le contenu s'affiche mais aucun onglet ne paraît sélectionné.
+  useEffect(() => {
+    // À la reconnexion, l'onglet mémorisé peut être hors écran à droite. On
+    // centre la barre sur l'onglet actif. On RÉESSAIE brièvement car, pendant
+    // l'écran de chargement, la barre n'est pas encore dans le DOM (sans ce
+    // rappel, le contenu s'affichait mais aucun onglet ne paraissait choisi).
+    let essais = 0, raf = 0, to = 0;
+    const placer = () => {
+      const bar = tabsRef.current;
+      const actif = bar && bar.querySelector(".tab.active");
+      if (!bar || !actif) {
+        if (essais++ < 20) to = setTimeout(placer, 100);
+        return;
+      }
+      const br = bar.getBoundingClientRect();
+      const ar = actif.getBoundingClientRect();
+      bar.scrollBy({ left: (ar.left - br.left) - (br.width - ar.width) / 2, behavior: "auto" });
+    };
+    raf = requestAnimationFrame(placer);
+    return () => { cancelAnimationFrame(raf); clearTimeout(to); };
   }, [tab]);
 
 
@@ -5804,7 +5870,7 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
-      <div className="tabs">
+      <div className="tabs" ref={tabsRef}>
         <button className={`tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>
           Tableau de bord
         </button>
