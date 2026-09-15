@@ -1,5 +1,15 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.7
+Reconnexion : onglet actif correctement affiché même après le chargement.
+
+- En production, à la reconnexion, les données se chargent encore quand on
+  redevient admin (écran « Chargement… ») : la barre d'onglets n'existe pas
+  encore, et le centrage échouait avant la fin du chargement.
+- Le centrage se relance désormais **une fois le chargement terminé**
+  (dépend de `loading`/`sessionChecked`), avec une fenêtre de ré-essai plus
+  longue. L'onglet mémorisé s'affiche bien sélectionné à la reconnexion.
+
 ## V11.6
 Reconnexion : l'onglet actif se cale aussi après déconnexion/reconnexion.
 
