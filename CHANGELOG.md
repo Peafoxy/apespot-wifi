@@ -1,5 +1,13 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.6
+Reconnexion : l'onglet actif se cale aussi après déconnexion/reconnexion.
+
+- V11.5 corrigeait le rafraîchissement, mais pas la reconnexion (déconnexion
+  puis reconnexion) : l'écran admin n'étant pas recréé, la barre ne se
+  recentrait pas sur l'onglet mémorisé (ex. Dépenses).
+- Le centrage se relance désormais aussi **à la connexion**.
+
 ## V11.5
 Reconnexion : la barre d'onglets se cale sur l'onglet affiché.
 
