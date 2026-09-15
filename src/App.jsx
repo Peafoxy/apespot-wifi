@@ -1737,7 +1737,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
         <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V11.6</span>
+          <span className="app-version-badge">V11.7</span>
         </div>
 
         {!selected && (
@@ -3214,29 +3214,6 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     ecrireStockageLocal("apespot-admin-tab", tab);
   }, [tab]);
-  // Fait défiler la barre d'onglets jusqu'à l'onglet actif : à la reconnexion,
-  // l'onglet mémorisé (ex. Dépenses) peut être hors écran à droite — sans ça,
-  // le contenu s'affiche mais aucun onglet ne paraît sélectionné.
-  useEffect(() => {
-    // À la reconnexion, l'onglet mémorisé peut être hors écran à droite. On
-    // centre la barre sur l'onglet actif. On RÉESSAIE brièvement car, pendant
-    // l'écran de chargement, la barre n'est pas encore dans le DOM (sans ce
-    // rappel, le contenu s'affichait mais aucun onglet ne paraissait choisi).
-    let essais = 0, raf = 0, to = 0;
-    const placer = () => {
-      const bar = tabsRef.current;
-      const actif = bar && bar.querySelector(".tab.active");
-      if (!bar || !actif) {
-        if (essais++ < 20) to = setTimeout(placer, 100);
-        return;
-      }
-      const br = bar.getBoundingClientRect();
-      const ar = actif.getBoundingClientRect();
-      bar.scrollBy({ left: (ar.left - br.left) - (br.width - ar.width) / 2, behavior: "auto" });
-    };
-    raf = requestAnimationFrame(placer);
-    return () => { cancelAnimationFrame(raf); clearTimeout(to); };
-  }, [tab, role]);
 
 
   const [clients, setClients] = useState([]);
@@ -3257,6 +3234,28 @@ export default function AlerteClientWifi() {
   const [activityLog, setActivityLog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  // Fait défiler la barre d'onglets jusqu'à l'onglet actif. Dépend aussi de
+  // `role`, `loading` et `sessionChecked` : à la reconnexion, l'écran admin
+  // n'est pas recréé (contrairement à un rafraîchissement) ET la barre n'est
+  // rendue qu'une fois le chargement terminé. Sans ces dépendances, le contenu
+  // s'affichait (ex. Dépenses) mais l'onglet restait hors écran, non sélectionné.
+  useEffect(() => {
+    if (loading || !sessionChecked || role !== "admin") return;
+    let essais = 0, raf = 0, to = 0;
+    const placer = () => {
+      const bar = tabsRef.current;
+      const actif = bar && bar.querySelector(".tab.active");
+      if (!bar || !actif) {
+        if (essais++ < 40) to = setTimeout(placer, 120);
+        return;
+      }
+      const br = bar.getBoundingClientRect();
+      const ar = actif.getBoundingClientRect();
+      bar.scrollBy({ left: (ar.left - br.left) - (br.width - ar.width) / 2, behavior: "auto" });
+    };
+    raf = requestAnimationFrame(placer);
+    return () => { cancelAnimationFrame(raf); clearTimeout(to); };
+  }, [tab, role, loading, sessionChecked]);
 
   const demoLoadedRef = useRef(false);
   useEffect(() => {
