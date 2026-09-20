@@ -1735,9 +1735,11 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
           <img src={LOGO_DATA_URI} alt="Apé Spot WiFi" />
         </div>
         <h1 style={{ textAlign: "center", marginBottom: 4, fontSize: 22, fontWeight: 700, color: "#FFE9A8", letterSpacing: ".2px" }}>APESPOT WI-FI</h1>
-        <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>Choisis ton espace</div>
+        <div className="sub" style={{ textAlign: "center", marginBottom: 6 }}>
+          {selected === "admin" ? "Espace Admin" : selected === "technicien" ? "Espace Technicien" : selected === "client" ? "Espace Client" : "Choisis ton espace"}
+        </div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V11.7</span>
+          <span className="app-version-badge">V11.8</span>
         </div>
 
         {!selected && (
