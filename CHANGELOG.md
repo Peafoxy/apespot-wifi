@@ -1,5 +1,12 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.8
+Connexion : le sous-titre s'adapte à l'espace choisi.
+
+- Après avoir choisi un espace (écran du code d'accès), le sous-titre
+  n'affiche plus « Choisis ton espace » mais **« Espace Admin / Technicien /
+  Client »** selon le choix. Plus logique.
+
 ## V11.7
 Reconnexion : onglet actif correctement affiché même après le chargement.
 
