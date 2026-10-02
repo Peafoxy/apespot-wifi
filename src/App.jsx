@@ -1739,7 +1739,7 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
           {selected === "admin" ? "Espace Admin" : selected === "technicien" ? "Espace Technicien" : selected === "client" ? "Espace Client" : "Choisis ton espace"}
         </div>
         <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <span className="app-version-badge">V11.8</span>
+          <span className="app-version-badge">V11.9</span>
         </div>
 
         {!selected && (
@@ -2570,10 +2570,9 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
 
   const submitComplaint = async () => {
     if (!complaintForm.reason || busyComplaint) return;
-    if (complaintForm.latitude == null || complaintForm.longitude == null) {
-      setLocError("Ta position est obligatoire — clique sur \"Utiliser ma position GPS\" avant d'envoyer.");
-      return;
-    }
+    // Position facultative : le client peut la partager (utile), mais ce n'est
+    // plus obligatoire. La référence fiable reste la capture du technicien sur
+    // place — et un client sans GPS n'est plus bloqué pour signaler un problème.
     setBusyComplaint(true);
     const ok = await onAddComplaint({
       clientId: freshClient.id,
@@ -2943,7 +2942,7 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
                   <DatePickerInput value={complaintForm.dateDebut} onChange={(e) => setComplaintForm({ ...complaintForm, dateDebut: e.target.value })} />
                 </div>
                 <div className="field">
-                  <label>Ta position (obligatoire)</label>
+                  <label>Ta position (facultatif)</label>
                   {complaintForm.latitude ? (
                     <div className="gps-captured">
                       <div className="gps-captured-info">
