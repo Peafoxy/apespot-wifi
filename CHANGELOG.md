@@ -1,5 +1,14 @@
 # Journal des versions — APESPOT WI-FI
 
+## V11.9
+Réclamation client : la position GPS devient facultative.
+
+- Le client n'est **plus obligé** de partager sa position GPS pour envoyer une
+  réclamation (il peut toujours le faire — le bouton reste). Un client qui
+  refuse le GPS n'est donc plus bloqué.
+- La position de référence reste celle captée par le **technicien sur place**
+  (plus fiable que celle partagée à distance par le client).
+
 ## V11.8
 Connexion : le sous-titre s'adapte à l'espace choisi.
 
