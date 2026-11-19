@@ -8,6 +8,11 @@ MikroTik, à partir des dates d'échéance déjà gérées dans APESPOT.
 - **Rapprochement** = par le **nom** (le login PPPoE sur le routeur = le nom du
   client dans APESPOT ; le champ « Login PPPoE » de la fiche n'est utile que
   pour les exceptions).
+- **Chaque routeur gère SES propres comptes** : il envoie la liste de ses
+  comptes, le site répond par le nom. L'étiquette « serveur » (V6/V11/…) reste
+  dans APESPOT pour l'affichage et sert à nommer les comptes importés, mais elle
+  ne sert PAS à décider qui gère quoi. Un routeur gère donc tout ce qu'il
+  contient, quelle que soit la répartition.
 
 ## Pièces
 - `api/pppoe-sync.js` — adresse sécurisée côté APESPOT. Pour un serveur donné,
