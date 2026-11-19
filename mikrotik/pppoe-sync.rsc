@@ -38,40 +38,16 @@
 :local base "https://apespot-wifi.vercel.app/api/pppoe-sync"
 :local fichier "apespot-pppoe.txt"
 
-# On envoie la liste de TOUS les comptes de CE routeur (actifs + desactives).
-# Le site decide par le NOM : chaque routeur gere donc exactement ses propres
-# comptes. Toujours envoye (meme en test, pour afficher les previsions).
-:local tous ""
-:foreach s in=[/ppp secret find] do={
-  :local nm [/ppp secret get $s name]
-  # On n'envoie que les noms simples (sans espace), pour ne pas casser l'URL.
-  :if ([:typeof [:find $nm " "]] = "nil") do={
-    :set tous ($tous . $nm . ",")
-  }
-}
+# La REQUETE est courte : on ne met QUE le token dans l'URL. Le site renvoie la
+# liste des decisions (E/D/X) pour tous les clients, et ce routeur n'applique
+# qu'aux comptes qu'il possede. Plus jamais de timeout, quel que soit le nombre
+# de comptes.
+:local url ($base . "?serveur=" . $serveur . "&token=" . $token)
 
-# Comptes CONNECTES maintenant (base du suivi pour la suppression auto).
-:local actifs ""
-:foreach a in=[/ppp active find] do={
-  :local an [/ppp active get $a name]
-  :if ([:typeof [:find $an " "]] = "nil") do={
-    :set actifs ($actifs . $an . ",")
-  }
-}
-
-# reel=1 seulement en mode reel : autorise le site a enregistrer (import des
-# comptes manquants + suivi). En test (reel=0), le site ne fait que calculer.
-:local reel "0"
-:if ($appliquer) do={ :set reel "1" }
-
-# On envoie les parametres dans le CORPS (POST), pas dans l'URL : la liste des
-# comptes peut etre longue, et une URL trop longue fait echouer le telechargement.
-:local corps ("serveur=" . $serveur . "&token=" . $token . "&reel=" . $reel . "&tous=" . $tous . "&actifs=" . $actifs)
-
-# 1) Telecharger la liste depuis APESPOT (en POST).
+# 1) Telecharger la liste depuis APESPOT.
 # NB RouterOS v7 : ne PAS mettre "mode=https" (conflit avec l'URL https://).
 :do {
-  /tool fetch url=$base http-method=post http-data=$corps check-certificate=no dst-path=$fichier
+  /tool fetch url=$url check-certificate=no dst-path=$fichier
 } on-error={
   :log warning "APESPOT PPPoE: echec du telechargement, aucune action."
   :error "fetch"
