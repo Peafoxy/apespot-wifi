@@ -11,6 +11,8 @@
 # Laisse "appliquer=false" au DEBUT (mode test : ca ne coupe personne, ca
 # ecrit seulement dans Log ce qu'il FERAIT). Quand les logs sont bons, passe
 # "appliquer=true".
+# La SUPPRESSION des comptes inactifs (3 mois) a son propre interrupteur
+# "supprimer" (par defaut false = ne supprime jamais, ecrit juste dans Log).
 # ===========================================================================
 
 # ---- A MODIFIER SUR CHAQUE ROUTEUR ----------------------------------------
@@ -23,6 +25,12 @@
 :local appliquer false
 # ^ false = TEST (ecrit seulement dans Log, ne coupe/active personne)
 #   true  = applique vraiment les coupures et les activations
+
+:local supprimer false
+# ^ SUPPRESSION des comptes inactifs depuis 3 mois (dernier recours).
+#   false = ne supprime JAMAIS (ecrit seulement "supprimerait X" dans Log)
+#   true  = supprime vraiment le compte (Secret) sur le routeur
+#   Laisse false tant que tu n'as pas verifie la liste dans Log.
 # ---------------------------------------------------------------------------
 
 :local base "https://apespot-wifi.vercel.app/api/pppoe-sync"
@@ -43,7 +51,20 @@
   }
 }
 
-:local url ($base . "\?serveur=" . $serveur . "&token=" . $token . "&comptes=" . $comptes)
+# Suivi des connexions : on remonte les comptes CONNECTES maintenant, pour que
+# le site sache qui est actif (c'est la base de la suppression auto). Mode reel
+# seulement.
+:local actifs ""
+:if ($appliquer) do={
+  :foreach a in=[/ppp active find] do={
+    :local an [/ppp active get $a name]
+    :if ([:typeof [:find $an " "]] = "nil") do={
+      :set actifs ($actifs . $an . ",")
+    }
+  }
+}
+
+:local url ($base . "\?serveur=" . $serveur . "&token=" . $token . "&comptes=" . $comptes . "&actifs=" . $actifs)
 
 # 1) Telecharger la liste depuis APESPOT.
 :do {
@@ -71,6 +92,7 @@
 :local line ""
 :local nbCoupe 0
 :local nbActive 0
+:local nbSuppr 0
 :local n ([:len $data])
 :for i from=0 to=($n - 1) do={
   :local ch [:pick $data $i ($i + 1)]
@@ -98,6 +120,16 @@
           }
           :set nbActive ($nbActive + 1)
         }
+        :if ($action = "X") do={
+          :if ($supprimer) do={
+            :local act [/ppp active find name=$nom]
+            :if ([:len $act] > 0) do={ /ppp active remove $act }
+            /ppp secret remove $sec
+          } else={
+            :log warning ("APESPOT PPPoE (TEST SUPPR): supprimerait " . $nom)
+          }
+          :set nbSuppr ($nbSuppr + 1)
+        }
       }
     }
     :set line ""
@@ -106,9 +138,5 @@
   }
 }
 
-# 5) Resume dans Log.
-:if ($appliquer) do={
-  :log info ("APESPOT PPPoE: " . $serveur . " ok. Coupes=" . $nbCoupe . " Actifs=" . $nbActive)
-} else={
-  :log info ("APESPOT PPPoE (MODE TEST): " . $serveur . " ok. Couperait=" . $nbCoupe . " Activerait=" . $nbActive)
-}
+# 5) Resume dans Log (les lignes "(TEST)" ci-dessus disent ce qui est simule).
+:log info ("APESPOT PPPoE " . $serveur . " ok. coupe=" . $nbCoupe . " actif=" . $nbActive . " suppr=" . $nbSuppr)

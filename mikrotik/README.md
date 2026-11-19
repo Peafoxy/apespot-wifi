@@ -66,6 +66,27 @@ propose **+1 mois** d'un clic).
 - **En mode test** (`appliquer=false`), rien n'est remonté ni créé.
 - Au plus 100 créations par passage (garde-fou).
 
+## Suppression automatique des comptes inactifs (3 mois)
+Un compte **jamais vu connecté depuis 3 mois** est supprimé (le Secret sur le
+routeur ; la fiche APESPOT est **conservée** avec son historique).
+
+**Comment la dernière connexion est mesurée (fiable) :** on ne lit PAS la date
+sur le routeur (format différent v6/v7). À chaque visite, le routeur envoie la
+liste des comptes **connectés maintenant**, et APESPOT note « vu connecté ». Un
+compte non vu depuis 3 mois (et suivi depuis au moins 3 mois) devient « à
+supprimer ».
+
+⚠️ **Le suivi démarre au lancement** : la suppression devient donc pleinement
+effective **3 mois après** la mise en route (aucun compte supprimé avant).
+
+**Sécurités :**
+- Interrupteur **séparé** `supprimer` dans le script (par défaut `false`).
+- Avec `supprimer=false`, le script écrit seulement *« supprimerait X »* dans le
+  Log → tu vérifies la liste **avant** d'activer la vraie suppression.
+- Jamais un compte connecté au moment de la visite.
+- Un compte supprimé dont la fiche reste dans APESPOT : s'il repaie, tu
+  recrées son Secret et il repart normalement.
+
 ## À durcir plus tard (optionnel)
 - `check-certificate=no` est utilisé pour que le téléchargement HTTPS marche
   sans importer de certificat sur le MikroTik. Pour renforcer, importer la CA

@@ -17,6 +17,15 @@
 alter table public.wifi_clients
   add column if not exists pppoe_login text;
 
+-- Suivi des connexions, pour la SUPPRESSION automatique des comptes inactifs
+-- depuis 3 mois (voir api/pppoe-sync.js). APESPOT note lui-meme quand un compte
+-- est vu connecte (pas de lecture de date sur le routeur, peu fiable v6/v7).
+--   derniere_connexion_vue : derniere fois vu connecte.
+--   suivi_depuis           : debut du suivi (grace de 3 mois avant suppression).
+alter table public.wifi_clients
+  add column if not exists derniere_connexion_vue timestamptz,
+  add column if not exists suivi_depuis timestamptz;
+
 -- Rappel sécurité : wifi_clients reste protégé par RLS (voir security-rls.sql).
 -- Aucun droit pour anon / authenticated ; seul le serveur (service_role) y
 -- accède, via /api/db. Cette colonne hérite de ce régime, rien à changer.
