@@ -1,37 +1,34 @@
 // api/pppoe-sync.js
 // ---------------------------------------------------------------------------
-// Synchro PPPoE : chaque MikroTik appelle cette adresse et reçoit, pour SON
-// serveur, quoi faire sur ses comptes. Lecture seule côté routeurs — cette
-// fonction ne touche JAMAIS aux MikroTik ; c'est le script (pppoe-sync.rsc)
-// qui applique localement.
+// Synchro PPPoE : chaque MikroTik envoie la liste de SES comptes et reçoit,
+// pour chacun, quoi faire (activer / couper / supprimer). Lecture seule côté
+// routeurs — c'est le script (pppoe-sync.rsc) qui applique localement.
 //
-//   Appel : GET /api/pppoe-sync?serveur=V6&token=SECRET
-//                [&comptes=NOM,...]  (comptes actifs du routeur, pour l'import)
-//                [&actifs=NOM,...]   (comptes CONNECTÉS maintenant, pour le suivi)
-//   Auth  : token partagé = variable d'environnement PPPOE_SYNC_SECRET (Vercel).
+//   Appel : GET /api/pppoe-sync?serveur=V11&token=SECRET&reel=0|1
+//                &tous=NOM,NOM,...    (TOUS les comptes du routeur)
+//                &actifs=NOM,NOM,...  (comptes CONNECTÉS maintenant)
+//   Auth  : token partagé = variable d'environnement PPPOE_SYNC_SECRET.
 //
-//   Réponse (texte simple, une ligne par compte) :
-//     #APESPOT V6 42        <- marqueur de validité + nombre de lignes
-//     E BADAMELI            <- E = activer (client à jour)
-//     D GOUDO               <- D = couper (échéance dépassée)
-//     X VIEUX               <- X = supprimer (compte inactif depuis 3 mois)
+//   Réponse :
+//     #APESPOT V11 12
+//     E BADAMELI   (activer : client à jour)
+//     D GOUDO      (couper : échéance dépassée)
+//     X VIEUX      (supprimer : inactif depuis 3 mois)
 //
-// Rapprochement par le NOM (login PPPoE = nom du client ; le champ pppoe_login
-// de la fiche prime s'il est rempli). Noms uniques dans APESPOT = clé fiable.
+// IMPORTANT (choix d'architecture) : la décision se fait PAR LE NOM, à partir
+// des comptes que le routeur dit avoir — PAS à partir de l'étiquette « serveur »
+// du client. Ainsi, chaque routeur gère exactement les comptes qu'il contient,
+// quelle que soit la répartition. L'étiquette « serveur » reste stockée (pour
+// l'affichage/filtre humain) et sert à nommer les comptes nouvellement importés.
 //
-// PHASE 3 — remontée auto des comptes (`comptes`) : crée les comptes inconnus,
-// SANS date (ni coupés ni activés tant que l'admin n'a pas mis de date).
-//
-// SUPPRESSION AUTO — on NE lit PAS la date de dernière connexion du routeur
-// (format peu fiable entre v6/v7). À la place, APESPOT note lui-même quand il
-// voit un compte CONNECTÉ (`actifs`). Un compte jamais vu connecté depuis 3
-// mois (et suivi depuis au moins 3 mois) devient « X » (à supprimer). La
-// suppression réelle est décidée côté routeur (interrupteur séparé + mode test).
+// reel=1 (mode réel) : le site enregistre aussi — crée les comptes inconnus
+// (sans date) et met à jour le suivi des connexions. reel=0 (test) : le site
+// ne fait que CALCULER et renvoyer les prévisions, il n'écrit rien.
 // ---------------------------------------------------------------------------
 
 import { SUPABASE_URL, sbHeaders, envError } from "./_lib.js";
 
-const MAX_IMPORT = 100;                  // garde-fou import : max 100 créations/appel.
+const MAX_IMPORT = 100;
 const MS_3_MOIS = 90 * 24 * 60 * 60 * 1000;
 
 function normServeur(s) {
@@ -47,9 +44,6 @@ function joursAvant(dateExp) {
   const now = new Date();
   return Math.round((exp - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
 }
-function liste(s) {
-  return new Set(String(s || "").split(",").map(normNom).filter(Boolean));
-}
 
 export default async (req, res) => {
   const err = envError();
@@ -60,11 +54,21 @@ export default async (req, res) => {
   const q = req.query || {};
   const bearer = /^Bearer\s+(.+)$/i.exec(req.headers["authorization"] || "");
   const token = q.token || (bearer ? bearer[1].trim() : null);
-  const serveur = normServeur(q.serveur);
+  const serveur = normServeur(q.serveur);          // étiquette (import + affichage)
+  const reel = String(q.reel || "") === "1";       // autorise les écritures côté site
   if (!serveur) return res.status(400).send("# parametre 'serveur' manquant");
   if (!token || token !== SECRET) return res.status(401).send("# token invalide");
 
-  // Petit utilitaire de mise à jour (par liste d'id), sans casser la synchro.
+  // Comptes du routeur : on garde le NOM BRUT (ce que le routeur a vraiment,
+  // à renvoyer tel quel pour qu'il le retrouve) indexé par sa forme normalisée.
+  const reporte = new Map(); // norm -> nom brut
+  for (const raw of String(q.tous || "").split(",")) {
+    const nom = raw.trim();
+    const n = normNom(nom);
+    if (n && !reporte.has(n)) reporte.set(n, nom);
+  }
+  const connectes = new Set(String(q.actifs || "").split(",").map(normNom).filter(Boolean));
+
   async function patch(ids, corps) {
     if (!ids.length) return;
     try {
@@ -78,30 +82,28 @@ export default async (req, res) => {
 
   try {
     const upstream = await fetch(
-      `${SUPABASE_URL}/rest/v1/wifi_clients?select=id,nom,serveur,pppoe_login,date_exp,derniere_connexion_vue,suivi_depuis`,
+      `${SUPABASE_URL}/rest/v1/wifi_clients?select=id,nom,pppoe_login,date_exp,derniere_connexion_vue,suivi_depuis`,
       { headers: sbHeaders({ Accept: "application/json" }) }
     );
     if (!upstream.ok) return res.status(502).send("# erreur base");
     const clients = await upstream.json();
 
-    const connus = new Set();
+    // Index NOM normalisé -> client (par nom ET par pppoe_login).
+    const parNom = new Map();
     for (const c of clients) {
-      const n = normNom(c.nom); if (n) connus.add(n);
-      const p = normNom(c.pppoe_login); if (p) connus.add(p);
+      const n = normNom(c.nom); if (n && !parNom.has(n)) parNom.set(n, c);
+      const p = normNom(c.pppoe_login); if (p && !parNom.has(p)) parNom.set(p, c);
     }
 
-    // ---- PHASE 3 : créer les comptes inconnus remontés par le routeur -------
-    if (typeof q.comptes === "string" && q.comptes) {
-      const vus = new Set();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+
+    // ---- Mode réel : import des inconnus + suivi des connexions -------------
+    if (reel) {
       const aCreer = [];
-      for (const raw of q.comptes.split(",")) {
-        const login = raw.trim();
-        if (!login) continue;
-        const clef = normNom(login);
-        if (!clef || connus.has(clef) || vus.has(clef)) continue;
-        vus.add(clef);
-        aCreer.push({ nom: login, serveur: `SERVEUR ${serveur}`, date_exp: null, pppoe_login: null });
-        connus.add(clef);
+      for (const [n, nom] of reporte) {
+        if (parNom.has(n)) continue;
+        aCreer.push({ nom, serveur: `SERVEUR ${serveur}`, date_exp: null, pppoe_login: null });
         if (aCreer.length >= MAX_IMPORT) break;
       }
       if (aCreer.length > 0) {
@@ -111,46 +113,39 @@ export default async (req, res) => {
             headers: sbHeaders({ "Content-Type": "application/json", Prefer: "return=minimal" }),
             body: JSON.stringify(aCreer),
           });
+          for (const row of aCreer) parNom.set(normNom(row.nom), { ...row, id: null });
         } catch (e) { console.error("PPPoE import:", e); }
       }
+
+      const idsSuiviNull = [];
+      const idsVus = [];
+      for (const [n] of reporte) {
+        const c = parNom.get(n);
+        if (!c || !c.id) continue;
+        if (!c.suivi_depuis) idsSuiviNull.push(c.id);
+        if (connectes.has(n)) idsVus.push(c.id);
+      }
+      await patch(idsSuiviNull, { suivi_depuis: nowIso });
+      await patch(idsVus, { derniere_connexion_vue: nowIso });
     }
 
-    // ---- Clients de CE serveur + suivi des connexions -----------------------
-    const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
-    const connectes = liste(q.actifs);        // comptes connectés maintenant
-    const duServeur = clients.filter((c) => normServeur(c.serveur) === serveur);
-
-    const idsSuiviNull = [];                   // démarrer le suivi (3 mois de recul)
-    const idsVus = [];                         // vu connecté => tampon "maintenant"
-    for (const c of duServeur) {
-      if (!c.suivi_depuis) idsSuiviNull.push(c.id);
-      const login = normNom(c.pppoe_login || c.nom);
-      if (login && connectes.has(login)) idsVus.push(c.id);
-    }
-    await patch(idsSuiviNull, { suivi_depuis: nowIso });
-    await patch(idsVus, { derniere_connexion_vue: nowIso });
-
-    // ---- Construire la liste d'ordres (E / D / X) ---------------------------
+    // ---- Décision E / D / X, pour chaque compte du routeur ------------------
     const lignes = [];
-    for (const c of duServeur) {
-      const login = normNom(c.pppoe_login || c.nom);
-      if (!login) continue;
+    for (const [n, nom] of reporte) {
+      const c = parNom.get(n);
+      if (!c) continue;                               // inconnu (et pas importé en test) -> on ignore
 
-      // Suppression : jamais si connecté maintenant ; il faut un suivi d'au
-      // moins 3 mois ET aucune connexion vue depuis 3 mois.
+      // Suppression : jamais si connecté ; suivi d'au moins 3 mois ET pas vu
+      // connecté depuis 3 mois.
       const suiviMs = c.suivi_depuis ? new Date(c.suivi_depuis).getTime() : nowMs;
       const vuMs = c.derniere_connexion_vue ? new Date(c.derniere_connexion_vue).getTime() : null;
-      const suiviAssezLong = (nowMs - suiviMs) > MS_3_MOIS;
-      const pasVuDepuis3Mois = (vuMs === null) || ((nowMs - vuMs) > MS_3_MOIS);
-      if (!connectes.has(login) && suiviAssezLong && pasVuDepuis3Mois) {
-        lignes.push(`X ${login}`);
-        continue;                              // supprimer prime sur couper/activer
+      if (!connectes.has(n) && (nowMs - suiviMs) > MS_3_MOIS && (vuMs === null || (nowMs - vuMs) > MS_3_MOIS)) {
+        lignes.push(`X ${nom}`);
+        continue;
       }
-
       const j = joursAvant(c.date_exp);
-      if (j === null) continue;                // pas de date -> on ne touche pas
-      lignes.push(`${j <= 0 ? "D" : "E"} ${login}`);
+      if (j === null) continue;                       // pas de date -> on ne touche pas
+      lignes.push(`${j <= 0 ? "D" : "E"} ${nom}`);
     }
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");

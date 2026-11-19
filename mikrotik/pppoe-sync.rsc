@@ -16,8 +16,10 @@
 # ===========================================================================
 
 # ---- A MODIFIER SUR CHAQUE ROUTEUR ----------------------------------------
-:local serveur "V6"
-# ^ le nom du serveur de CE routeur : V6, V11, V12 ou H2
+:local serveur "V11"
+# ^ etiquette de CE routeur (V6, V11, V12 ou H2). Sert a NOMMER les comptes
+#   nouvellement importes et a l'affichage dans APESPOT. La coupure/activation
+#   se fait par le NOM : ce routeur gere TOUS les comptes qu'il contient.
 
 :local token "METS-ICI-TON-SECRET"
 # ^ exactement la meme valeur que la variable PPPOE_SYNC_SECRET sur Vercel
@@ -36,39 +38,40 @@
 :local base "https://apespot-wifi.vercel.app/api/pppoe-sync"
 :local fichier "apespot-pppoe.txt"
 
-# Phase 3 : on remonte la liste des comptes ACTIFS de ce routeur, pour que le
-# site cree automatiquement ceux qui manquent (SANS date : l'admin la mettra).
-# Uniquement en mode reel (appliquer=true) : en mode test, rien n'est envoye,
-# donc rien n'est cree cote site.
-:local comptes ""
-:if ($appliquer) do={
-  :foreach s in=[/ppp secret find where disabled=no] do={
-    :local nm [/ppp secret get $s name]
-    # On n'envoie que les noms simples (sans espace), pour ne pas casser l'URL.
-    :if ([:typeof [:find $nm " "]] = "nil") do={
-      :set comptes ($comptes . $nm . ",")
-    }
+# On envoie la liste de TOUS les comptes de CE routeur (actifs + desactives).
+# Le site decide par le NOM : chaque routeur gere donc exactement ses propres
+# comptes. Toujours envoye (meme en test, pour afficher les previsions).
+:local tous ""
+:foreach s in=[/ppp secret find] do={
+  :local nm [/ppp secret get $s name]
+  # On n'envoie que les noms simples (sans espace), pour ne pas casser l'URL.
+  :if ([:typeof [:find $nm " "]] = "nil") do={
+    :set tous ($tous . $nm . ",")
   }
 }
 
-# Suivi des connexions : on remonte les comptes CONNECTES maintenant, pour que
-# le site sache qui est actif (c'est la base de la suppression auto). Mode reel
-# seulement.
+# Comptes CONNECTES maintenant (base du suivi pour la suppression auto).
 :local actifs ""
-:if ($appliquer) do={
-  :foreach a in=[/ppp active find] do={
-    :local an [/ppp active get $a name]
-    :if ([:typeof [:find $an " "]] = "nil") do={
-      :set actifs ($actifs . $an . ",")
-    }
+:foreach a in=[/ppp active find] do={
+  :local an [/ppp active get $a name]
+  :if ([:typeof [:find $an " "]] = "nil") do={
+    :set actifs ($actifs . $an . ",")
   }
 }
 
-:local url ($base . "\?serveur=" . $serveur . "&token=" . $token . "&comptes=" . $comptes . "&actifs=" . $actifs)
+# reel=1 seulement en mode reel : autorise le site a enregistrer (import des
+# comptes manquants + suivi). En test (reel=0), le site ne fait que calculer.
+:local reel "0"
+:if ($appliquer) do={ :set reel "1" }
+
+:local url ($base . "?serveur=" . $serveur . "&token=" . $token . "&reel=" . $reel . "&tous=" . $tous . "&actifs=" . $actifs)
 
 # 1) Telecharger la liste depuis APESPOT.
+# NB RouterOS v7 : NE PAS mettre "mode=https" quand l'URL commence par https://
+# (sinon erreur "Conflicting modes provided in URI and parameters"). Le schema
+# https de l'URL suffit, et ca marche aussi sur v6.
 :do {
-  /tool fetch url=$url mode=https check-certificate=no dst-path=$fichier
+  /tool fetch url=$url check-certificate=no dst-path=$fichier
 } on-error={
   :log warning "APESPOT PPPoE: echec du telechargement, aucune action."
   :error "fetch"
