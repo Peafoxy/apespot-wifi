@@ -2,10 +2,10 @@
 // ---------------------------------------------------------------------------
 // Synchro PPPoE : chaque MikroTik appelle cette adresse et reçoit, pour SON
 // serveur, la liste des comptes à ACTIVER (clients à jour) et à COUPER
-// (expirés). Lecture seule — cette fonction ne touche JAMAIS aux routeurs ;
-// c'est le script MikroTik (mikrotik/pppoe-sync.rsc) qui applique localement.
+// (expirés). Lecture seule côté routeurs — cette fonction ne touche JAMAIS aux
+// MikroTik ; c'est le script (mikrotik/pppoe-sync.rsc) qui applique localement.
 //
-//   Appel : GET /api/pppoe-sync?serveur=V6&token=SECRET
+//   Appel : GET /api/pppoe-sync?serveur=V6&token=SECRET[&comptes=NOM1,NOM2,...]
 //   Auth  : token partagé = variable d'environnement PPPOE_SYNC_SECRET (Vercel).
 //
 //   Réponse (texte simple, une ligne par compte) :
@@ -13,13 +13,21 @@
 //     E BADAMELI            <- E = activer (client à jour)
 //     D GOUDO               <- D = couper (échéance dépassée)
 //
-// Le rapprochement se fait par le NOM : le login PPPoE sur le routeur = le nom
-// du client (ex. KOFFI). Si un client a un login différent, on renseigne le
-// champ « Login PPPoE » dans sa fiche (colonne pppoe_login) et c'est lui qui
-// prime. Les noms des clients étant uniques dans APESPOT, la clé est fiable.
+// Rapprochement par le NOM (login PPPoE = nom du client ; le champ pppoe_login
+// de la fiche prime s'il est rempli). Les noms étant uniques dans APESPOT, la
+// clé est fiable.
+//
+// PHASE 3 — remontée automatique des comptes : si le routeur envoie la liste de
+// ses comptes (paramètre `comptes`), tout compte INCONNU d'APESPOT est créé
+// automatiquement — SANS date d'échéance (date_exp = null). Il apparaît alors
+// dans l'app « à compléter » ; l'admin lui met sa date (le site propose +1 mois).
+// Tant qu'il n'a pas de date, il n'est NI coupé NI activé : aucune mauvaise date
+// n'est jamais écrite.
 // ---------------------------------------------------------------------------
 
 import { SUPABASE_URL, sbHeaders, envError } from "./_lib.js";
+
+const MAX_IMPORT = 100; // garde-fou : au plus 100 créations par appel.
 
 // "SERVEUR V6" / "serveur v6" / "V6" -> "V6" ; "SERVEUR H2" / "H2" -> "H2".
 function normServeur(s) {
@@ -69,6 +77,45 @@ export default async (req, res) => {
     if (!upstream.ok) return res.status(502).send("# erreur base");
     const clients = await upstream.json();
 
+    // Ensemble des noms déjà connus (nom OU pppoe_login), pour le rapprochement.
+    const connus = new Set();
+    for (const c of clients) {
+      const n = normNom(c.nom);
+      if (n) connus.add(n);
+      const p = normNom(c.pppoe_login);
+      if (p) connus.add(p);
+    }
+
+    // ---- PHASE 3 : créer les comptes inconnus remontés par le routeur -------
+    // (uniquement si le routeur envoie `comptes`, ce qu'il fait en mode réel).
+    const brut = typeof q.comptes === "string" ? q.comptes : "";
+    if (brut) {
+      const vus = new Set();
+      const aCreer = [];
+      for (const raw of brut.split(",")) {
+        const login = raw.trim();
+        if (!login) continue;
+        const clef = normNom(login);
+        if (!clef || connus.has(clef) || vus.has(clef)) continue; // déjà connu / doublon
+        vus.add(clef);
+        aCreer.push({ nom: login, serveur: `SERVEUR ${serveur}`, date_exp: null, pppoe_login: null });
+        connus.add(clef); // pour que le compte compte comme connu ci-dessous
+        if (aCreer.length >= MAX_IMPORT) break;
+      }
+      if (aCreer.length > 0) {
+        try {
+          await fetch(`${SUPABASE_URL}/rest/v1/wifi_clients`, {
+            method: "POST",
+            headers: sbHeaders({ "Content-Type": "application/json", Prefer: "return=minimal" }),
+            body: JSON.stringify(aCreer),
+          });
+        } catch (e) {
+          console.error("PPPoE import:", e); // on n'interrompt pas la synchro de coupure
+        }
+      }
+    }
+
+    // ---- Liste « activer / couper » pour ce serveur -------------------------
     const lignes = [];
     for (const c of clients) {
       if (normServeur(c.serveur) !== serveur) continue;     // pas ce serveur

@@ -26,8 +26,24 @@
 # ---------------------------------------------------------------------------
 
 :local base "https://apespot-wifi.vercel.app/api/pppoe-sync"
-:local url ($base . "\?serveur=" . $serveur . "&token=" . $token)
 :local fichier "apespot-pppoe.txt"
+
+# Phase 3 : on remonte la liste des comptes ACTIFS de ce routeur, pour que le
+# site cree automatiquement ceux qui manquent (SANS date : l'admin la mettra).
+# Uniquement en mode reel (appliquer=true) : en mode test, rien n'est envoye,
+# donc rien n'est cree cote site.
+:local comptes ""
+:if ($appliquer) do={
+  :foreach s in=[/ppp secret find where disabled=no] do={
+    :local nm [/ppp secret get $s name]
+    # On n'envoie que les noms simples (sans espace), pour ne pas casser l'URL.
+    :if ([:typeof [:find $nm " "]] = "nil") do={
+      :set comptes ($comptes . $nm . ",")
+    }
+  }
+}
+
+:local url ($base . "\?serveur=" . $serveur . "&token=" . $token . "&comptes=" . $comptes)
 
 # 1) Telecharger la liste depuis APESPOT.
 :do {

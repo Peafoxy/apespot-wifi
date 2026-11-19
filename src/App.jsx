@@ -1504,6 +1504,9 @@ function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveCl
         <div className="field">
           <label>Date d'expiration</label>
           <DatePickerInput value={clientModal.dateExp} onChange={(e) => setClientModal({ ...clientModal, dateExp: e.target.value })} />
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
+            Pour un nouveau client ou un compte importé depuis le routeur, +1 mois est proposé automatiquement — modifie si besoin.
+          </div>
         </div>
         <div className="field">
           <label>Code d'accès client (espace personnel)</label>
@@ -4158,9 +4161,9 @@ export default function AlerteClientWifi() {
     return clients.find((c) => c.nom.trim().toLowerCase() === t) || null;
   };
 
-  const openAddClient = () => setClientModal({ editingId: null, nom: "", offre: "", telephone: "", serveur: "", pppoeLogin: "", dateExp: "", accessCode: "", latitude: null, longitude: null });
+  const openAddClient = () => setClientModal({ editingId: null, nom: "", offre: "", telephone: "", serveur: "", pppoeLogin: "", dateExp: computeRenewedExpiration(null), accessCode: "", latitude: null, longitude: null });
   const openEditClient = (c) =>
-    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", serveur: c.serveur || "", pppoeLogin: c.pppoeLogin || "", dateExp: c.dateExp || "", accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || ""), latitude: c.latitude ?? null, longitude: c.longitude ?? null, previousDateExp: c.previousDateExp || null, renewedAt: c.renewedAt || null });
+    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", serveur: c.serveur || "", pppoeLogin: c.pppoeLogin || "", dateExp: c.dateExp || computeRenewedExpiration(null), accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || ""), latitude: c.latitude ?? null, longitude: c.longitude ?? null, previousDateExp: c.previousDateExp || null, renewedAt: c.renewedAt || null });
   const closeClientModal = () => setClientModal(null);
 
   const saveClientModal = async () => {

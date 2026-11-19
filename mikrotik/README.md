@@ -54,6 +54,18 @@ et activations se font alors toutes les 5 minutes.
   routeur mais inconnu d'APESPOT (ex. compte admin/test) n'est jamais modifié.
 - **Mode test** (`appliquer=false`) pour tout vérifier avant d'agir.
 
+## Remontée automatique des comptes (Phase 3)
+En **mode réel** (`appliquer=true`), le script envoie aussi la liste des comptes
+**actifs** de son routeur. APESPOT crée automatiquement ceux qu'il ne connaît
+pas encore — **sans date d'échéance**. Ils apparaissent dans l'app « à
+compléter » ; il suffit d'ouvrir leur fiche et de mettre la date (le site
+propose **+1 mois** d'un clic).
+
+- **Sans date = jamais touché** : un compte importé n'est ni coupé ni activé
+  tant que tu ne lui as pas mis de date. Aucune mauvaise date n'est écrite.
+- **En mode test** (`appliquer=false`), rien n'est remonté ni créé.
+- Au plus 100 créations par passage (garde-fou).
+
 ## À durcir plus tard (optionnel)
 - `check-certificate=no` est utilisé pour que le téléchargement HTTPS marche
   sans importer de certificat sur le MikroTik. Pour renforcer, importer la CA
