@@ -64,14 +64,14 @@
 :local reel "0"
 :if ($appliquer) do={ :set reel "1" }
 
-:local url ($base . "?serveur=" . $serveur . "&token=" . $token . "&reel=" . $reel . "&tous=" . $tous . "&actifs=" . $actifs)
+# On envoie les parametres dans le CORPS (POST), pas dans l'URL : la liste des
+# comptes peut etre longue, et une URL trop longue fait echouer le telechargement.
+:local corps ("serveur=" . $serveur . "&token=" . $token . "&reel=" . $reel . "&tous=" . $tous . "&actifs=" . $actifs)
 
-# 1) Telecharger la liste depuis APESPOT.
-# NB RouterOS v7 : NE PAS mettre "mode=https" quand l'URL commence par https://
-# (sinon erreur "Conflicting modes provided in URI and parameters"). Le schema
-# https de l'URL suffit, et ca marche aussi sur v6.
+# 1) Telecharger la liste depuis APESPOT (en POST).
+# NB RouterOS v7 : ne PAS mettre "mode=https" (conflit avec l'URL https://).
 :do {
-  /tool fetch url=$url check-certificate=no dst-path=$fichier
+  /tool fetch url=$base http-method=post http-data=$corps check-certificate=no dst-path=$fichier
 } on-error={
   :log warning "APESPOT PPPoE: echec du telechargement, aucune action."
   :error "fetch"
