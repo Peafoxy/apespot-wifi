@@ -953,8 +953,8 @@ function saveLocal(key, value) {
 }
 
 // ---- Supabase mapping helpers (DB uses snake_case, app state uses camelCase) ----
-const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, serveur: r.serveur, latitude: r.latitude, longitude: r.longitude, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, accessCode: r.access_code, relanceLe: r.relance_le });
-const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, serveur: c.serveur || null, latitude: c.latitude ?? null, longitude: c.longitude ?? null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, renewed_at: c.renewedAt || null, access_code: c.accessCode || null });
+const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, serveur: r.serveur, pppoeLogin: r.pppoe_login, latitude: r.latitude, longitude: r.longitude, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, accessCode: r.access_code, relanceLe: r.relance_le });
+const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, serveur: c.serveur || null, pppoe_login: c.pppoeLogin || null, latitude: c.latitude ?? null, longitude: c.longitude ?? null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, renewed_at: c.renewedAt || null, access_code: c.accessCode || null });
 
 const rowToPayment = (r) => ({
   id: r.id,
@@ -1469,6 +1469,13 @@ function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveCl
           <input placeholder="Ex: Serveur 1" value={clientModal.serveur || ""} onChange={(e) => setClientModal({ ...clientModal, serveur: e.target.value })} />
         </div>
         <div className="field">
+          <label>Login PPPoE (routeur)</label>
+          <input placeholder="Ex: koffi-maison" value={clientModal.pppoeLogin || ""} onChange={(e) => setClientModal({ ...clientModal, pppoeLogin: e.target.value })} />
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
+            Le nom exact du compte PPPoE de ce client sur le MikroTik. Sert à le couper / le réactiver automatiquement à l'échéance. Laisse vide si le client n'est pas en PPPoE.
+          </div>
+        </div>
+        <div className="field">
           <label>Position</label>
           {clientModal.latitude != null ? (
             <div style={{ fontSize: 12, color: "var(--green)", marginBottom: 8 }}>
@@ -1497,6 +1504,9 @@ function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveCl
         <div className="field">
           <label>Date d'expiration</label>
           <DatePickerInput value={clientModal.dateExp} onChange={(e) => setClientModal({ ...clientModal, dateExp: e.target.value })} />
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
+            Pour un nouveau client ou un compte importé depuis le routeur, +1 mois est proposé automatiquement — modifie si besoin.
+          </div>
         </div>
         <div className="field">
           <label>Code d'accès client (espace personnel)</label>
@@ -4151,14 +4161,14 @@ export default function AlerteClientWifi() {
     return clients.find((c) => c.nom.trim().toLowerCase() === t) || null;
   };
 
-  const openAddClient = () => setClientModal({ editingId: null, nom: "", offre: "", telephone: "", serveur: "", dateExp: "", accessCode: "", latitude: null, longitude: null });
+  const openAddClient = () => setClientModal({ editingId: null, nom: "", offre: "", telephone: "", serveur: "", pppoeLogin: "", dateExp: computeRenewedExpiration(null), accessCode: "", latitude: null, longitude: null });
   const openEditClient = (c) =>
-    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", serveur: c.serveur || "", dateExp: c.dateExp || "", accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || ""), latitude: c.latitude ?? null, longitude: c.longitude ?? null, previousDateExp: c.previousDateExp || null, renewedAt: c.renewedAt || null });
+    setClientModal({ editingId: c.id, nom: c.nom, offre: c.offre || "", telephone: c.telephone || "", serveur: c.serveur || "", pppoeLogin: c.pppoeLogin || "", dateExp: c.dateExp || computeRenewedExpiration(null), accessCode: c.accessCode || computeClientCode(c.nom, c.telephone || ""), latitude: c.latitude ?? null, longitude: c.longitude ?? null, previousDateExp: c.previousDateExp || null, renewedAt: c.renewedAt || null });
   const closeClientModal = () => setClientModal(null);
 
   const saveClientModal = async () => {
     if (busySaveClient) return;
-    const { editingId, nom, offre, telephone, serveur, dateExp, accessCode, latitude, longitude } = clientModal;
+    const { editingId, nom, offre, telephone, serveur, pppoeLogin, dateExp, accessCode, latitude, longitude } = clientModal;
     if (editingId && !isPrincipalAdmin) return showToast("Seul l'administrateur principal peut modifier un client.");
     if (!nom.trim()) return showToast("Le nom du client est requis.");
     // Le nom du client sert de clé de cloisonnement (chaque client ne voit que
@@ -4169,7 +4179,7 @@ export default function AlerteClientWifi() {
       return showToast("Un client porte déjà ce nom. Ajoute un détail distinctif (ex. « Jean K. ») — l'accès de chaque client est cloisonné par son nom.");
     }
     setBusySaveClient(true);
-    const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), serveur: (serveur || "").trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase(), latitude: latitude ?? null, longitude: longitude ?? null, previousDateExp: clientModal.previousDateExp || null, renewedAt: clientModal.renewedAt || null };
+    const payload = { nom: nom.trim(), offre: offre.trim(), telephone: telephone.trim(), serveur: (serveur || "").trim(), pppoeLogin: (pppoeLogin || "").trim(), dateExp: dateExp || null, accessCode: (accessCode || "").trim().toUpperCase(), latitude: latitude ?? null, longitude: longitude ?? null, previousDateExp: clientModal.previousDateExp || null, renewedAt: clientModal.renewedAt || null };
 
     // Le code d'accès doit être UNIQUE : deux clients avec le même code
     // pourraient se connecter dans l'espace l'un de l'autre (le cas se produit
