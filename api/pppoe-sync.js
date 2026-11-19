@@ -26,7 +26,25 @@
 // ne fait que CALCULER et renvoyer les prévisions, il n'écrit rien.
 // ---------------------------------------------------------------------------
 
-import { SUPABASE_URL, sbHeaders, envError } from "./_lib.js";
+import { SUPABASE_URL, sbHeaders, envError, readRawBody } from "./_lib.js";
+
+// Lit les paramètres en POST (corps, pour les longues listes de comptes) OU en
+// GET (query, pour un test simple). En POST, le routeur envoie
+// "serveur=..&token=..&reel=..&tous=..&actifs=.." dans le corps, ce qui évite
+// toute limite de longueur d'URL.
+async function lireParams(req) {
+  const q = { ...(req.query || {}) };
+  if (req.method === "POST") {
+    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+      return { ...q, ...req.body };
+    }
+    try {
+      const raw = (await readRawBody(req)).toString();
+      return { ...q, ...Object.fromEntries(new URLSearchParams(raw)) };
+    } catch { /* on retombe sur la query */ }
+  }
+  return q;
+}
 
 const MAX_IMPORT = 100;
 const MS_3_MOIS = 90 * 24 * 60 * 60 * 1000;
@@ -51,7 +69,7 @@ export default async (req, res) => {
   const SECRET = process.env.PPPOE_SYNC_SECRET;
   if (!SECRET) return res.status(500).send("# PPPOE_SYNC_SECRET manquante sur Vercel.");
 
-  const q = req.query || {};
+  const q = await lireParams(req);
   const bearer = /^Bearer\s+(.+)$/i.exec(req.headers["authorization"] || "");
   const token = q.token || (bearer ? bearer[1].trim() : null);
   const serveur = normServeur(q.serveur);          // étiquette (import + affichage)
