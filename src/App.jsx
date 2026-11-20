@@ -8068,7 +8068,7 @@ const CSS = `
 .wifi-app .today-box{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);}
 .wifi-app .today-box .label{font-size:12px;color:#FFD400;letter-spacing:1px;text-transform:uppercase;font-weight:700;order:-1;}
 .wifi-app .today-box .val{font-size:16px;color:var(--cyan);font-weight:600;white-space:nowrap;}
-@media (max-width:640px){ .wifi-app .today-box .label{display:none;} .wifi-app{padding-top:6px;} .wifi-app header{padding-top:6px;} }
+@media (max-width:640px){ .wifi-app .today-box .label{display:none;} .wifi-app{padding-top:0;} .wifi-app header{margin-top:0;padding-top:8px;} }
 .wifi-app .tabs{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
 .wifi-app .tabs::-webkit-scrollbar{display:none;}
 .wifi-app .tab{padding:10px 12px;margin-bottom:-1px;background:none;border:none;color:#D5DEE8;font-size:13.5px;font-weight:800;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
