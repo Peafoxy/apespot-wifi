@@ -4049,15 +4049,16 @@ export default function AlerteClientWifi() {
   //   - carburant / perdiem : uniquement ceux marqués « payé » (remboursés) ;
   //     tant qu'ils sont « à payer », l'argent est encore dans la caisse.
   //   - autres dépenses : toujours (elles sont immédiates, pas de statut).
-  //   - lignes récurrentes : cumul de TOUS les paiements (total_paid), incrémenté
-  //     à chaque « payé » et décrémenté si on annule. Chaque mois payé compte.
+  //   - lignes récurrentes (abonnements Internet) : NON déduites ici. L'utilisateur
+  //     saisit chaque paiement Internet en « Autre dépense » (évite le double
+  //     comptage ligne + autre dépense). Les lignes gardent seulement leurs rappels.
   const caisseData = useMemo(() => {
     const totalEncaisse = payments.reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const totalFuel = fuelExpenses.filter((f) => f.status === "paye" && f.approvalStatus === "approved").reduce((s, f) => s + (Number(f.montant) || 0), 0);
     const totalPerdiem = perdiemExpenses.filter((p) => p.status === "paye" && p.approvalStatus === "approved").reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const totalAutres = otherExpenses.filter((o) => o.approvalStatus === "approved").reduce((s, o) => s + (Number(o.montant) || 0), 0);
-    const totalLignes = expenseLines.reduce((s, l) => s + (Number(l.totalPaid) || 0), 0);
-    const totalDepenses = totalFuel + totalPerdiem + totalAutres + totalLignes;
+    const totalLignes = expenseLines.reduce((s, l) => s + (Number(l.totalPaid) || 0), 0); // suivi seulement — PAS déduit de la caisse (Internet saisi en « Autres dépenses »)
+    const totalDepenses = totalFuel + totalPerdiem + totalAutres;
     const totalVerse = versements.reduce((s, v) => s + (Number(v.montant) || 0), 0);
     const resteAVerser = totalEncaisse - totalDepenses - totalVerse;
     return { totalEncaisse, totalFuel, totalPerdiem, totalAutres, totalLignes, totalDepenses, totalVerse, resteAVerser };
@@ -7082,7 +7083,7 @@ export default function AlerteClientWifi() {
 
           <div className="toolbar">
             <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
-              Caisse commune. Le reste à verser = tout l'encaissé − les dépenses réellement payées (carburant/perdiem remboursés, autres dépenses, lignes réglées) − ce qui est déjà versé. Les dépenses encore « à payer » ne baissent pas la caisse tant qu'elles ne sont pas remboursées.
+              Caisse commune. Le reste à verser = tout l'encaissé − les dépenses réellement payées (carburant/perdiem remboursés, autres dépenses) − ce qui est déjà versé. Les dépenses encore « à payer » ne baissent pas la caisse tant qu'elles ne sont pas remboursées. L'Internet se saisit en « Autre dépense ».
             </div>
             <button className="btn-add" onClick={() => openVersement()}>+ Enregistrer un versement</button>
           </div>
@@ -7094,12 +7095,11 @@ export default function AlerteClientWifi() {
               <div className="caisse-calc-row neg"><span>− Carburant (payé)</span><b>− {fmtFCFA(caisseData.totalFuel)}</b></div>
               <div className="caisse-calc-row neg"><span>− Perdiem (payé)</span><b>− {fmtFCFA(caisseData.totalPerdiem)}</b></div>
               <div className="caisse-calc-row neg"><span>− Autres dépenses</span><b>− {fmtFCFA(caisseData.totalAutres)}</b></div>
-              <div className="caisse-calc-row neg"><span>− Lignes (réglées)</span><b>− {fmtFCFA(caisseData.totalLignes)}</b></div>
               <div className="caisse-calc-row neg"><span>− Déjà versé</span><b>− {fmtFCFA(caisseData.totalVerse)}</b></div>
               <div className="caisse-calc-row total"><span>Reste à verser</span><b>{fmtFCFA(caisseData.resteAVerser)}</b></div>
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 12 }}>
-              Chaque fois qu'une ligne récurrente est marquée « payée », le paiement est cumulé et déduit ici — donc chaque mois payé compte (et une annulation le retire). Les paiements faits avant cette mise à jour ne sont comptés qu'une fois (l'historique complet n'était pas disponible).
+              Les lignes récurrentes (abonnements Internet) ne sont PAS déduites ici : saisis chaque paiement Internet en « Autre dépense » (évite de compter deux fois). Les lignes gardent seulement leurs rappels d'échéance.
             </div>
           </div>
 
