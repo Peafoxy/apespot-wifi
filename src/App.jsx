@@ -1212,6 +1212,12 @@ async function insertFuelExpenseRow(e) {
   });
   return rowToFuelExpense(data[0]);
 }
+async function deleteFuelExpenseRow(id) {
+  await sbFetch(`wifi_fuel_expenses?id=eq.${id}`, { method: "DELETE" });
+}
+async function deletePerdiemRow(id) {
+  await sbFetch(`wifi_perdiem?id=eq.${id}`, { method: "DELETE" });
+}
 async function markFuelExpensePaidRow(id) {
   await sbFetch(`wifi_fuel_expenses?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: "paye", paid_at: new Date().toISOString() }) });
 }
@@ -5512,6 +5518,35 @@ export default function AlerteClientWifi() {
     }
   };
 
+  const deleteFuelExpense = async (f) => {
+    if (!isPrincipalAdmin) { showToast("Seul l'admin principal peut supprimer une dépense."); return; }
+    if (!window.confirm(`Supprimer ce déplacement de ${fmtFCFA(f.montant)} (${f.technicienNom || "—"}${f.clientNom ? ` → ${f.clientNom}` : ""}) ?`)) return;
+    try {
+      if (SUPABASE_CONFIGURED) await deleteFuelExpenseRow(f.id);
+      setFuelExpenses((fs) => fs.filter((x) => x.id !== f.id));
+      logActivity("delete_fuel", `Déplacement supprimé — ${fmtFCFA(f.montant)}`);
+      showToast("Déplacement supprimé.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de suppression.");
+    }
+  };
+
+  const deletePerdiemExpense = async (p) => {
+    if (!isPrincipalAdmin) { showToast("Seul l'admin principal peut supprimer une dépense."); return; }
+    if (!window.confirm(`Supprimer ce perdiem de ${fmtFCFA(p.montant)} (${p.personneNom}) ?`)) return;
+    try {
+      if (SUPABASE_CONFIGURED) await deletePerdiemRow(p.id);
+      setPerdiemExpenses((ps) => ps.filter((x) => x.id !== p.id));
+      logActivity("delete_perdiem", `Perdiem supprimé — ${fmtFCFA(p.montant)}`);
+      showToast("Perdiem supprimé.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de suppression.");
+    }
+  };
+
+
 
   const updateComplaintStatusHandler = async (id, status) => {
     const patch = { status };
@@ -6852,13 +6887,16 @@ export default function AlerteClientWifi() {
                   {list.map((f) => (
                     <div key={f.id} className="rah-item">
                       <span className="rah-date">{f.createdAt ? new Date(f.createdAt).toLocaleDateString("fr-FR") : ""}</span>
-                      <span>{f.technicienNom} → {f.clientNom} ({f.distanceKm.toFixed(1)} km)</span>
+                      <span>{f.technicienNom} → {f.clientNom} ({f.distanceKm.toFixed(1)} km) <ApprovalTag status={f.approvalStatus} motif={f.rejetMotif} /></span>
                       {f.status === "a_payer" ? (
                         <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markFuelExpensePaid(f)}>
                           {fmtFCFA(f.montant)} · Marquer payé
                         </button>
                       ) : (
                         <span className="badge OK">{fmtFCFA(f.montant)} · Payé</span>
+                      )}
+                      {isPrincipalAdmin && (
+                        <button className="icon-btn del" title="Supprimer ce déplacement" onClick={() => deleteFuelExpense(f)}>🗑</button>
                       )}
                     </div>
                   ))}
@@ -7052,7 +7090,7 @@ export default function AlerteClientWifi() {
                 {list.map((p) => (
                   <div key={p.id} className="rah-item">
                     <span className="rah-date">{p.createdAt ? new Date(p.createdAt).toLocaleDateString("fr-FR") : ""}</span>
-                    <span>{p.personneNom}{p.note ? ` · ${p.note}` : ""}</span>
+                    <span>{p.personneNom}{p.note ? ` · ${p.note}` : ""} <ApprovalTag status={p.approvalStatus} motif={p.rejetMotif} /></span>
                     {p.status === "a_payer" ? (
                       <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markPerdiemPaid(p)}>
                         {fmtFCFA(p.montant)} · Marquer payé
@@ -7070,6 +7108,9 @@ export default function AlerteClientWifi() {
                     >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                     </button>
+                    {isPrincipalAdmin && (
+                      <button className="icon-btn del" title="Supprimer ce perdiem" onClick={() => deletePerdiemExpense(p)}>🗑</button>
+                    )}
                   </div>
                 ))}
                 </div>
