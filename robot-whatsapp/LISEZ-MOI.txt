@@ -99,6 +99,33 @@ Ne touche pas à APP_URL ni à CLE.
 
 
 ----------------------------------------------------
+DÉMARRAGE AUTOMATIQUE (recommandé)
+----------------------------------------------------
+Pour que le robot se lance TOUT SEUL à chaque démarrage de l'ordinateur
+(et se relance s'il s'arrête) :
+
+1. Double-clique UNE SEULE FOIS sur :  installer-demarrage-auto.bat
+   -> Le robot sera désormais lancé automatiquement à chaque ouverture
+      de session Windows.
+
+2. (Conseillé) Pour qu'il démarre même après un redémarrage complet SANS
+   que personne ne se connecte, active l'ouverture de session automatique
+   de Windows :
+      - Touche Windows + R, tape :  netplwiz  puis Entrée
+      - Décoche « Les utilisateurs doivent entrer un nom et un mot de passe »
+      - Valide et saisis le mot de passe du compte.
+
+3. (Conseillé) Empêche l'ordinateur de se mettre en veille :
+      - Paramètres > Système > Alimentation > Mise en veille : « Jamais ».
+
+Note : le fichier demarrer.bat se RELANCE tout seul si le robot plante
+(coupure réseau, erreur...). Pour arrêter complètement, ferme sa fenêtre.
+
+Pour ANNULER le démarrage auto : Windows + R, tape  shell:startup , Entrée,
+puis supprime le raccourci « Robot APESPOT ».
+
+
+----------------------------------------------------
 COMMANDE DE RÉACTIVATION (depuis WhatsApp)
 ----------------------------------------------------
 Un ADMINISTRATEUR (dont le numéro est enregistré dans l'app) peut écrire au
