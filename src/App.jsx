@@ -8085,8 +8085,8 @@ const CSS = `
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
 /* --- Menu mobile : bouton + tiroir (drawer) qui glisse depuis la gauche --- */
 .wifi-app .tabs-mobile-btn{display:none;}
-.wifi-app .drawer-overlay{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);display:flex;}
-.wifi-app .drawer{width:80%;max-width:320px;height:100%;background:var(--bg-panel);border-right:1px solid var(--line);box-shadow:8px 0 36px -8px rgba(0,0,0,.85);display:flex;flex-direction:column;animation:apDrawerIn .22s ease;padding-top:env(safe-area-inset-top,0px);}
+.wifi-app .drawer-overlay{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;}
+.wifi-app .drawer{width:80%;max-width:320px;max-height:100%;background:var(--bg-panel);border-right:1px solid var(--line);border-bottom:1px solid var(--line);border-bottom-right-radius:16px;box-shadow:8px 10px 36px -8px rgba(0,0,0,.85);display:flex;flex-direction:column;animation:apDrawerIn .22s ease;padding-top:env(safe-area-inset-top,0px);}
 @keyframes apDrawerIn{from{transform:translateX(-100%);}to{transform:translateX(0);}}
 .wifi-app .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid var(--line);font-weight:800;color:#FFE9A8;font-size:16px;}
 .wifi-app .drawer-close{background:none;border:none;color:var(--text-dim);font-size:19px;cursor:pointer;padding:4px 8px;line-height:1;}
