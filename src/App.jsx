@@ -1211,7 +1211,7 @@ async function markFuelExpensePaidRow(id) {
 }
 
 // ---- Lignes de dépenses récurrentes ----
-const rowToExpenseLine = (r) => ({ id: r.id, nom: r.nom, montant: r.montant, dateExp: r.date_exp, note: r.note, lastPaidMonth: r.last_paid_month, previousDateExp: r.previous_date_exp, paidActionAt: r.paid_action_at, createdAt: r.created_at });
+const rowToExpenseLine = (r) => ({ id: r.id, nom: r.nom, montant: r.montant, dateExp: r.date_exp, note: r.note, lastPaidMonth: r.last_paid_month, previousDateExp: r.previous_date_exp, paidActionAt: r.paid_action_at, totalPaid: Number(r.total_paid) || 0, createdAt: r.created_at });
 const expenseLineToRow = (l) => ({ nom: l.nom, montant: l.montant, date_exp: l.dateExp || null, note: l.note || null });
 async function fetchExpenseLines() {
   const data = await sbFetch("wifi_expense_lines?select=*&order=created_at.asc");
@@ -1227,11 +1227,11 @@ async function updateExpenseLineRow(id, l) {
 async function deleteExpenseLineRow(id) {
   await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "DELETE" });
 }
-async function markLinePaidRow(id, month, newDateExp, previousDateExp) {
-  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: month, date_exp: newDateExp || null, previous_date_exp: previousDateExp || null, paid_action_at: new Date().toISOString() }) });
+async function markLinePaidRow(id, month, newDateExp, previousDateExp, newTotalPaid) {
+  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: month, date_exp: newDateExp || null, previous_date_exp: previousDateExp || null, paid_action_at: new Date().toISOString(), total_paid: newTotalPaid }) });
 }
-async function undoLinePaymentRow(id, previousDateExp) {
-  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: null, date_exp: previousDateExp, previous_date_exp: null, paid_action_at: null }) });
+async function undoLinePaymentRow(id, previousDateExp, newTotalPaid) {
+  await sbFetch(`wifi_expense_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ last_paid_month: null, date_exp: previousDateExp, previous_date_exp: null, paid_action_at: null, total_paid: newTotalPaid }) });
 }
 
 // ---- Perdiem ----
@@ -4029,15 +4029,14 @@ export default function AlerteClientWifi() {
   //   - carburant / perdiem : uniquement ceux marqués « payé » (remboursés) ;
   //     tant qu'ils sont « à payer », l'argent est encore dans la caisse.
   //   - autres dépenses : toujours (elles sont immédiates, pas de statut).
-  //   - lignes récurrentes : uniquement celles déjà réglées (lastPaidMonth).
-  //     NB : le modèle ne garde que le DERNIER mois réglé par ligne, donc une
-  //     ligne payée plusieurs mois n'est comptée qu'une fois ici.
+  //   - lignes récurrentes : cumul de TOUS les paiements (total_paid), incrémenté
+  //     à chaque « payé » et décrémenté si on annule. Chaque mois payé compte.
   const caisseData = useMemo(() => {
     const totalEncaisse = payments.reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const totalFuel = fuelExpenses.filter((f) => f.status === "paye").reduce((s, f) => s + (Number(f.montant) || 0), 0);
     const totalPerdiem = perdiemExpenses.filter((p) => p.status === "paye").reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const totalAutres = otherExpenses.reduce((s, o) => s + (Number(o.montant) || 0), 0);
-    const totalLignes = expenseLines.filter((l) => l.lastPaidMonth).reduce((s, l) => s + (Number(l.montant) || 0), 0);
+    const totalLignes = expenseLines.reduce((s, l) => s + (Number(l.totalPaid) || 0), 0);
     const totalDepenses = totalFuel + totalPerdiem + totalAutres + totalLignes;
     const totalVerse = versements.reduce((s, v) => s + (Number(v.montant) || 0), 0);
     const resteAVerser = totalEncaisse - totalDepenses - totalVerse;
@@ -5237,9 +5236,10 @@ export default function AlerteClientWifi() {
     const previousDateExp = line.dateExp || null;
     const newDateExp = line.dateExp ? computeRenewedExpirationLigne(line.dateExp) : null;
     const paidActionAt = new Date().toISOString();
+    const newTotalPaid = (Number(line.totalPaid) || 0) + (Number(line.montant) || 0);
     try {
-      if (SUPABASE_CONFIGURED) await markLinePaidRow(line.id, currentMonth, newDateExp, previousDateExp);
-      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: currentMonth, dateExp: newDateExp || l.dateExp, previousDateExp, paidActionAt } : l)));
+      if (SUPABASE_CONFIGURED) await markLinePaidRow(line.id, currentMonth, newDateExp, previousDateExp, newTotalPaid);
+      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: currentMonth, dateExp: newDateExp || l.dateExp, previousDateExp, paidActionAt, totalPaid: newTotalPaid } : l)));
       showToast(newDateExp ? `"${line.nom}" payée — prochaine échéance le ${fmtDate(newDateExp)}.` : `"${line.nom}" marquée payée pour ce mois.`);
     } catch (e) {
       console.error(e);
@@ -5257,9 +5257,10 @@ export default function AlerteClientWifi() {
       return;
     }
     if (!window.confirm(`Annuler le paiement de "${line.nom}" ? L'échéance reviendra au ${fmtDate(line.previousDateExp)}.`)) return;
+    const newTotalPaid = Math.max(0, (Number(line.totalPaid) || 0) - (Number(line.montant) || 0));
     try {
-      if (SUPABASE_CONFIGURED) await undoLinePaymentRow(line.id, line.previousDateExp);
-      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: null, dateExp: line.previousDateExp, previousDateExp: null, paidActionAt: null } : l)));
+      if (SUPABASE_CONFIGURED) await undoLinePaymentRow(line.id, line.previousDateExp, newTotalPaid);
+      setExpenseLines((ls) => ls.map((l) => (l.id === line.id ? { ...l, lastPaidMonth: null, dateExp: line.previousDateExp, previousDateExp: null, paidActionAt: null, totalPaid: newTotalPaid } : l)));
       logActivity("undo_line_payment", `Paiement de la ligne "${line.nom}" annulé`);
       showToast(`Paiement annulé pour "${line.nom}".`);
     } catch (e) {
@@ -7019,7 +7020,7 @@ export default function AlerteClientWifi() {
               <div className="caisse-calc-row total"><span>Reste à verser</span><b>{fmtFCFA(caisseData.resteAVerser)}</b></div>
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 12 }}>
-              Seules les lignes récurrentes déjà réglées sont déduites ici. ⚠️ Le suivi ne garde que le dernier mois réglé par ligne : une ligne payée chaque mois n'est comptée qu'une fois. Pour un suivi exact mois par mois, enregistre plutôt le paiement en « Autre dépense ».
+              Chaque fois qu'une ligne récurrente est marquée « payée », le paiement est cumulé et déduit ici — donc chaque mois payé compte (et une annulation le retire). Les paiements faits avant cette mise à jour ne sont comptés qu'une fois (l'historique complet n'était pas disponible).
             </div>
           </div>
 
