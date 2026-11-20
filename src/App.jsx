@@ -6086,25 +6086,26 @@ export default function AlerteClientWifi() {
                 </button>
               ))}
             </div>
-            <button className="tabs-mobile-btn" onClick={() => setDrawerOpen(true)}>
-              <span className="burger">☰</span>
-              <span className="nm">{current ? current.label : "Menu"}</span>
-              {totalBadge > 0 && <span className="tab-badge">{totalBadge}</span>}
-            </button>
-            {drawerOpen && (
-              <div className="drawer-overlay" onClick={(e) => { if (e.target.classList.contains("drawer-overlay")) setDrawerOpen(false); }}>
-                <div className="drawer">
-                  <div className="drawer-head"><span>Menu</span><button className="drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Fermer">✕</button></div>
-                  <div className="drawer-list">
+            <div className="tabs-mobile-wrap">
+              <button className="tabs-mobile-btn" onClick={() => setDrawerOpen((v) => !v)}>
+                <span className="burger">☰</span>
+                <span className="nm">{current ? current.label : "Menu"}</span>
+                {totalBadge > 0 && <span className="tab-badge">{totalBadge}</span>}
+                <span className={`mb-chev ${drawerOpen ? "open" : ""}`}>▾</span>
+              </button>
+              {drawerOpen && (
+                <>
+                  <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />
+                  <div className="drawer-pop">
                     {tabDefs.map((t) => (
                       <button key={t.key} className={`drawer-it ${tab === t.key ? "act" : ""}`} onClick={() => goTab(t)}>
                         <span className="nm">{t.label}</span>{t.badge > 0 && <span className="tab-badge">{t.badge}</span>}
                       </button>
                     ))}
                   </div>
-                </div>
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </>
         );
       })()}
@@ -8083,20 +8084,20 @@ const CSS = `
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);font-weight:800;text-shadow:0 0 16px rgba(62,216,195,.45);}
 .wifi-app .tab:hover{color:#FFFFFF;}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
-/* --- Menu mobile : bouton + tiroir (drawer) qui glisse depuis la gauche --- */
-.wifi-app .tabs-mobile-btn{display:none;}
-.wifi-app .drawer-overlay{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;}
-.wifi-app .drawer{width:80%;max-width:320px;max-height:100%;background:var(--bg-panel);border-right:1px solid var(--line);border-bottom:1px solid var(--line);border-bottom-right-radius:16px;box-shadow:8px 10px 36px -8px rgba(0,0,0,.85);display:flex;flex-direction:column;animation:apDrawerIn .22s ease;padding-top:env(safe-area-inset-top,0px);}
-@keyframes apDrawerIn{from{transform:translateX(-100%);}to{transform:translateX(0);}}
-.wifi-app .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid var(--line);font-weight:800;color:#FFE9A8;font-size:16px;}
-.wifi-app .drawer-close{background:none;border:none;color:var(--text-dim);font-size:19px;cursor:pointer;padding:4px 8px;line-height:1;}
-.wifi-app .drawer-list{display:flex;flex-direction:column;gap:5px;padding:12px;overflow-y:auto;}
-.wifi-app .drawer-it{display:flex;align-items:center;gap:10px;padding:13px 14px;border-radius:10px;background:var(--bg-card);border:1px solid transparent;color:var(--text-dim);font-family:var(--sans);font-size:15px;font-weight:600;cursor:pointer;text-align:left;}
+/* --- Menu mobile : bouton + menu déroulant juste en dessous du bouton --- */
+.wifi-app .tabs-mobile-wrap{display:none;position:relative;}
+.wifi-app .drawer-backdrop{position:fixed;inset:0;z-index:69;background:rgba(0,0,0,.35);}
+.wifi-app .drawer-pop{position:absolute;top:calc(100% - 10px);left:0;z-index:71;width:max-content;max-width:min(78vw,300px);min-width:200px;background:var(--bg-panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 40px -10px rgba(0,0,0,.85);display:flex;flex-direction:column;gap:4px;padding:8px;max-height:72vh;overflow-y:auto;animation:apPopIn .16s ease;transform-origin:top left;}
+@keyframes apPopIn{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}
+.wifi-app .mb-chev{flex:none;color:var(--text-dim);font-size:12px;transition:transform .2s;}
+.wifi-app .mb-chev.open{transform:rotate(180deg);}
+.wifi-app .drawer-it{display:flex;align-items:center;gap:10px;padding:12px 13px;border-radius:9px;background:var(--bg-card);border:1px solid transparent;color:var(--text-dim);font-family:var(--sans);font-size:14.5px;font-weight:600;cursor:pointer;text-align:left;}
 .wifi-app .drawer-it .nm{flex:1;}
 .wifi-app .drawer-it.act{background:var(--cyan-dim);border-color:rgba(62,216,195,.4);color:var(--cyan);font-weight:800;}
 @media (max-width:640px){
   .wifi-app .tabs-desktop{display:none;}
-  .wifi-app .tabs-mobile-btn{display:flex;align-items:center;gap:11px;width:100%;padding:13px 15px;border-radius:12px;background:linear-gradient(145deg,#17222F,#121A26);border:1px solid var(--line);color:var(--text);font-family:var(--sans);font-size:15px;font-weight:700;cursor:pointer;margin-bottom:18px;}
+  .wifi-app .tabs-mobile-wrap{display:block;margin-bottom:18px;}
+  .wifi-app .tabs-mobile-btn{display:flex;align-items:center;gap:11px;width:100%;padding:13px 15px;border-radius:12px;background:linear-gradient(145deg,#17222F,#121A26);border:1px solid var(--line);color:var(--text);font-family:var(--sans);font-size:15px;font-weight:700;cursor:pointer;}
   .wifi-app .tabs-mobile-btn .burger{font-size:18px;color:var(--cyan);flex:none;}
   .wifi-app .tabs-mobile-btn .nm{flex:1;text-align:left;}
 }
