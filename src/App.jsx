@@ -6219,15 +6219,28 @@ export default function AlerteClientWifi() {
                   </div>
                   {(() => {
                     const selectedMonth = dashboardMonth || paymentsDashboard.months[0][0];
-                    const monthPayments = payments.filter((p) => (p.date || "").slice(0, 7) === selectedMonth).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-                    // Liste bornée qui défile à l'intérieur de la carte, au lieu d'allonger toute la page.
+                    // Timeline fusionnée : paiements du mois + versements du mois (bandes jaunes),
+                    // triés par date décroissante. Chaque versement sépare « pas encore versé »
+                    // (au-dessus) de « déjà versé » (en dessous). Sur une même date, le versement
+                    // passe sous les paiements du jour.
+                    const monthPays = payments.filter((p) => (p.date || "").slice(0, 7) === selectedMonth).map((p) => ({ kind: "pay", date: p.date, data: p }));
+                    const monthVers = versements.filter((v) => (v.date || "").slice(0, 7) === selectedMonth).map((v) => ({ kind: "verse", date: v.date, data: v }));
+                    const timeline = [...monthPays, ...monthVers].sort((a, b) => {
+                      const d = (b.date || "").localeCompare(a.date || "");
+                      if (d !== 0) return d;
+                      return (a.kind === "verse" ? 1 : 0) - (b.kind === "verse" ? 1 : 0);
+                    });
                     return (
                       <div className="scroll-list">
-                        {monthPayments.map((p) => (
-                          <div key={p.id} className="rah-item">
-                            <span>{p.clientNom}</span>
-                            <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{fmtDate(p.date)} · {p.mode}</span>
-                            <span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(p.montant)}</span>
+                        {timeline.map((it) => it.kind === "verse" ? (
+                          <div key={`v-${it.data.id}`} className="verse-band">
+                            ⬇ Versé {fmtFCFA(it.data.montant)} le {fmtDate(it.data.date)}{it.data.recuPar ? ` · reçu par ${it.data.recuPar}` : ""} — en dessous = déjà versé
+                          </div>
+                        ) : (
+                          <div key={it.data.id} className="rah-item">
+                            <span>{it.data.clientNom}</span>
+                            <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{fmtDate(it.data.date)} · {it.data.mode}</span>
+                            <span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(it.data.montant)}</span>
                           </div>
                         ))}
                       </div>
@@ -7987,6 +8000,7 @@ const CSS = `
 .wifi-app .rah-title{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-faint);margin-bottom:8px;}
 .wifi-app .rah-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px;}
 .wifi-app .rah-item:last-child{border-bottom:none;}
+.wifi-app .verse-band{background:rgba(245,224,120,.16);border:1px solid rgba(245,224,120,.45);border-radius:8px;padding:8px 12px;margin:9px 0;font-size:11px;font-weight:700;color:#e6cf6e;text-align:center;letter-spacing:.2px;}
 .wifi-app .rah-date{color:var(--text-dim);font-family:var(--mono);font-size:11px;flex-shrink:0;}
 .wifi-app .rah-amount{color:var(--green);font-weight:700;font-family:var(--mono);flex-shrink:0;}
 .wifi-app .rah-empty{font-size:12px;color:var(--text-faint);}
