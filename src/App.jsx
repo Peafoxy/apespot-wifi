@@ -3812,7 +3812,7 @@ export default function AlerteClientWifi() {
       return 0;
     });
     return rows;
-  }, [enrichedClients, filter, search, sortKey, sortDir]);
+  }, [enrichedClients, filter, serverFilter, search, sortKey, sortDir]);
 
   const pendingRequests = useMemo(
     () => paymentRequests.filter((r) => r.status === "pending"),
