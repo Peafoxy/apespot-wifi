@@ -8053,11 +8053,11 @@ const CSS = `
     radial-gradient(900px 900px at 50% 120%, rgba(62,216,195,.05), transparent 60%),
     linear-gradient(180deg,#0B111B 0%, var(--bg) 60%);
   color:var(--text); font-family:var(--sans); min-height:100vh; padding:28px 20px 60px;
-  overflow-x:hidden;
+  overflow-x:clip;
 }
 .wifi-app *{box-sizing:border-box;}
 .wifi-app{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
-.wifi-app header{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;margin-bottom:26px;}
+.wifi-app header{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;position:sticky;top:0;z-index:50;background:rgba(9,13,20,.9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);margin:0 -20px 18px;padding:14px 20px 12px;box-shadow:0 10px 22px -12px rgba(0,0,0,.75);}
 .wifi-app .brand{display:flex;align-items:center;gap:14px;}
 .wifi-app .brand-mark{width:44px;height:44px;border-radius:12px;background:linear-gradient(145deg,var(--cyan),#1E9E8C);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px rgba(62,216,195,.25), 0 8px 20px -6px rgba(62,216,195,.5);}
 .wifi-app .brand-mark svg{width:24px;height:24px;}
@@ -8067,7 +8067,8 @@ const CSS = `
 .wifi-app .brand .sub{font-size:12.5px;color:var(--text-dim);margin-top:2px;letter-spacing:.3px;}
 .wifi-app .today-box{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);}
 .wifi-app .today-box .label{font-size:12px;color:#FFD400;letter-spacing:1px;text-transform:uppercase;font-weight:700;order:-1;}
-.wifi-app .today-box .val{font-size:16px;color:var(--cyan);font-weight:600;}
+.wifi-app .today-box .val{font-size:16px;color:var(--cyan);font-weight:600;white-space:nowrap;}
+@media (max-width:640px){ .wifi-app .today-box .label{display:none;} .wifi-app header{padding-top:10px;} }
 .wifi-app .tabs{display:flex;gap:8px;margin-bottom:22px;border-bottom:1px solid var(--line);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
 .wifi-app .tabs::-webkit-scrollbar{display:none;}
 .wifi-app .tab{padding:10px 12px;margin-bottom:-1px;background:none;border:none;color:#D5DEE8;font-size:13.5px;font-weight:800;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
