@@ -1187,6 +1187,7 @@ const rowToFuelExpense = (r) => ({
   approvalStatus: r.approval_status || "approved",
   decidedBy: r.decided_by || null,
   decidedAt: r.decided_at || null,
+  rejetMotif: r.rejet_motif || null,
   createdAt: r.created_at,
   paidAt: r.paid_at,
 });
@@ -1239,7 +1240,7 @@ async function undoLinePaymentRow(id, previousDateExp, newTotalPaid) {
 }
 
 // ---- Perdiem ----
-const rowToPerdiem = (r) => ({ id: r.id, personneId: r.personne_id, personneNom: r.personne_nom, montant: r.montant, note: r.note, status: r.status, approvalStatus: r.approval_status || "approved", decidedBy: r.decided_by || null, decidedAt: r.decided_at || null, createdAt: r.created_at, paidAt: r.paid_at });
+const rowToPerdiem = (r) => ({ id: r.id, personneId: r.personne_id, personneNom: r.personne_nom, montant: r.montant, note: r.note, status: r.status, approvalStatus: r.approval_status || "approved", decidedBy: r.decided_by || null, decidedAt: r.decided_at || null, rejetMotif: r.rejet_motif || null, createdAt: r.created_at, paidAt: r.paid_at });
 async function fetchPerdiem() {
   const data = await sbFetch("wifi_perdiem?select=*&order=created_at.desc");
   return (data || []).map(rowToPerdiem);
@@ -1256,7 +1257,7 @@ async function updatePerdiemRow(id, p) {
 }
 
 // ---- Autres dépenses ----
-const rowToOtherExpense = (r) => ({ id: r.id, description: r.description, montant: r.montant, approvalStatus: r.approval_status || "approved", decidedBy: r.decided_by || null, decidedAt: r.decided_at || null, createdAt: r.created_at });
+const rowToOtherExpense = (r) => ({ id: r.id, description: r.description, montant: r.montant, approvalStatus: r.approval_status || "approved", decidedBy: r.decided_by || null, decidedAt: r.decided_at || null, rejetMotif: r.rejet_motif || null, createdAt: r.created_at });
 async function fetchOtherExpenses() {
   const data = await sbFetch("wifi_other_expenses?select=*&order=created_at.desc");
   return (data || []).map(rowToOtherExpense);
@@ -1274,8 +1275,8 @@ async function deleteOtherExpenseRow(id) {
 
 // Validation des dépenses par l'admin principal : approuver / rejeter.
 // table = wifi_fuel_expenses | wifi_perdiem | wifi_other_expenses
-async function setExpenseApprovalRow(table, id, status, by) {
-  await sbFetch(`${table}?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ approval_status: status, decided_by: by || null, decided_at: new Date().toISOString() }) });
+async function setExpenseApprovalRow(table, id, status, by, motif) {
+  await sbFetch(`${table}?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ approval_status: status, decided_by: by || null, decided_at: new Date().toISOString(), rejet_motif: status === "rejected" ? (motif || null) : null }) });
 }
 
 async function fetchTicketDurations() {
@@ -1388,9 +1389,9 @@ function Badge({ statut }) {
 }
 
 // Petit badge de statut de validation d'une dépense (rien pour « approved »).
-function ApprovalTag({ status }) {
+function ApprovalTag({ status, motif }) {
   if (status === "pending") return <span style={{ fontSize: 10.5, fontWeight: 700, color: "#e8a33d", background: "rgba(232,163,61,.14)", padding: "2px 7px", borderRadius: 6, whiteSpace: "nowrap" }}>⏳ À valider</span>;
-  if (status === "rejected") return <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--red)", background: "var(--red-dim)", padding: "2px 7px", borderRadius: 6, whiteSpace: "nowrap" }}>✕ Rejetée</span>;
+  if (status === "rejected") return <span title={motif || ""} style={{ fontSize: 10.5, fontWeight: 700, color: "var(--red)", background: "var(--red-dim)", padding: "2px 7px", borderRadius: 6 }}>✕ Rejetée{motif ? ` · ${motif}` : ""}</span>;
   return null;
 }
 
@@ -5400,18 +5401,20 @@ export default function AlerteClientWifi() {
 
   // ---------- Validation des dépenses par l'admin principal ----------
   // decision: "approved" (valider) | "rejected" (rejeter, non déduite = revient à la caisse)
-  const decideExpense = async (type, item, decision) => {
+  const decideExpense = async (type, item, decision, motif) => {
     if (!isPrincipalAdmin) { showToast("Seul l'admin principal peut valider une dépense."); return; }
+    if (decision === "rejected" && !(motif || "").trim()) { showToast("Le motif de rejet est obligatoire."); return; }
     const table = type === "fuel" ? "wifi_fuel_expenses" : type === "perdiem" ? "wifi_perdiem" : "wifi_other_expenses";
     const by = authUser?.nom || null;
-    const patch = { approvalStatus: decision, decidedBy: by, decidedAt: new Date().toISOString() };
+    const motifFinal = decision === "rejected" ? (motif || "").trim() : null;
+    const patch = { approvalStatus: decision, decidedBy: by, decidedAt: new Date().toISOString(), rejetMotif: motifFinal };
     try {
-      if (SUPABASE_CONFIGURED) await setExpenseApprovalRow(table, item.id, decision, by);
+      if (SUPABASE_CONFIGURED) await setExpenseApprovalRow(table, item.id, decision, by, motifFinal);
       const apply = (arr) => arr.map((x) => (x.id === item.id ? { ...x, ...patch } : x));
       if (type === "fuel") setFuelExpenses(apply);
       else if (type === "perdiem") setPerdiemExpenses(apply);
       else setOtherExpenses(apply);
-      logActivity(decision === "approved" ? "approve_expense" : "reject_expense", `Dépense ${type} ${decision === "approved" ? "validée" : "rejetée"} — ${fmtFCFA(item.montant)}`);
+      logActivity(decision === "approved" ? "approve_expense" : "reject_expense", `Dépense ${type} ${decision === "approved" ? "validée" : `rejetée (motif : ${motifFinal})`} — ${fmtFCFA(item.montant)}`);
       showToast(decision === "approved" ? "Dépense validée." : "Dépense rejetée (non déduite de la caisse).");
     } catch (e) {
       console.error(e);
@@ -6691,7 +6694,7 @@ export default function AlerteClientWifi() {
                   </div>
                   <div className="approval-row" style={{ gap: 6 }}>
                     <button className="btn-save" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => decideExpense(p.type, p.item, "approved")}>Valider</button>
-                    <button className="btn-cancel" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => { if (window.confirm(`Rejeter cette dépense de ${fmtFCFA(p.montant)} ? Elle ne sera pas déduite de la caisse (marquée Rejetée).`)) decideExpense(p.type, p.item, "rejected"); }}>Rejeter</button>
+                    <button className="btn-cancel" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => { const motif = window.prompt(`Motif du rejet de cette dépense de ${fmtFCFA(p.montant)} ? (obligatoire — sera conservé comme trace)`); if (motif === null) return; if (!motif.trim()) { showToast("Le motif de rejet est obligatoire."); return; } decideExpense(p.type, p.item, "rejected", motif.trim()); }}>Rejeter</button>
                   </div>
                 </div>
               ))}
@@ -7043,7 +7046,7 @@ export default function AlerteClientWifi() {
                 {otherExpenses.map((o) => (
                   <div key={o.id} className="rah-item">
                     <span className="rah-date">{o.createdAt ? new Date(o.createdAt).toLocaleDateString("fr-FR") : ""}</span>
-                    <span>{o.description} <ApprovalTag status={o.approvalStatus} /></span>
+                    <span>{o.description} <ApprovalTag status={o.approvalStatus} motif={o.rejetMotif} /></span>
                     <span className="rah-amount" style={o.approvalStatus === "rejected" ? { textDecoration: "line-through", opacity: 0.6 } : undefined}>{fmtFCFA(o.montant)}</span>
                     <button
                       className={`icon-btn ${canModifyEntry(o.createdAt) ? "" : "locked"}`}
