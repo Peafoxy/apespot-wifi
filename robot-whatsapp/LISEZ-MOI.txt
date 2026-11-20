@@ -17,6 +17,10 @@ Ce robot fait DEUX choses automatiquement :
      onglet « Utilisateurs » (fiche de l'utilisateur). Un membre sans numéro
      ne reçoit aucune alerte.
 
+  3. RÉACTIVER UN CLIENT PAR WHATSAPP — un administrateur peut écrire au
+     numéro du robot pour réactiver un client, enregistrer le paiement dans
+     la caisse et notifier le client. Voir « COMMANDE DE RÉACTIVATION » plus bas.
+
 Il utilise exactement les mêmes messages que l'application.
 Il tourne sur un ordinateur Windows qui reste ALLUMÉ et CONNECTÉ à internet.
 
@@ -92,6 +96,32 @@ RÉGLAGES (fichier .env)
 Ouvre le fichier « .env » avec le Bloc-notes pour changer :
    - HEURE_ENVOI = 8   -> l'heure d'envoi quotidien (0 à 23).
 Ne touche pas à APP_URL ni à CLE.
+
+
+----------------------------------------------------
+COMMANDE DE RÉACTIVATION (depuis WhatsApp)
+----------------------------------------------------
+Un ADMINISTRATEUR (dont le numéro est enregistré dans l'app) peut écrire au
+numéro WhatsApp du robot (le téléphone APESPOT) pour réactiver un client :
+
+   1. Envoie :   REACTIVER <nom ou code> <montant>
+      Exemples :  REACTIVER BODJONA 2000
+                  REACTIVER 9632IS 2000
+
+   2. Le robot répond :
+      « Trouvé : BODJONA (code ...) — nouvelle échéance le JJ/MM — Paiement 2000 F.
+        Réponds OUI pour confirmer. »
+
+   3. Réponds :   OUI
+      -> Le robot prolonge l'abonnement d'1 mois, ENREGISTRE le paiement dans
+         la caisse, et envoie au CLIENT sa notification de réactivation.
+      -> Pour annuler avant de confirmer : réponds NON.
+
+Notes :
+   - Seuls les ADMINS avec un numéro enregistré peuvent réactiver.
+   - Si plusieurs clients portent le même nom, le robot demande d'utiliser
+     le CODE du client.
+   - Toute réactivation est tracée dans l'HISTORIQUE de l'app.
 
 
 ----------------------------------------------------
