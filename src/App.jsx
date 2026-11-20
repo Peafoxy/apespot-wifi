@@ -8087,12 +8087,12 @@ const CSS = `
 /* --- Menu mobile : bouton + menu déroulant juste en dessous du bouton --- */
 .wifi-app .tabs-mobile-wrap{display:none;position:relative;}
 .wifi-app .drawer-backdrop{position:fixed;inset:0;z-index:69;background:rgba(0,0,0,.35);}
-.wifi-app .drawer-pop{position:absolute;top:calc(100% - 10px);left:0;z-index:71;width:max-content;max-width:min(78vw,300px);min-width:200px;background:var(--bg-panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 40px -10px rgba(0,0,0,.85);display:flex;flex-direction:column;gap:4px;padding:8px;max-height:72vh;overflow-y:auto;animation:apPopIn .16s ease;transform-origin:top left;}
+.wifi-app .drawer-pop{position:absolute;top:calc(100% - 10px);left:0;z-index:71;width:max-content;max-width:78vw;min-width:0;background:var(--bg-panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 40px -10px rgba(0,0,0,.85);display:flex;flex-direction:column;gap:4px;padding:8px;max-height:72vh;overflow-y:auto;animation:apPopIn .16s ease;transform-origin:top left;}
 @keyframes apPopIn{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}
 .wifi-app .mb-chev{flex:none;color:var(--text-dim);font-size:12px;transition:transform .2s;}
 .wifi-app .mb-chev.open{transform:rotate(180deg);}
-.wifi-app .drawer-it{display:flex;align-items:center;gap:10px;padding:12px 13px;border-radius:9px;background:var(--bg-card);border:1px solid transparent;color:var(--text-dim);font-family:var(--sans);font-size:14.5px;font-weight:600;cursor:pointer;text-align:left;}
-.wifi-app .drawer-it .nm{flex:1;}
+.wifi-app .drawer-it{display:flex;align-items:center;gap:8px;padding:12px 13px;border-radius:9px;background:var(--bg-card);border:1px solid transparent;color:var(--text-dim);font-family:var(--sans);font-size:14.5px;font-weight:600;cursor:pointer;text-align:left;white-space:nowrap;}
+.wifi-app .drawer-it .nm{flex:0 0 auto;}
 .wifi-app .drawer-it.act{background:var(--cyan-dim);border-color:rgba(62,216,195,.4);color:var(--cyan);font-weight:800;}
 @media (max-width:640px){
   .wifi-app .tabs-desktop{display:none;}
