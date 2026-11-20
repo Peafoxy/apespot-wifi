@@ -1,0 +1,17 @@
+{
+  "name": "apespot-robot-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Robot d'envoi automatique des rappels WhatsApp APESPOT",
+  "main": "robot.js",
+  "scripts": {
+    "start": "node robot.js",
+    "test-envoi": "node robot.js --maintenant"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}

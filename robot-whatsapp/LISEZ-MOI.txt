@@ -1,0 +1,103 @@
+======================================================
+   ROBOT WHATSAPP APESPOT — GUIDE D'INSTALLATION (WINDOWS)
+======================================================
+
+Ce robot envoie automatiquement, chaque matin, un rappel WhatsApp aux
+clients dont l'abonnement expire bientôt (d'aujourd'hui à 4 jours avant).
+Il utilise exactement les mêmes messages que l'application.
+
+Il tourne sur un ordinateur Windows qui reste ALLUMÉ et CONNECTÉ à internet.
+
+
+----------------------------------------------------
+ÉTAPE 1 — Installer Node.js (une seule fois)
+----------------------------------------------------
+1. Va sur :  https://nodejs.org
+2. Télécharge la version « LTS » (le gros bouton de gauche).
+3. Installe-la (Suivant, Suivant, Terminer).
+
+
+----------------------------------------------------
+ÉTAPE 2 — Mettre le dossier du robot sur l'ordinateur
+----------------------------------------------------
+1. Copie le dossier « robot-whatsapp » quelque part de simple,
+   par exemple sur le Bureau.
+
+
+----------------------------------------------------
+ÉTAPE 3 — Installer le robot (une seule fois)
+----------------------------------------------------
+1. Ouvre le dossier « robot-whatsapp ».
+2. Clique dans la barre d'adresse de la fenêtre (en haut),
+   tape :  cmd   puis appuie sur Entrée.
+   (Une fenêtre noire s'ouvre, déjà placée dans le bon dossier.)
+3. Dans cette fenêtre noire, tape :
+
+      npm install
+
+   puis appuie sur Entrée. Attends quelques minutes
+   (ça télécharge ce qu'il faut, c'est normal que ce soit long la 1re fois).
+
+
+----------------------------------------------------
+ÉTAPE 4 — Démarrer le robot et lier WhatsApp
+----------------------------------------------------
+1. Double-clique sur le fichier :  demarrer.bat
+   (ou, dans la fenêtre noire, tape :  npm start )
+2. Un QR CODE apparaît dans la fenêtre.
+3. Sur le TÉLÉPHONE APESPOT, ouvre WhatsApp :
+      - Menu (les 3 points) ou Réglages
+      - « Appareils connectés »
+      - « Lier un appareil »
+      - Scanne le QR code affiché à l'écran de l'ordinateur.
+4. Quand tu vois « Robot connecté et prêt », c'est bon !
+
+   >>> Tu ne scannes le QR code QU'UNE SEULE FOIS.
+       Ensuite le robot se reconnecte tout seul.
+
+
+----------------------------------------------------
+ÉTAPE 5 — Laisser tourner
+----------------------------------------------------
+- Laisse la fenêtre OUVERTE et l'ordinateur ALLUMÉ.
+- Chaque jour à 8h (modifiable), le robot envoie les rappels tout seul.
+- Tu peux voir dans la fenêtre la liste de ce qui est envoyé.
+
+
+----------------------------------------------------
+TESTER TOUT DE SUITE (sans attendre 8h)
+----------------------------------------------------
+Dans la fenêtre noire, tape :
+
+      npm run test-envoi
+
+Le robot envoie immédiatement les rappels du jour (pour vérifier).
+
+
+----------------------------------------------------
+RÉGLAGES (fichier .env)
+----------------------------------------------------
+Ouvre le fichier « .env » avec le Bloc-notes pour changer :
+   - HEURE_ENVOI = 8   -> l'heure d'envoi quotidien (0 à 23).
+Ne touche pas à APP_URL ni à CLE.
+
+
+----------------------------------------------------
+QUESTIONS FRÉQUENTES
+----------------------------------------------------
+• « Le robot s'est arrêté / l'ordinateur a redémarré »
+   -> Rouvre le dossier et double-clique sur demarrer.bat.
+      Pas besoin de rescanner le QR code.
+
+• « WhatsApp demande à nouveau le QR code »
+   -> Vérifie que le téléphone APESPOT n'a pas supprimé l'appareil
+      connecté. Relance demarrer.bat et rescanne une fois.
+
+• « Je veux que ça redémarre tout seul au démarrage de Windows »
+   -> Dis-le à l'administrateur : on peut l'ajouter au démarrage automatique.
+
+• « Un client n'a pas reçu le message »
+   -> Soit il n'a pas de numéro enregistré dans l'app, soit son numéro
+      n'est pas sur WhatsApp : la fenêtre l'indique (« ignoré »).
+
+======================================================
