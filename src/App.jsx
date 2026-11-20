@@ -6059,8 +6059,7 @@ export default function AlerteClientWifi() {
           </div>
 
           {availableServers.length > 0 && (
-            <div className="chips server-chips" style={{ marginTop: -8, marginBottom: 18 }}>
-              <span className="chips-label">SERVEUR</span>
+            <div className="chips" style={{ marginTop: -8, marginBottom: 18 }}>
               <button className={`chip ${serverFilter === "ALL" ? "active" : ""}`} onClick={() => setServerFilter("ALL")}>
                 Tous
               </button>
@@ -6072,9 +6071,10 @@ export default function AlerteClientWifi() {
             </div>
           )}
 
-          <div className="table-shell client-list-shell">
+          <div className="table-shell client-list-shell has-server-col">
             <div className="client-list-header">
               <span onClick={() => toggleSort("nom")}>Client</span>
+              <span className="col-server">Serveur</span>
               <span onClick={() => toggleSort("jours")}>Jours · Statut</span>
             </div>
             <div className="client-list-scroll">
@@ -6089,7 +6089,7 @@ export default function AlerteClientWifi() {
                           <SignalBars statut={c.statut} />
                           <span className="client-row-name" style={{ color: "#FFFFFF", fontWeight: 700, fontFamily: "'Baskerville Old Face', Georgia, serif" }}>{c.nom}</span>
                         </div>
-                        {c.serveur && <span className="client-row-server">{c.serveur}</span>}
+                        <span className="client-row-server">{c.serveur || ""}</span>
                         <Badge statut={c.statut} />
                       </div>
                       <div className="client-row-meta">
@@ -7868,8 +7868,6 @@ const CSS = `
 .wifi-app .search input:focus{border-color:var(--cyan);}
 .wifi-app .search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--text-faint);}
 .wifi-app .chips{display:flex;gap:6px;flex-wrap:wrap;}
-.wifi-app .server-chips{align-items:center;}
-.wifi-app .chips-label{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--text-faint);text-transform:uppercase;margin-right:6px;align-self:center;}
 .wifi-app .chip{padding:8px 13px;border-radius:9px;border:1px solid var(--line);background:var(--bg-card);color:var(--text-dim);font-size:12.5px;cursor:pointer;font-family:var(--sans);white-space:nowrap;transition:.15s;}
 .wifi-app .chip:hover{border-color:var(--text-faint);color:var(--text);}
 .wifi-app .chip.active{background:var(--cyan-dim);border-color:var(--cyan);color:var(--cyan);}
@@ -7983,6 +7981,12 @@ const CSS = `
 .wifi-app .client-row-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .wifi-app .client-row-left{display:flex;align-items:center;gap:8px;min-width:0;}
 .wifi-app .client-row-server{flex:1;text-align:center;font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px;}
+.wifi-app .has-server-col .client-list-header{display:grid;grid-template-columns:minmax(0,1fr) 118px 104px;gap:8px;align-items:center;}
+.wifi-app .has-server-col .client-list-header .col-server{text-align:right;cursor:default;}
+.wifi-app .has-server-col .client-list-header span:last-child{text-align:right;}
+.wifi-app .has-server-col .client-row-top{display:grid;grid-template-columns:minmax(0,1fr) 118px 104px;gap:8px;align-items:center;}
+.wifi-app .has-server-col .client-row-server{flex:none;text-align:right;padding:0;}
+.wifi-app .has-server-col .client-row-top>.badge{justify-self:end;}
 .wifi-app .client-row-name{font-weight:600;font-size:13.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wifi-app .client-row-meta{display:flex;align-items:center;gap:6px;font-size:11.5px;font-family:var(--mono);color:var(--text-dim);flex-wrap:wrap;padding-left:22px;}
 .wifi-app .client-row-meta .dot{color:var(--text-faint);}
