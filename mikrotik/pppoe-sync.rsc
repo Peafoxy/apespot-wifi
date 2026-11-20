@@ -29,8 +29,9 @@
 #   true  = applique vraiment les coupures et les activations
 
 :local supprimer false
-# ^ SUPPRESSION des comptes inactifs depuis 3 mois (dernier recours).
-#   false = ne supprime JAMAIS (ecrit seulement "supprimerait X" dans Log)
+# ^ SUPPRESSION des comptes inactifs depuis ~3 mois (dernier recours).
+#   Base sur "last-logged-out" lu directement sur le routeur (pas d'attente).
+#   false = ne supprime JAMAIS (ecrit "supprimerait X (inactif ~N j)" dans Log)
 #   true  = supprime vraiment le compte (Secret) sur le routeur
 #   Laisse false tant que tu n'as pas verifie la liste dans Log.
 # ---------------------------------------------------------------------------
@@ -99,21 +100,57 @@
           }
           :set nbActive ($nbActive + 1)
         }
-        :if ($action = "X") do={
-          :if ($supprimer) do={
-            :local act [/ppp active find name=$nom]
-            :if ([:len $act] > 0) do={ /ppp active remove $act }
-            /ppp secret remove $sec
-          } else={
-            :log warning ("APESPOT PPPoE (TEST SUPPR): supprimerait " . $nom)
-          }
-          :set nbSuppr ($nbSuppr + 1)
-        }
       }
     }
     :set line ""
   } else={
     :set line ($line . $ch)
+  }
+}
+
+# 4bis) SUPPRESSION des comptes inactifs depuis 3 mois.
+# On lit "last-logged-out" de chaque compte de CE routeur (date de derniere
+# deconnexion). On gere les 2 formats : v7 "2026-11-20..." et v6 "nov/20/2026...".
+# Si c'est plus vieux que ~3 mois ET que le compte n'est PAS connecte, on le
+# supprime (si supprimer=true) ou on l'ecrit dans le Log (si supprimer=false).
+# Fonction : convertit une date en nombre de jours approx (pour comparer).
+:global apJours do={
+  :local s $1
+  :local y 0
+  :local mo 0
+  :local d 0
+  :if ([:pick $s 4 5] = "-") do={
+    :set y [:tonum [:pick $s 0 4]]
+    :set mo [:tonum [:pick $s 5 7]]
+    :set d [:tonum [:pick $s 8 10]]
+  } else={
+    :local mn [:tolower [:pick $s 0 3]]
+    :local noms "janfebmaraprmayjunjulaugsepoctnovdec"
+    :local p [:find $noms $mn]
+    :if ([:typeof $p] = "num") do={ :set mo (($p / 3) + 1) }
+    :set d [:tonum [:pick $s 4 6]]
+    :set y [:tonum [:pick $s 7 11]]
+  }
+  :if ($y < 2020) do={ :return 0 }
+  :return (($y * 365) + ($mo * 30) + $d)
+}
+:local aujJours [$apJours [/system clock get date]]
+:foreach s in=[/ppp secret find] do={
+  :local nm [/ppp secret get $s name]
+  :local llo [/ppp secret get $s last-logged-out]
+  :if ([:len $llo] >= 10) do={
+    :local lloJours [$apJours $llo]
+    :if (($lloJours > 0) && ([:len [/ppp active find name=$nm]] = 0)) do={
+      :local age ($aujJours - $lloJours)
+      :if ($age > 90) do={
+        :if ($supprimer) do={
+          /ppp secret remove $s
+        } else={
+          :log warning ("APESPOT PPPoE (TEST SUPPR): supprimerait " . $nm . " (inactif ~" . $age . " j)")
+        }
+        :set nbSuppr ($nbSuppr + 1)
+      }
+    }
   }
 }
 
