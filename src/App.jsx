@@ -1463,8 +1463,9 @@ function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveCl
   const serveurSelect = serveurVal === "" ? "" : (serveurNouveau ? "__NOUVEAU__" : serveurVal);
   return (
     <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && closeClientModal()}>
-      <div className="modal">
+      <div className="modal modal-wide">
         <h2>{clientModal.editingId ? "Modifier le client" : "Nouveau client"}</h2>
+        <div className="client-form-grid">
         <div className="field">
           <label>Nom du client</label>
           <input
@@ -1581,6 +1582,7 @@ function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveCl
           <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
             Calculé automatiquement (4 derniers chiffres du téléphone + 2 premières lettres du nom). Transmets-le au client par WhatsApp — modifiable si besoin.
           </div>
+        </div>
         </div>
         <div className="modal-actions">
           <button className="btn-cancel" onClick={closeClientModal}>Annuler</button>
@@ -8284,6 +8286,12 @@ const CSS = `
 .wifi-app .client-list-scroll::-webkit-scrollbar-thumb:hover{background:var(--text-faint);}
 .wifi-app .overlay{position:fixed;inset:0;background:rgba(6,10,15,.7);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
 .wifi-app .modal{background:var(--bg-panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:420px;padding:24px;max-height:90vh;overflow-y:auto;}
+.wifi-app .modal.modal-wide{max-width:780px;}
+.wifi-app .client-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 22px;align-items:start;}
+@media (max-width:680px){
+  .wifi-app .modal.modal-wide{max-width:430px;}
+  .wifi-app .client-form-grid{grid-template-columns:1fr;}
+}
 .wifi-app .modal h2{margin:0 0 18px;font-size:16px;}
 .wifi-app .field{margin-bottom:14px;}
 .wifi-app .field label{font-size:12px;color:var(--text-dim);display:block;margin-bottom:6px;letter-spacing:.2px;}
