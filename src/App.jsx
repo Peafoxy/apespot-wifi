@@ -1184,6 +1184,9 @@ const rowToFuelExpense = (r) => ({
   distanceKm: r.distance_km,
   montant: r.montant,
   status: r.status,
+  approvalStatus: r.approval_status || "approved",
+  decidedBy: r.decided_by || null,
+  decidedAt: r.decided_at || null,
   createdAt: r.created_at,
   paidAt: r.paid_at,
 });
@@ -1202,6 +1205,7 @@ async function insertFuelExpenseRow(e) {
       distance_km: e.distanceKm,
       montant: e.montant,
       status: "a_payer",
+      approval_status: e.approvalStatus || "approved",
     }),
   });
   return rowToFuelExpense(data[0]);
@@ -1235,13 +1239,13 @@ async function undoLinePaymentRow(id, previousDateExp, newTotalPaid) {
 }
 
 // ---- Perdiem ----
-const rowToPerdiem = (r) => ({ id: r.id, personneId: r.personne_id, personneNom: r.personne_nom, montant: r.montant, note: r.note, status: r.status, createdAt: r.created_at, paidAt: r.paid_at });
+const rowToPerdiem = (r) => ({ id: r.id, personneId: r.personne_id, personneNom: r.personne_nom, montant: r.montant, note: r.note, status: r.status, approvalStatus: r.approval_status || "approved", decidedBy: r.decided_by || null, decidedAt: r.decided_at || null, createdAt: r.created_at, paidAt: r.paid_at });
 async function fetchPerdiem() {
   const data = await sbFetch("wifi_perdiem?select=*&order=created_at.desc");
   return (data || []).map(rowToPerdiem);
 }
 async function insertPerdiemRow(p) {
-  const data = await sbFetch("wifi_perdiem", { method: "POST", body: JSON.stringify({ personne_id: p.personneId || null, personne_nom: p.personneNom, montant: p.montant, note: p.note || null, status: "a_payer" }) });
+  const data = await sbFetch("wifi_perdiem", { method: "POST", body: JSON.stringify({ personne_id: p.personneId || null, personne_nom: p.personneNom, montant: p.montant, note: p.note || null, status: "a_payer", approval_status: p.approvalStatus || "approved" }) });
   return rowToPerdiem(data[0]);
 }
 async function markPerdiemPaidRow(id) {
@@ -1252,13 +1256,13 @@ async function updatePerdiemRow(id, p) {
 }
 
 // ---- Autres dépenses ----
-const rowToOtherExpense = (r) => ({ id: r.id, description: r.description, montant: r.montant, createdAt: r.created_at });
+const rowToOtherExpense = (r) => ({ id: r.id, description: r.description, montant: r.montant, approvalStatus: r.approval_status || "approved", decidedBy: r.decided_by || null, decidedAt: r.decided_at || null, createdAt: r.created_at });
 async function fetchOtherExpenses() {
   const data = await sbFetch("wifi_other_expenses?select=*&order=created_at.desc");
   return (data || []).map(rowToOtherExpense);
 }
 async function insertOtherExpenseRow(e) {
-  const data = await sbFetch("wifi_other_expenses", { method: "POST", body: JSON.stringify({ description: e.description, montant: e.montant }) });
+  const data = await sbFetch("wifi_other_expenses", { method: "POST", body: JSON.stringify({ description: e.description, montant: e.montant, approval_status: e.approvalStatus || "approved" }) });
   return rowToOtherExpense(data[0]);
 }
 async function updateOtherExpenseRow(id, e) {
@@ -1266,6 +1270,12 @@ async function updateOtherExpenseRow(id, e) {
 }
 async function deleteOtherExpenseRow(id) {
   await sbFetch(`wifi_other_expenses?id=eq.${id}`, { method: "DELETE" });
+}
+
+// Validation des dépenses par l'admin principal : approuver / rejeter.
+// table = wifi_fuel_expenses | wifi_perdiem | wifi_other_expenses
+async function setExpenseApprovalRow(table, id, status, by) {
+  await sbFetch(`${table}?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ approval_status: status, decided_by: by || null, decided_at: new Date().toISOString() }) });
 }
 
 async function fetchTicketDurations() {
@@ -1375,6 +1385,13 @@ function SignalBars({ statut }) {
 
 function Badge({ statut }) {
   return <span className={`badge ${statut}`}>{statut === "NA" ? "N/A" : statut}</span>;
+}
+
+// Petit badge de statut de validation d'une dépense (rien pour « approved »).
+function ApprovalTag({ status }) {
+  if (status === "pending") return <span style={{ fontSize: 10.5, fontWeight: 700, color: "#e8a33d", background: "rgba(232,163,61,.14)", padding: "2px 7px", borderRadius: 6, whiteSpace: "nowrap" }}>⏳ À valider</span>;
+  if (status === "rejected") return <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--red)", background: "var(--red-dim)", padding: "2px 7px", borderRadius: 6, whiteSpace: "nowrap" }}>✕ Rejetée</span>;
+  return null;
 }
 
 function NewComplaintModal({ newComplaintModal, setNewComplaintModal, clients, saveNewComplaint }) {
@@ -3882,19 +3899,21 @@ export default function AlerteClientWifi() {
     [ticketRequests]
   );
 
+  // « À payer » = validée (approved) ET pas encore payée. Une dépense en attente
+  // de validation ou rejetée n'est jamais payable.
   const unpaidFuelCount = useMemo(
-    () => fuelExpenses.filter((f) => f.status === "a_payer").length,
+    () => fuelExpenses.filter((f) => f.status === "a_payer" && f.approvalStatus === "approved").length,
     [fuelExpenses]
   );
 
   const unpaidPerdiemCount = useMemo(
-    () => perdiemExpenses.filter((p) => p.status === "a_payer").length,
+    () => perdiemExpenses.filter((p) => p.status === "a_payer" && p.approvalStatus === "approved").length,
     [perdiemExpenses]
   );
 
   const fuelTotalsByTechnicien = useMemo(() => {
     const totals = {};
-    fuelExpenses.filter((f) => f.status === "a_payer").forEach((f) => {
+    fuelExpenses.filter((f) => f.status === "a_payer" && f.approvalStatus === "approved").forEach((f) => {
       totals[f.technicienNom] = (totals[f.technicienNom] || 0) + f.montant;
     });
     return totals;
@@ -3904,7 +3923,7 @@ export default function AlerteClientWifi() {
 
   const perdiemTotalsByPersonne = useMemo(() => {
     const totals = {};
-    perdiemExpenses.filter((p) => p.status === "a_payer").forEach((p) => {
+    perdiemExpenses.filter((p) => p.status === "a_payer" && p.approvalStatus === "approved").forEach((p) => {
       totals[p.personneNom] = (totals[p.personneNom] || 0) + p.montant;
     });
     return totals;
@@ -4033,15 +4052,26 @@ export default function AlerteClientWifi() {
   //     à chaque « payé » et décrémenté si on annule. Chaque mois payé compte.
   const caisseData = useMemo(() => {
     const totalEncaisse = payments.reduce((s, p) => s + (Number(p.montant) || 0), 0);
-    const totalFuel = fuelExpenses.filter((f) => f.status === "paye").reduce((s, f) => s + (Number(f.montant) || 0), 0);
-    const totalPerdiem = perdiemExpenses.filter((p) => p.status === "paye").reduce((s, p) => s + (Number(p.montant) || 0), 0);
-    const totalAutres = otherExpenses.reduce((s, o) => s + (Number(o.montant) || 0), 0);
+    const totalFuel = fuelExpenses.filter((f) => f.status === "paye" && f.approvalStatus === "approved").reduce((s, f) => s + (Number(f.montant) || 0), 0);
+    const totalPerdiem = perdiemExpenses.filter((p) => p.status === "paye" && p.approvalStatus === "approved").reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const totalAutres = otherExpenses.filter((o) => o.approvalStatus === "approved").reduce((s, o) => s + (Number(o.montant) || 0), 0);
     const totalLignes = expenseLines.reduce((s, l) => s + (Number(l.totalPaid) || 0), 0);
     const totalDepenses = totalFuel + totalPerdiem + totalAutres + totalLignes;
     const totalVerse = versements.reduce((s, v) => s + (Number(v.montant) || 0), 0);
     const resteAVerser = totalEncaisse - totalDepenses - totalVerse;
     return { totalEncaisse, totalFuel, totalPerdiem, totalAutres, totalLignes, totalDepenses, totalVerse, resteAVerser };
   }, [payments, fuelExpenses, perdiemExpenses, otherExpenses, expenseLines, versements]);
+
+  // Dépenses EN ATTENTE de validation par l'admin principal (tous types confondus).
+  const pendingApprovals = useMemo(() => {
+    const items = [];
+    fuelExpenses.forEach((f) => { if (f.approvalStatus === "pending") items.push({ type: "fuel", id: f.id, label: `🚗 ${f.technicienNom || "—"}${f.clientNom ? ` → ${f.clientNom}` : ""}`, montant: f.montant, createdAt: f.createdAt, item: f }); });
+    perdiemExpenses.forEach((p) => { if (p.approvalStatus === "pending") items.push({ type: "perdiem", id: p.id, label: `💰 ${p.personneNom}${p.note ? ` · ${p.note}` : ""}`, montant: p.montant, createdAt: p.createdAt, item: p }); });
+    otherExpenses.forEach((o) => { if (o.approvalStatus === "pending") items.push({ type: "other", id: o.id, label: `📦 ${o.description}`, montant: o.montant, createdAt: o.createdAt, item: o }); });
+    items.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    return items;
+  }, [fuelExpenses, perdiemExpenses, otherExpenses]);
+  const pendingApprovalsCount = pendingApprovals.length;
 
   const [versementModal, setVersementModal] = useState(null); // { montant, date, remisPar, recuPar, note } | null
   const [busyVersement, setBusyVersement] = useState(false);
@@ -4091,8 +4121,8 @@ export default function AlerteClientWifi() {
   };
 
   const pendingExpensesTotal = useMemo(() => {
-    const fuel = fuelExpenses.filter((f) => f.status === "a_payer").reduce((s, f) => s + (Number(f.montant) || 0), 0);
-    const perdiem = perdiemExpenses.filter((p) => p.status === "a_payer").reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const fuel = fuelExpenses.filter((f) => f.status === "a_payer" && f.approvalStatus === "approved").reduce((s, f) => s + (Number(f.montant) || 0), 0);
+    const perdiem = perdiemExpenses.filter((p) => p.status === "a_payer" && p.approvalStatus === "approved").reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const currentMonth = new Date().toISOString().slice(0, 7);
     const lignes = expenseLines
       .filter((l) => {
@@ -4601,7 +4631,7 @@ export default function AlerteClientWifi() {
     const nbExpire = enrichedClients.filter((c) => c.statut === "EXPIRE").length;
     const nbAttention = enrichedClients.filter((c) => c.statut === "ATTENTION").length;
     const nbOk = enrichedClients.filter((c) => c.statut === "OK").length;
-    const monthFuelExpenses = fuelExpenses.filter((f) => f.createdAt && f.createdAt.startsWith(bilanMonth));
+    const monthFuelExpenses = fuelExpenses.filter((f) => f.createdAt && f.createdAt.startsWith(bilanMonth) && f.approvalStatus === "approved");
     const fuelTotal = monthFuelExpenses.reduce((s, f) => s + (Number(f.montant) || 0), 0);
     // Lignes = charge récurrente réglée mois par mois : on ne déduit du bilan
     // d'un mois QUE les lignes réellement réglées ce mois-là (lastPaidMonth),
@@ -4611,9 +4641,9 @@ export default function AlerteClientWifi() {
     // ou des mois où elles n'ont pas été réglées).
     const monthLignes = expenseLines.filter((l) => l.lastPaidMonth === bilanMonth);
     const lignesMonthTotal = monthLignes.reduce((s, l) => s + (Number(l.montant) || 0), 0);
-    const monthPerdiem = perdiemExpenses.filter((p) => p.createdAt && p.createdAt.startsWith(bilanMonth));
+    const monthPerdiem = perdiemExpenses.filter((p) => p.createdAt && p.createdAt.startsWith(bilanMonth) && p.approvalStatus === "approved");
     const perdiemMonthTotal = monthPerdiem.reduce((s, p) => s + (Number(p.montant) || 0), 0);
-    const monthOtherExpenses = otherExpenses.filter((o) => o.createdAt && o.createdAt.startsWith(bilanMonth));
+    const monthOtherExpenses = otherExpenses.filter((o) => o.createdAt && o.createdAt.startsWith(bilanMonth) && o.approvalStatus === "approved");
     const autresMonthTotal = monthOtherExpenses.reduce((s, o) => s + (Number(o.montant) || 0), 0);
     const netBenefit = total - fuelTotal - lignesMonthTotal - perdiemMonthTotal - autresMonthTotal;
     return {
@@ -5135,7 +5165,7 @@ export default function AlerteClientWifi() {
     }
     const montant = Math.round(distanceKm * fuelRatePerKm);
     try {
-      const payload = { complaintId: complaint.id, technicienId: technicienId || null, technicienNom, clientNom: complaint.clientNom, distanceKm, montant };
+      const payload = { complaintId: complaint.id, technicienId: technicienId || null, technicienNom, clientNom: complaint.clientNom, distanceKm, montant, approvalStatus: isPrincipalAdmin ? "approved" : "pending" };
       const created = SUPABASE_CONFIGURED
         ? await insertFuelExpenseRow(payload)
         : { id: uid(), ...payload, status: "a_payer", createdAt: new Date().toISOString() };
@@ -5166,7 +5196,7 @@ export default function AlerteClientWifi() {
   };
 
   const markAllFuelExpensesPaid = async (technicienNom) => {
-    const unpaid = fuelExpenses.filter((f) => f.technicienNom === technicienNom && f.status === "a_payer");
+    const unpaid = fuelExpenses.filter((f) => f.technicienNom === technicienNom && f.status === "a_payer" && f.approvalStatus === "approved");
     if (unpaid.length === 0) return;
     const total = unpaid.reduce((s, f) => s + (Number(f.montant) || 0), 0);
     if (!window.confirm(`Confirmer le paiement de ${fmtFCFA(total)} à "${technicienNom}" (${unpaid.length} déplacement(s)) ? Le compteur repassera à 0.`)) return;
@@ -5280,7 +5310,7 @@ export default function AlerteClientWifi() {
     // Si le nom correspond à un compte enregistré (Admin/Technicien), le perdiem est rattaché
     // automatiquement à ce compte pour qu'il apparaisse dans son onglet "Mon argent".
     const matchedUser = users.find((u) => u.nom.trim().toLowerCase() === personneNom.trim().toLowerCase());
-    const payload = { personneId: matchedUser?.id || null, personneNom: personneNom.trim(), montant: Number(montant), note: note || "" };
+    const payload = { personneId: matchedUser?.id || null, personneNom: personneNom.trim(), montant: Number(montant), note: note || "", approvalStatus: isPrincipalAdmin ? "approved" : "pending" };
     try {
       const created = SUPABASE_CONFIGURED
         ? await insertPerdiemRow(payload)
@@ -5330,7 +5360,7 @@ export default function AlerteClientWifi() {
   };
 
   const markAllPerdiemPaid = async (personneNom) => {
-    const unpaid = perdiemExpenses.filter((p) => p.personneNom === personneNom && p.status === "a_payer");
+    const unpaid = perdiemExpenses.filter((p) => p.personneNom === personneNom && p.status === "a_payer" && p.approvalStatus === "approved");
     if (unpaid.length === 0) return;
     const total = unpaid.reduce((s, p) => s + (Number(p.montant) || 0), 0);
     if (!window.confirm(`Confirmer le paiement de ${fmtFCFA(total)} à "${personneNom}" ?`)) return;
@@ -5353,7 +5383,7 @@ export default function AlerteClientWifi() {
       return;
     }
     setBusyOtherExpense(true);
-    const payload = { description: description.trim(), montant: Number(montant) };
+    const payload = { description: description.trim(), montant: Number(montant), approvalStatus: isPrincipalAdmin ? "approved" : "pending" };
     try {
       const created = SUPABASE_CONFIGURED
         ? await insertOtherExpenseRow(payload)
@@ -5365,6 +5395,27 @@ export default function AlerteClientWifi() {
       showToast("Erreur d'ajout.");
     } finally {
       setBusyOtherExpense(false);
+    }
+  };
+
+  // ---------- Validation des dépenses par l'admin principal ----------
+  // decision: "approved" (valider) | "rejected" (rejeter, non déduite = revient à la caisse)
+  const decideExpense = async (type, item, decision) => {
+    if (!isPrincipalAdmin) { showToast("Seul l'admin principal peut valider une dépense."); return; }
+    const table = type === "fuel" ? "wifi_fuel_expenses" : type === "perdiem" ? "wifi_perdiem" : "wifi_other_expenses";
+    const by = authUser?.nom || null;
+    const patch = { approvalStatus: decision, decidedBy: by, decidedAt: new Date().toISOString() };
+    try {
+      if (SUPABASE_CONFIGURED) await setExpenseApprovalRow(table, item.id, decision, by);
+      const apply = (arr) => arr.map((x) => (x.id === item.id ? { ...x, ...patch } : x));
+      if (type === "fuel") setFuelExpenses(apply);
+      else if (type === "perdiem") setPerdiemExpenses(apply);
+      else setOtherExpenses(apply);
+      logActivity(decision === "approved" ? "approve_expense" : "reject_expense", `Dépense ${type} ${decision === "approved" ? "validée" : "rejetée"} — ${fmtFCFA(item.montant)}`);
+      showToast(decision === "approved" ? "Dépense validée." : "Dépense rejetée (non déduite de la caisse).");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de validation.");
     }
   };
 
@@ -5931,7 +5982,7 @@ export default function AlerteClientWifi() {
           Tickets{pendingTicketRequests.length > 0 && <span className="tab-badge">{pendingTicketRequests.length}</span>}
         </button>
         <button className={`tab ${tab === "fuel" ? "active" : ""}`} onClick={() => setTab("fuel")}>
-          Dépenses{(unpaidFuelCount + unpaidPerdiemCount) > 0 && <span className="tab-badge">{unpaidFuelCount + unpaidPerdiemCount}</span>}
+          Dépenses{(unpaidFuelCount + unpaidPerdiemCount + (isPrincipalAdmin ? pendingApprovalsCount : 0)) > 0 && <span className="tab-badge">{unpaidFuelCount + unpaidPerdiemCount + (isPrincipalAdmin ? pendingApprovalsCount : 0)}</span>}
         </button>
         <button className={`tab ${tab === "caisse" ? "active" : ""}`} onClick={() => setTab("caisse")}>
           Caisse
@@ -6615,14 +6666,37 @@ export default function AlerteClientWifi() {
           })()}
 
           <div className="chips" style={{ marginBottom: 14 }}>
-            {["carburant", "lignes", "perdiem", "autres"].map((s) => (
+            {[...(isPrincipalAdmin ? ["valider"] : []), "carburant", "lignes", "perdiem", "autres"].map((s) => (
               <button key={s} className={`chip ${expenseSubTab === s ? "active" : ""}`} onClick={() => setExpenseSubTab(s)}>
-                {s === "carburant" ? "Carburant" : s === "lignes" ? "Lignes" : s === "perdiem" ? "Perdiem" : "Autres"}
+                {s === "valider" ? "À valider" : s === "carburant" ? "Carburant" : s === "lignes" ? "Lignes" : s === "perdiem" ? "Perdiem" : "Autres"}
+                {s === "valider" && pendingApprovalsCount > 0 && <span className="tab-badge">{pendingApprovalsCount}</span>}
                 {s === "carburant" && unpaidFuelCount > 0 && <span className="tab-badge">{unpaidFuelCount}</span>}
                 {s === "perdiem" && unpaidPerdiemCount > 0 && <span className="tab-badge">{unpaidPerdiemCount}</span>}
               </button>
             ))}
           </div>
+
+          {expenseSubTab === "valider" && isPrincipalAdmin && (
+            <div className="chart-card">
+              <div className="ctitle">DÉPENSES À VALIDER</div>
+              <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginBottom: 12 }}>
+                Chaque dépense créée par un technicien ou un autre admin attend ta validation. Tant qu'elle n'est pas validée, elle n'est <strong>pas</strong> déduite de la caisse. Un <strong>rejet</strong> la garde en trace (marquée « Rejetée ») sans jamais la déduire.
+              </div>
+              {pendingApprovals.length === 0 && <div className="empty">Rien à valider. Tout est à jour ✅</div>}
+              {pendingApprovals.map((p) => (
+                <div key={`${p.type}-${p.id}`} className="versement-row">
+                  <div style={{ flex: 1 }}>
+                    <div className="versement-main"><b>{fmtFCFA(p.montant)}</b> · {p.label}</div>
+                    <div className="versement-sub">{p.createdAt ? fmtDate(p.createdAt) : ""} · en attente de validation</div>
+                  </div>
+                  <div className="approval-row" style={{ gap: 6 }}>
+                    <button className="btn-save" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => decideExpense(p.type, p.item, "approved")}>Valider</button>
+                    <button className="btn-cancel" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => { if (window.confirm(`Rejeter cette dépense de ${fmtFCFA(p.montant)} ? Elle ne sera pas déduite de la caisse (marquée Rejetée).`)) decideExpense(p.type, p.item, "rejected"); }}>Rejeter</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {expenseSubTab === "carburant" && (
             <>
@@ -6786,9 +6860,11 @@ export default function AlerteClientWifi() {
                           ) : (
                             <>
                               <span className="approval-badge pending">⏳ {statut === "EXPIRE" ? "Échéance dépassée — à payer" : "Échéance proche — à payer"}</span>
-                              <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markExpenseLinePaid(l)}>
-                                Marquer payé
-                              </button>
+                              {isPrincipalAdmin && (
+                                <button className="btn-add" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => markExpenseLinePaid(l)}>
+                                  Marquer payé
+                                </button>
+                              )}
                             </>
                           )}
                         </div>
@@ -6967,8 +7043,8 @@ export default function AlerteClientWifi() {
                 {otherExpenses.map((o) => (
                   <div key={o.id} className="rah-item">
                     <span className="rah-date">{o.createdAt ? new Date(o.createdAt).toLocaleDateString("fr-FR") : ""}</span>
-                    <span>{o.description}</span>
-                    <span className="rah-amount">{fmtFCFA(o.montant)}</span>
+                    <span>{o.description} <ApprovalTag status={o.approvalStatus} /></span>
+                    <span className="rah-amount" style={o.approvalStatus === "rejected" ? { textDecoration: "line-through", opacity: 0.6 } : undefined}>{fmtFCFA(o.montant)}</span>
                     <button
                       className={`icon-btn ${canModifyEntry(o.createdAt) ? "" : "locked"}`}
                       title={canModifyEntry(o.createdAt) ? "Modifier" : "Passé 24h — réservé à l'administrateur principal"}
