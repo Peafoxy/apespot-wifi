@@ -4134,6 +4134,21 @@ export default function AlerteClientWifi() {
     return f + p + o;
   }, [fuelExpenses, perdiemExpenses, otherExpenses]);
 
+  // Compteurs de la PÉRIODE EN COURS = depuis le dernier versement.
+  // Paiements = ceux non encore versés ; dépenses payées depuis la date du dernier versement.
+  const periodeActuelle = useMemo(() => {
+    const dates = versements.map((v) => v.date).filter(Boolean).sort();
+    const depuis = dates.length ? dates[dates.length - 1] : null;
+    const apres = (d) => !depuis || (String(d || "").slice(0, 10) > depuis);
+    const paiements = payments.filter((p) => !p.verse).reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const nbPaiements = payments.filter((p) => !p.verse).length;
+    const fuel = fuelExpenses.filter((f) => f.status === "paye" && f.approvalStatus === "approved" && apres(f.createdAt)).reduce((s, f) => s + (Number(f.montant) || 0), 0);
+    const perdiem = perdiemExpenses.filter((p) => p.status === "paye" && p.approvalStatus === "approved" && apres(p.createdAt)).reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const autres = otherExpenses.filter((o) => o.approvalStatus === "approved" && apres(o.createdAt)).reduce((s, o) => s + (Number(o.montant) || 0), 0);
+    const depenses = fuel + perdiem + autres;
+    return { depuis, paiements, nbPaiements, depenses, net: paiements - depenses };
+  }, [versements, payments, fuelExpenses, perdiemExpenses, otherExpenses]);
+
   // Marquer un paiement comme versé / non versé (bascule). Fait descendre le compteur.
   const togglePaymentVerse = async (p) => {
     if (!isPrincipalAdmin) { showToast("Seul l'admin principal peut gérer les versements."); return; }
@@ -7128,6 +7143,20 @@ export default function AlerteClientWifi() {
             <div className="stat expire"><div className="n">{fmtFCFA(caisseData.totalDepenses)}</div><div className="l">Dépenses (déduites)</div></div>
             <div className="stat ok"><div className="n">{fmtFCFA(caisseData.totalVerse)}</div><div className="l">Déjà versé</div></div>
             <div className="stat attention"><div className="n">{fmtFCFA(caisseData.resteAVerser)}</div><div className="l">Reste à verser</div></div>
+          </div>
+
+          <div className="chart-card" style={{ borderColor: "rgba(245,224,120,.4)" }}>
+            <div className="ctitle" style={{ color: "#e6cf6e" }}>
+              PÉRIODE EN COURS {periodeActuelle.depuis ? `(depuis le dernier versement du ${fmtDate(periodeActuelle.depuis)})` : "(aucun versement encore)"}
+            </div>
+            <div className="caisse-calc">
+              <div className="caisse-calc-row"><span>Paiements non versés ({periodeActuelle.nbPaiements})</span><b style={{ color: "var(--green)" }}>{fmtFCFA(periodeActuelle.paiements)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Dépenses payées cette période</span><b>− {fmtFCFA(periodeActuelle.depenses)}</b></div>
+              <div className="caisse-calc-row total"><span>Net de la période</span><b style={{ color: periodeActuelle.net >= 0 ? "var(--green)" : "var(--red)" }}>{periodeActuelle.net >= 0 ? "" : "− "}{fmtFCFA(Math.abs(periodeActuelle.net))}</b></div>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 10 }}>
+              Ce que tu as encaissé (pas encore versé) et dépensé depuis ton dernier versement. À chaque nouveau versement, ces compteurs repartent (les paiements marqués « versé » sortent du compteur).
+            </div>
           </div>
 
           <div className="toolbar">
