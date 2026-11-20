@@ -8086,7 +8086,7 @@ const CSS = `
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
 /* --- Menu mobile : bouton + menu déroulant juste en dessous du bouton --- */
 .wifi-app .tabs-mobile-wrap{display:none;position:relative;}
-.wifi-app .drawer-backdrop{position:fixed;inset:0;z-index:69;background:rgba(0,0,0,.35);}
+.wifi-app .drawer-backdrop{position:fixed;inset:0;z-index:69;background:rgba(0,0,0,.35);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);}
 .wifi-app .drawer-pop{position:absolute;top:calc(100% - 10px);left:0;z-index:71;width:max-content;max-width:78vw;min-width:0;background:var(--bg-panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 40px -10px rgba(0,0,0,.85);display:flex;flex-direction:column;gap:4px;padding:8px;max-height:72vh;overflow-y:auto;animation:apPopIn .16s ease;transform-origin:top left;}
 @keyframes apPopIn{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}
 .wifi-app .mb-chev{flex:none;color:var(--text-dim);font-size:12px;transition:transform .2s;}
