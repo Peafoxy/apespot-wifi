@@ -108,47 +108,63 @@
   }
 }
 
-# 4bis) SUPPRESSION des comptes inactifs depuis 3 mois.
-# On lit "last-logged-out" de chaque compte de CE routeur (date de derniere
-# deconnexion). On gere les 2 formats : v7 "2026-11-20..." et v6 "nov/20/2026...".
-# Si c'est plus vieux que ~3 mois ET que le compte n'est PAS connecte, on le
-# supprime (si supprimer=true) ou on l'ecrit dans le Log (si supprimer=false).
-# Fonction : convertit une date en nombre de jours approx (pour comparer).
-:global apJours do={
-  :local s $1
-  :local y 0
-  :local mo 0
-  :local d 0
-  :if ([:pick $s 4 5] = "-") do={
-    :set y [:tonum [:pick $s 0 4]]
-    :set mo [:tonum [:pick $s 5 7]]
-    :set d [:tonum [:pick $s 8 10]]
-  } else={
-    :local mn [:tolower [:pick $s 0 3]]
-    :local noms "janfebmaraprmayjunjulaugsepoctnovdec"
-    :local p [:find $noms $mn]
-    :if ([:typeof $p] = "num") do={ :set mo (($p / 3) + 1) }
-    :set d [:tonum [:pick $s 4 6]]
-    :set y [:tonum [:pick $s 7 11]]
-  }
-  :if ($y < 2020) do={ :return 0 }
-  :return (($y * 365) + ($mo * 30) + $d)
+# 4bis) SUPPRESSION des comptes inactifs depuis ~3 mois.
+# On lit "last-logged-out" de chaque compte de CE routeur. Calcul EN LIGNE
+# (SANS fonction) pour marcher sur RouterOS v6 ET v7. On gere 2 formats de
+# date : "2026-11-20..." (ISO) et "nov/20/2026..." (ancien v6). Si c'est plus
+# vieux que ~3 mois ET que le compte n'est PAS connecte, on supprime (si
+# supprimer=true) ou on l'ecrit dans le Log (si supprimer=false).
+
+# -- Date du jour -> nombre de jours approx --
+:local dnow [/system clock get date]
+:local ya 0
+:local ma 0
+:local da 0
+:if ([:pick $dnow 4 5] = "-") do={
+  :set ya [:tonum [:pick $dnow 0 4]]
+  :set ma [:tonum [:pick $dnow 5 7]]
+  :set da [:tonum [:pick $dnow 8 10]]
+} else={
+  :local mnn [:tolower [:pick $dnow 0 3]]
+  :local nomsn "janfebmaraprmayjunjulaugsepoctnovdec"
+  :local pn [:find $nomsn $mnn]
+  :if ([:typeof $pn] = "num") do={ :set ma (($pn / 3) + 1) }
+  :set da [:tonum [:pick $dnow 4 6]]
+  :set ya [:tonum [:pick $dnow 7 11]]
 }
-:local aujJours [$apJours [/system clock get date]]
+:local aujJours (($ya * 365) + ($ma * 30) + $da)
+
 :foreach s in=[/ppp secret find] do={
   :local nm [/ppp secret get $s name]
   :local llo [/ppp secret get $s last-logged-out]
   :if ([:len $llo] >= 10) do={
-    :local lloJours [$apJours $llo]
-    :if (($lloJours > 0) && ([:len [/ppp active find name=$nm]] = 0)) do={
-      :local age ($aujJours - $lloJours)
-      :if ($age > 90) do={
-        :if ($supprimer) do={
-          /ppp secret remove $s
-        } else={
-          :log warning ("APESPOT PPPoE (TEST SUPPR): supprimerait " . $nm . " (inactif ~" . $age . " j)")
+    :local yb 0
+    :local mb 0
+    :local db 0
+    :if ([:pick $llo 4 5] = "-") do={
+      :set yb [:tonum [:pick $llo 0 4]]
+      :set mb [:tonum [:pick $llo 5 7]]
+      :set db [:tonum [:pick $llo 8 10]]
+    } else={
+      :local mnl [:tolower [:pick $llo 0 3]]
+      :local nomsl "janfebmaraprmayjunjulaugsepoctnovdec"
+      :local pl [:find $nomsl $mnl]
+      :if ([:typeof $pl] = "num") do={ :set mb (($pl / 3) + 1) }
+      :set db [:tonum [:pick $llo 4 6]]
+      :set yb [:tonum [:pick $llo 7 11]]
+    }
+    :if ($yb >= 2020) do={
+      :local lloJours (($yb * 365) + ($mb * 30) + $db)
+      :if ([:len [/ppp active find name=$nm]] = 0) do={
+        :local age ($aujJours - $lloJours)
+        :if ($age > 90) do={
+          :if ($supprimer) do={
+            /ppp secret remove $s
+          } else={
+            :log warning ("APESPOT PPPoE (TEST SUPPR): supprimerait " . $nm . " (inactif ~" . $age . " j)")
+          }
+          :set nbSuppr ($nbSuppr + 1)
         }
-        :set nbSuppr ($nbSuppr + 1)
       }
     }
   }
