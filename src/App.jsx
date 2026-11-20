@@ -6059,7 +6059,8 @@ export default function AlerteClientWifi() {
           </div>
 
           {availableServers.length > 0 && (
-            <div className="chips" style={{ marginTop: -8, marginBottom: 18 }}>
+            <div className="chips server-chips" style={{ marginTop: -8, marginBottom: 18 }}>
+              <span className="chips-label">SERVEUR</span>
               <button className={`chip ${serverFilter === "ALL" ? "active" : ""}`} onClick={() => setServerFilter("ALL")}>
                 Tous
               </button>
@@ -7867,6 +7868,8 @@ const CSS = `
 .wifi-app .search input:focus{border-color:var(--cyan);}
 .wifi-app .search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--text-faint);}
 .wifi-app .chips{display:flex;gap:6px;flex-wrap:wrap;}
+.wifi-app .server-chips{align-items:center;}
+.wifi-app .chips-label{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--text-faint);text-transform:uppercase;margin-right:6px;align-self:center;}
 .wifi-app .chip{padding:8px 13px;border-radius:9px;border:1px solid var(--line);background:var(--bg-card);color:var(--text-dim);font-size:12.5px;cursor:pointer;font-family:var(--sans);white-space:nowrap;transition:.15s;}
 .wifi-app .chip:hover{border-color:var(--text-faint);color:var(--text);}
 .wifi-app .chip.active{background:var(--cyan-dim);border-color:var(--cyan);color:var(--cyan);}
