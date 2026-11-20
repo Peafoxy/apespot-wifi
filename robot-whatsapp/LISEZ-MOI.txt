@@ -2,10 +2,22 @@
    ROBOT WHATSAPP APESPOT — GUIDE D'INSTALLATION (WINDOWS)
 ======================================================
 
-Ce robot envoie automatiquement, chaque matin, un rappel WhatsApp aux
-clients dont l'abonnement expire bientôt (d'aujourd'hui à 4 jours avant).
-Il utilise exactement les mêmes messages que l'application.
+Ce robot fait DEUX choses automatiquement :
 
+  1. RAPPELS CLIENTS — chaque matin, un rappel WhatsApp aux clients dont
+     l'abonnement expire bientôt (d'aujourd'hui à 4 jours avant).
+
+  2. ALERTES ÉQUIPE — toutes les 3 minutes, il prévient par WhatsApp les
+     membres de l'équipe quand un client fait un PAIEMENT, une DEMANDE DE
+     TICKET ou une RÉCLAMATION.
+       - Paiement    -> administrateurs
+       - Ticket      -> administrateurs + techniciens
+       - Réclamation -> administrateurs + techniciens
+     Le numéro WhatsApp de chaque membre se renseigne dans l'application,
+     onglet « Utilisateurs » (fiche de l'utilisateur). Un membre sans numéro
+     ne reçoit aucune alerte.
+
+Il utilise exactement les mêmes messages que l'application.
 Il tourne sur un ordinateur Windows qui reste ALLUMÉ et CONNECTÉ à internet.
 
 

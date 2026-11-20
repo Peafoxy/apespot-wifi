@@ -1002,8 +1002,8 @@ const versementToRow = (v) => ({
 const rowToMessage = (r) => ({ id: r.id, clientId: r.client_id, clientNom: r.client_nom, sender: r.sender, body: r.body, read: r.read ?? false, createdAt: r.created_at });
 const messageToRow = (m) => ({ client_id: m.clientId || null, client_nom: m.clientNom, sender: m.sender, body: m.body });
 
-const rowToUser = (r) => ({ id: r.id, nom: r.nom, role: r.role, pin: r.pin, isPrincipal: r.is_principal ?? false, createdAt: r.created_at });
-const userToRow = (u) => ({ nom: u.nom, role: u.role, pin: u.pin });
+const rowToUser = (r) => ({ id: r.id, nom: r.nom, role: r.role, pin: r.pin, telephone: r.telephone || "", isPrincipal: r.is_principal ?? false, createdAt: r.created_at });
+const userToRow = (u) => ({ nom: u.nom, role: u.role, pin: u.pin, telephone: u.telephone ? u.telephone.trim() : null });
 
 const rowToTicketDuration = (r) => ({ id: r.id, label: r.label, sortOrder: r.sort_order });
 const ticketDurationToRow = (d) => ({ label: d.label, sort_order: d.sortOrder ?? 0 });
@@ -5789,13 +5789,13 @@ export default function AlerteClientWifi() {
   };
 
   // ---------- Gestion des utilisateurs (Admin / Technicien) ----------
-  const openAddUser = () => setUserModal({ editingId: null, nom: "", role: "technicien", pin: generateUserPin() });
-  const openEditUser = (u) => setUserModal({ editingId: u.id, nom: u.nom, role: u.role, pin: u.pin });
+  const openAddUser = () => setUserModal({ editingId: null, nom: "", role: "technicien", pin: generateUserPin(), telephone: "" });
+  const openEditUser = (u) => setUserModal({ editingId: u.id, nom: u.nom, role: u.role, pin: u.pin, telephone: u.telephone || "" });
   const closeUserModal = () => setUserModal(null);
 
   const saveUserModal = async () => {
     if (busySaveUser) return;
-    const { editingId, nom, role, pin } = userModal;
+    const { editingId, nom, role, pin, telephone } = userModal;
     if (!nom.trim()) return showToast("Le nom est requis.");
     if (!pin.trim()) return showToast("Le code PIN est requis.");
     const pinPropre = pin.trim();
@@ -5806,7 +5806,7 @@ export default function AlerteClientWifi() {
     if (pinPropre !== (existant && existant.pin) && !/^\d{6,}$/.test(pinPropre)) {
       return showToast("Le code PIN doit comporter au moins 6 chiffres.");
     }
-    const payload = { nom: nom.trim(), role, pin: pinPropre };
+    const payload = { nom: nom.trim(), role, pin: pinPropre, telephone: (telephone || "").trim() };
     // Un PIN doit être unique par rôle : deux comptes du même rôle avec le
     // même PIN, et l'un se connecterait sous l'identité de l'autre.
     if (users.some((x) => x.id !== editingId && x.role === role && x.pin === payload.pin)) {
@@ -7401,6 +7401,19 @@ export default function AlerteClientWifi() {
                 <option value="admin">Admin</option>
                 <option value="technicien">Technicien</option>
               </select>
+            </div>
+            <div className="field">
+              <label>Numéro WhatsApp (pour les alertes)</label>
+              <input
+                placeholder="Ex: 90 00 00 00"
+                inputMode="tel"
+                value={userModal.telephone}
+                onChange={(e) => setUserModal({ ...userModal, telephone: e.target.value })}
+              />
+              <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 5, lineHeight: 1.4 }}>
+                Le robot envoie les alertes (paiements, tickets, réclamations) à ce numéro.
+                Laisser vide = cet utilisateur ne reçoit aucune alerte WhatsApp.
+              </div>
             </div>
             <div className="field">
               <label>Code PIN</label>

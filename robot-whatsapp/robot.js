@@ -25,6 +25,9 @@ const DELAI_MIN = 8000;   // 8 secondes
 const DELAI_MAX = 22000;  // 22 secondes
 const MAX_PAR_RUN = 40;   // sécurité : jamais plus de 40 messages par passage
 
+// Alertes à l'équipe (paiement / ticket / réclamation) : fréquence de contrôle.
+const ALERTE_INTERVALLE_MIN = Math.max(1, parseInt(process.env.ALERTE_INTERVALLE_MIN || "3", 10) || 3);
+
 function log(...a) { console.log(new Date().toLocaleString("fr-FR"), "-", ...a); }
 function dodo(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function alea(a, b) { return Math.floor(a + Math.random() * (b - a)); }
@@ -50,15 +53,21 @@ client.on("auth_failure", (m) => log("Échec d'authentification :", m));
 
 client.on("ready", () => {
   log("Robot connecté et prêt ✓");
-  log(`Envoi automatique programmé chaque jour à ${HEURE}h (heure de Lomé).`);
-  // Planifie l'envoi quotidien à l'heure choisie.
+  log(`Rappels clients : chaque jour à ${HEURE}h (heure de Lomé).`);
+  log(`Alertes équipe : vérifiées toutes les ${ALERTE_INTERVALLE_MIN} min.`);
+  // 1) Rappels d'abonnement aux clients, une fois par jour à l'heure choisie.
   cron.schedule(`0 ${HEURE} * * *`, () => {
     envoyerRappels().catch((e) => log("Erreur pendant l'envoi :", e.message));
   });
-  // Option de test : « npm run test-envoi » envoie immédiatement une fois.
+  // 2) Alertes à l'équipe (paiement / ticket / réclamation), régulièrement.
+  cron.schedule(`*/${ALERTE_INTERVALLE_MIN} * * * *`, () => {
+    envoyerAlertesEquipe().catch((e) => log("Erreur alertes équipe :", e.message));
+  });
+  // Option de test : « npm run test-envoi » lance tout de suite les deux.
   if (process.argv.includes("--maintenant")) {
     log("Option --maintenant : envoi immédiat (test).");
     envoyerRappels().catch((e) => log("Erreur pendant l'envoi :", e.message));
+    envoyerAlertesEquipe().catch((e) => log("Erreur alertes équipe :", e.message));
   }
 });
 
@@ -122,6 +131,59 @@ async function envoyerRappels() {
     }
   }
   log("Terminé.");
+}
+
+// Alertes à l'ÉQUIPE : nouveaux paiements / tickets / réclamations. Le serveur
+// renvoie, pour chaque événement, le message et les numéros des membres
+// concernés (selon leur rôle). On reste silencieux quand il n'y a rien.
+async function envoyerAlertesEquipe() {
+  let data;
+  try {
+    const res = await fetch(`${APP_URL}/api/alertes-equipe?cle=${encodeURIComponent(CLE)}`);
+    data = await res.json();
+    if (!data.ok) throw new Error(data.error || "réponse invalide du serveur");
+  } catch (e) {
+    log("Alertes équipe — impossible de récupérer :", e.message);
+    return;
+  }
+
+  const events = data.events || [];
+  if (events.length === 0) return; // rien de nouveau : on ne dit rien
+  log(`${events.length} alerte(s) équipe à envoyer.`);
+
+  const marks = [];
+  for (const ev of events) {
+    const dests = ev.recipients || [];
+    let auMoinsUn = false;
+    for (const tel of dests) {
+      const chatId = `${tel}@c.us`;
+      try {
+        const inscrit = await client.isRegisteredUser(chatId).catch(() => true);
+        if (!inscrit) { log(`✗ Équipe ${tel} n'est pas sur WhatsApp — ignoré.`); continue; }
+        await client.sendMessage(chatId, ev.message);
+        auMoinsUn = true;
+        log(`✓ Alerte envoyée à l'équipe (${tel})`);
+      } catch (e) {
+        log(`✗ Alerte échouée pour ${tel} :`, e.message);
+      }
+      await dodo(alea(2000, 5000));
+    }
+    // Marque l'événement traité si au moins un envoi a réussi, ou s'il n'y avait
+    // aucun destinataire (sinon il ressortirait à chaque passage).
+    if (auMoinsUn || dests.length === 0) marks.push({ table: ev.table, id: ev.id });
+  }
+
+  if (marks.length) {
+    try {
+      await fetch(`${APP_URL}/api/alertes-equipe?cle=${encodeURIComponent(CLE)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marks }),
+      });
+    } catch (e) {
+      log("Alertes envoyées mais marquage échoué :", e.message);
+    }
+  }
 }
 
 log("Démarrage du robot WhatsApp APESPOT…");
