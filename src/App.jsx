@@ -4149,6 +4149,8 @@ export default function AlerteClientWifi() {
     return { depuis, paiements, nbPaiements, depenses, net: paiements - depenses };
   }, [versements, payments, fuelExpenses, perdiemExpenses, otherExpenses]);
 
+  const [caisseFilter, setCaisseFilter] = useState("periode"); // "periode" (défaut) | "tout"
+
   // Marquer un paiement comme versé / non versé (bascule). Fait descendre le compteur.
   const togglePaymentVerse = async (p) => {
     if (!isPrincipalAdmin) { showToast("Seul l'admin principal peut gérer les versements."); return; }
@@ -7138,26 +7140,29 @@ export default function AlerteClientWifi() {
 
       {tab === "caisse" && (
         <div className="view active">
-          <div className="stats">
-            <div className="stat total"><div className="n">{fmtFCFA(caisseData.totalEncaisse)}</div><div className="l">Total encaissé</div></div>
-            <div className="stat expire"><div className="n">{fmtFCFA(caisseData.totalDepenses)}</div><div className="l">Dépenses (déduites)</div></div>
-            <div className="stat ok"><div className="n">{fmtFCFA(caisseData.totalVerse)}</div><div className="l">Déjà versé</div></div>
-            <div className="stat attention"><div className="n">{fmtFCFA(caisseData.resteAVerser)}</div><div className="l">Reste à verser</div></div>
+          <div className="chips" style={{ marginBottom: 12 }}>
+            <button className={`chip ${caisseFilter === "periode" ? "active" : ""}`} onClick={() => setCaisseFilter("periode")}>
+              Période en cours{periodeActuelle.depuis ? ` · depuis le ${fmtDate(periodeActuelle.depuis)}` : ""}
+            </button>
+            <button className={`chip ${caisseFilter === "tout" ? "active" : ""}`} onClick={() => setCaisseFilter("tout")}>
+              Tout (depuis le début)
+            </button>
           </div>
-
-          <div className="chart-card" style={{ borderColor: "rgba(245,224,120,.4)" }}>
-            <div className="ctitle" style={{ color: "#e6cf6e" }}>
-              PÉRIODE EN COURS {periodeActuelle.depuis ? `(depuis le dernier versement du ${fmtDate(periodeActuelle.depuis)})` : "(aucun versement encore)"}
-            </div>
-            <div className="caisse-calc">
-              <div className="caisse-calc-row"><span>Paiements non versés ({periodeActuelle.nbPaiements})</span><b style={{ color: "var(--green)" }}>{fmtFCFA(periodeActuelle.paiements)}</b></div>
-              <div className="caisse-calc-row neg"><span>− Dépenses payées cette période</span><b>− {fmtFCFA(periodeActuelle.depenses)}</b></div>
-              <div className="caisse-calc-row total"><span>Net de la période</span><b style={{ color: periodeActuelle.net >= 0 ? "var(--green)" : "var(--red)" }}>{periodeActuelle.net >= 0 ? "" : "− "}{fmtFCFA(Math.abs(periodeActuelle.net))}</b></div>
-            </div>
-            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 10 }}>
-              Ce que tu as encaissé (pas encore versé) et dépensé depuis ton dernier versement. À chaque nouveau versement, ces compteurs repartent (les paiements marqués « versé » sortent du compteur).
-            </div>
-          </div>
+          {(() => {
+            const periode = caisseFilter === "periode";
+            const cEncaisse = periode ? periodeActuelle.paiements : caisseData.totalEncaisse;
+            const cDepenses = periode ? periodeActuelle.depenses : caisseData.totalDepenses;
+            const cVerse = periode ? 0 : caisseData.totalVerse;
+            const cReste = periode ? periodeActuelle.net : caisseData.resteAVerser;
+            return (
+              <div className="stats">
+                <div className="stat total"><div className="n">{fmtFCFA(cEncaisse)}</div><div className="l">{periode ? "Encaissé (non versé)" : "Total encaissé"}</div></div>
+                <div className="stat expire"><div className="n">{fmtFCFA(cDepenses)}</div><div className="l">{periode ? "Dépenses (période)" : "Dépenses (déduites)"}</div></div>
+                <div className="stat ok"><div className="n">{fmtFCFA(cVerse)}</div><div className="l">{periode ? "Versé (période)" : "Déjà versé"}</div></div>
+                <div className="stat attention"><div className="n" style={periode && cReste < 0 ? { color: "var(--red)" } : undefined}>{fmtFCFA(cReste)}</div><div className="l">{periode ? "Net de la période" : "Reste à verser"}</div></div>
+              </div>
+            );
+          })()}
 
           <div className="toolbar">
             <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
