@@ -4023,21 +4023,26 @@ export default function AlerteClientWifi() {
     [enrichedClients]
   );
 
-  // ---------- Caisse GLOBALE : encaissé − dépenses − versé = reste à verser ----------
-  // Une seule caisse pour toute l'équipe (pas de distinction par personne). Les
-  // dépenses en espèces (carburant, perdiem, autres) sont soustraites
-  // automatiquement. Les « lignes » (abonnements récurrents) ne sont PAS
-  // déduites de la caisse : elles restent une charge du bilan comptable.
+  // ---------- Caisse GLOBALE : encaissé − dépenses PAYÉES − versé = reste à verser ----------
+  // Une seule caisse pour toute l'équipe. On ne déduit que l'argent RÉELLEMENT
+  // sorti de la caisse :
+  //   - carburant / perdiem : uniquement ceux marqués « payé » (remboursés) ;
+  //     tant qu'ils sont « à payer », l'argent est encore dans la caisse.
+  //   - autres dépenses : toujours (elles sont immédiates, pas de statut).
+  //   - lignes récurrentes : uniquement celles déjà réglées (lastPaidMonth).
+  //     NB : le modèle ne garde que le DERNIER mois réglé par ligne, donc une
+  //     ligne payée plusieurs mois n'est comptée qu'une fois ici.
   const caisseData = useMemo(() => {
     const totalEncaisse = payments.reduce((s, p) => s + (Number(p.montant) || 0), 0);
-    const totalFuel = fuelExpenses.reduce((s, f) => s + (Number(f.montant) || 0), 0);
-    const totalPerdiem = perdiemExpenses.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const totalFuel = fuelExpenses.filter((f) => f.status === "paye").reduce((s, f) => s + (Number(f.montant) || 0), 0);
+    const totalPerdiem = perdiemExpenses.filter((p) => p.status === "paye").reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const totalAutres = otherExpenses.reduce((s, o) => s + (Number(o.montant) || 0), 0);
-    const totalDepenses = totalFuel + totalPerdiem + totalAutres;
+    const totalLignes = expenseLines.filter((l) => l.lastPaidMonth).reduce((s, l) => s + (Number(l.montant) || 0), 0);
+    const totalDepenses = totalFuel + totalPerdiem + totalAutres + totalLignes;
     const totalVerse = versements.reduce((s, v) => s + (Number(v.montant) || 0), 0);
     const resteAVerser = totalEncaisse - totalDepenses - totalVerse;
-    return { totalEncaisse, totalFuel, totalPerdiem, totalAutres, totalDepenses, totalVerse, resteAVerser };
-  }, [payments, fuelExpenses, perdiemExpenses, otherExpenses, versements]);
+    return { totalEncaisse, totalFuel, totalPerdiem, totalAutres, totalLignes, totalDepenses, totalVerse, resteAVerser };
+  }, [payments, fuelExpenses, perdiemExpenses, otherExpenses, expenseLines, versements]);
 
   const [versementModal, setVersementModal] = useState(null); // { montant, date, remisPar, recuPar, note } | null
   const [busyVersement, setBusyVersement] = useState(false);
@@ -6997,7 +7002,7 @@ export default function AlerteClientWifi() {
 
           <div className="toolbar">
             <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
-              Caisse commune. Le reste à verser = tout l'encaissé − les dépenses (carburant, perdiem, autres) − ce qui est déjà versé.
+              Caisse commune. Le reste à verser = tout l'encaissé − les dépenses réellement payées (carburant/perdiem remboursés, autres dépenses, lignes réglées) − ce qui est déjà versé. Les dépenses encore « à payer » ne baissent pas la caisse tant qu'elles ne sont pas remboursées.
             </div>
             <button className="btn-add" onClick={() => openVersement()}>+ Enregistrer un versement</button>
           </div>
@@ -7006,14 +7011,15 @@ export default function AlerteClientWifi() {
             <div className="ctitle">CALCUL DU RESTE À VERSER</div>
             <div className="caisse-calc">
               <div className="caisse-calc-row"><span>Total encaissé</span><b>{fmtFCFA(caisseData.totalEncaisse)}</b></div>
-              <div className="caisse-calc-row neg"><span>− Carburant</span><b>− {fmtFCFA(caisseData.totalFuel)}</b></div>
-              <div className="caisse-calc-row neg"><span>− Perdiem</span><b>− {fmtFCFA(caisseData.totalPerdiem)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Carburant (payé)</span><b>− {fmtFCFA(caisseData.totalFuel)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Perdiem (payé)</span><b>− {fmtFCFA(caisseData.totalPerdiem)}</b></div>
               <div className="caisse-calc-row neg"><span>− Autres dépenses</span><b>− {fmtFCFA(caisseData.totalAutres)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Lignes (réglées)</span><b>− {fmtFCFA(caisseData.totalLignes)}</b></div>
               <div className="caisse-calc-row neg"><span>− Déjà versé</span><b>− {fmtFCFA(caisseData.totalVerse)}</b></div>
               <div className="caisse-calc-row total"><span>Reste à verser</span><b>{fmtFCFA(caisseData.resteAVerser)}</b></div>
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 12 }}>
-              Les « lignes » (abonnements récurrents) ne sont pas déduites ici — elles restent une charge du bilan comptable.
+              Seules les lignes récurrentes déjà réglées sont déduites ici. ⚠️ Le suivi ne garde que le dernier mois réglé par ligne : une ligne payée chaque mois n'est comptée qu'une fois. Pour un suivi exact mois par mois, enregistre plutôt le paiement en « Autre dépense ».
             </div>
           </div>
 
