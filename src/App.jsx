@@ -3266,6 +3266,88 @@ function ClientView({ client, clients, payments, paymentRequests, complaints, me
 
 // -------------------- Main component --------------------
 
+// Liste des clients en PDF réel (jsPDF), selon le filtrage en cours. Multi-pages,
+// en-tête de colonnes répété à chaque page.
+async function generateClientsPDF(clients, filterLabel) {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX = 12;
+  const contentW = pageW - marginX * 2;
+  const bottomLimit = pageH - 14;
+  let y = 0;
+
+  const INK = [14, 21, 32], MUTE = [92, 108, 126];
+  const LINE = [226, 230, 235], ZEBRA = [244, 246, 248], HEAD = [240, 243, 246];
+  const RED = [179, 38, 30], AMBER = [176, 120, 20], GREEN = [22, 120, 70];
+  const statutColor = (s) => s === "EXPIRE" ? RED : s === "ATTENTION" ? AMBER : s === "OK" ? GREEN : MUTE;
+  const statutTxt = (s) => s === "EXPIRE" ? "Expiré" : s === "ATTENTION" ? "À surveiller" : s === "OK" ? "À jour" : "—";
+
+  const newPage = () => { doc.addPage(); y = 14; };
+
+  y = 16;
+  doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(17);
+  doc.text("APESPOT WI-FI", pageW / 2, y, { align: "center" }); y += 6;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10.5); doc.setTextColor(...MUTE);
+  doc.text("Liste des clients", pageW / 2, y, { align: "center" }); y += 5;
+  doc.setFontSize(9);
+  const dateGen = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  doc.text(`Filtre : ${filterLabel}  ·  ${clients.length} client${clients.length > 1 ? "s" : ""}  ·  Généré le ${dateGen}`, pageW / 2, y, { align: "center" }); y += 5;
+  doc.setDrawColor(62, 216, 195); doc.setLineWidth(0.8);
+  doc.line(pageW / 2 - 18, y, pageW / 2 + 18, y); y += 8;
+
+  const cols = [
+    { w: 0.20, header: "Client" },
+    { w: 0.19, header: "Offre" },
+    { w: 0.17, header: "Téléphone" },
+    { w: 0.14, header: "Serveur" },
+    { w: 0.12, header: "Échéance" },
+    { w: 0.08, header: "Jours", align: "right" },
+    { w: 0.10, header: "Statut" },
+  ];
+  const xs = []; let acc = marginX; cols.forEach((c) => { xs.push(acc); acc += c.w * contentW; });
+  const headH = 8, rowH = 7;
+  const drawHeader = () => {
+    doc.setFillColor(...HEAD); doc.rect(marginX, y, contentW, headH, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(...MUTE);
+    cols.forEach((c, i) => {
+      const tx = c.align === "right" ? xs[i] + c.w * contentW - 2 : xs[i] + 2;
+      doc.text(c.header.toUpperCase(), tx, y + 5.2, { align: c.align === "right" ? "right" : "left" });
+    });
+    doc.setDrawColor(...LINE); doc.setLineWidth(0.3); doc.line(marginX, y + headH, marginX + contentW, y + headH);
+    y += headH;
+  };
+  drawHeader();
+  clients.forEach((c, idx) => {
+    if (y + rowH > bottomLimit) { newPage(); drawHeader(); }
+    if (idx % 2 === 0) { doc.setFillColor(...ZEBRA); doc.rect(marginX, y, contentW, rowH, "F"); }
+    const cells = [
+      { t: c.nom || "" },
+      { t: c.offre || "—" },
+      { t: c.telephone || "—" },
+      { t: c.serveur || "—" },
+      { t: c.dateExp ? fmtDate(c.dateExp) : "—" },
+      { t: (c.jours === null || c.jours === undefined) ? "—" : (c.jours > 0 ? "+" : "") + c.jours, align: "right" },
+      { t: statutTxt(c.statut), color: statutColor(c.statut) },
+    ];
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+    cells.forEach((cell, i) => {
+      doc.setTextColor(...(cell.color || INK));
+      const col = cols[i];
+      const tx = col.align === "right" ? xs[i] + col.w * contentW - 2 : xs[i] + 2;
+      doc.text(String(cell.t), tx, y + 5, { align: col.align === "right" ? "right" : "left", maxWidth: col.w * contentW - 4 });
+    });
+    doc.setDrawColor(...LINE); doc.setLineWidth(0.2); doc.line(marginX, y + rowH, marginX + contentW, y + rowH);
+    y += rowH;
+  });
+  if (clients.length === 0) {
+    doc.setFont("helvetica", "italic"); doc.setFontSize(9); doc.setTextColor(...MUTE);
+    doc.text("Aucun client pour ce filtre.", marginX + 2, y + 6);
+  }
+  doc.save(`clients_apespot_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
 export default function AlerteClientWifi() {
   // ---- Rôle / authentification (PIN partagé pour Admin/Technicien, code unique pour Client) ----
   const [role, setRole] = useState(null); // null | 'admin' | 'technicien' | 'client'
@@ -4161,6 +4243,7 @@ export default function AlerteClientWifi() {
   const [caisseFilter, setCaisseFilter] = useState("periode"); // "periode" (défaut) | "tout"
   const [historiqueSearch, setHistoriqueSearch] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false); // menu tiroir mobile
+  const [exportMenuOpen, setExportMenuOpen] = useState(false); // menu Export (Excel/PDF)
 
   // Marquer un paiement comme versé / non versé (bascule). Fait descendre le compteur.
   const togglePaymentVerse = async (p) => {
@@ -4779,13 +4862,36 @@ export default function AlerteClientWifi() {
     showToast("Export CSV téléchargé.");
   };
 
+  // Libellé du filtrage en cours (pour l'en-tête du PDF et info utilisateur).
+  const exportFilterLabel = () => {
+    const fmap = { ALL: null, EXPIRE: "Expirés", ATTENTION: "À surveiller", OK: "À jour" };
+    const parts = [];
+    if (fmap[filter]) parts.push(fmap[filter]);
+    if (serverFilter !== "ALL") parts.push(serverFilter);
+    if (search.trim()) parts.push(`« ${search.trim()} »`);
+    return parts.length ? parts.join(" · ") : "Tous les clients";
+  };
+
+  // Export de la liste EN FONCTION DU FILTRAGE affiché (visibleClients).
   const exportClientsCSV = () => {
-    const header = ["Client", "Offre", "Téléphone", "Date expiration", "Jours restants", "Statut", "Action"];
-    const rows = [header, ...clients.map((c) => {
-      const { jours, statut, action } = computeStatus(c.dateExp);
-      return [c.nom, c.offre || "", c.telephone || "", c.dateExp || "", jours === null ? "" : jours, statut, action];
-    })];
+    setExportMenuOpen(false);
+    const header = ["Client", "Offre", "Téléphone", "Serveur", "Date expiration", "Jours restants", "Statut", "Action"];
+    const rows = [header, ...visibleClients.map((c) => [
+      c.nom, c.offre || "", c.telephone || "", c.serveur || "", c.dateExp || "",
+      c.jours === null ? "" : c.jours, c.statut, c.action || "",
+    ])];
     downloadCSV(`clients_apespot_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  };
+
+  const exportClientsPDF = async () => {
+    setExportMenuOpen(false);
+    try {
+      await generateClientsPDF(visibleClients, exportFilterLabel());
+      showToast("Export PDF téléchargé.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur lors de l'export PDF.");
+    }
   };
 
   const exportPaymentsCSV = () => {
@@ -6221,10 +6327,21 @@ export default function AlerteClientWifi() {
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2.4" strokeLinecap="round"><path d="M3 11l18-8-8 18-2-8-8-2Z" /></svg>
               Relance groupée
             </button>
-            <button className="btn-add btn-report" onClick={exportClientsCSV}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 19h16" /></svg>
-              Export CSV
-            </button>
+            <div className="export-menu-wrap">
+              <button className="btn-add btn-report" onClick={() => setExportMenuOpen((v) => !v)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 19h16" /></svg>
+                Export ▾
+              </button>
+              {exportMenuOpen && (
+                <>
+                  <div className="export-backdrop" onClick={() => setExportMenuOpen(false)} />
+                  <div className="export-menu">
+                    <button onClick={exportClientsCSV}>📊 Excel</button>
+                    <button onClick={exportClientsPDF}>📄 PDF</button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           {availableServers.length > 0 && (
@@ -8101,6 +8218,13 @@ const CSS = `
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);font-weight:800;text-shadow:0 0 16px rgba(62,216,195,.45);}
 .wifi-app .tab:hover{color:#FFFFFF;}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
+/* --- Menu Export (Excel / PDF) --- */
+.wifi-app .export-menu-wrap{position:relative;display:inline-flex;}
+.wifi-app .export-backdrop{position:fixed;inset:0;z-index:40;}
+.wifi-app .export-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:41;background:var(--bg-panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 34px -10px rgba(0,0,0,.8);padding:6px;display:flex;flex-direction:column;gap:4px;min-width:150px;animation:apPopIn .14s ease;}
+.wifi-app .export-menu button{display:flex;align-items:center;gap:9px;width:100%;padding:11px 13px;border-radius:8px;background:var(--bg-card);border:1px solid transparent;color:var(--text);font-family:var(--sans);font-size:14px;font-weight:600;cursor:pointer;text-align:left;}
+.wifi-app .export-menu button:hover{background:var(--cyan-dim);border-color:rgba(62,216,195,.35);}
+
 /* --- Menu mobile : bouton + menu déroulant juste en dessous du bouton --- */
 .wifi-app .tabs-mobile-wrap{display:none;position:relative;}
 .wifi-app .drawer-backdrop{position:fixed;inset:0;z-index:69;background:rgba(0,0,0,.35);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);}
