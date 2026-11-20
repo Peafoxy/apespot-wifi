@@ -76,7 +76,10 @@ Il tourne sur un ordinateur Windows qui reste ALLUMÉ et CONNECTÉ à internet.
 ÉTAPE 5 — Laisser tourner
 ----------------------------------------------------
 - Laisse la fenêtre OUVERTE et l'ordinateur ALLUMÉ.
-- Chaque jour à 8h (modifiable), le robot envoie les rappels tout seul.
+- Chaque jour à 8h, 10h et 14h, le robot vérifie et envoie les rappels tout
+  seul. Ces 3 passages servent de rattrapage : si 8h est raté (PC éteint,
+  coupure), 10h ou 14h envoie quand même. Un client déjà relancé dans la
+  journée n'est PAS renotifié.
 - Tu peux voir dans la fenêtre la liste de ce qui est envoyé.
 
 
@@ -94,7 +97,8 @@ Le robot envoie immédiatement les rappels du jour (pour vérifier).
 RÉGLAGES (fichier .env)
 ----------------------------------------------------
 Ouvre le fichier « .env » avec le Bloc-notes pour changer :
-   - HEURE_ENVOI = 8   -> l'heure d'envoi quotidien (0 à 23).
+   - HEURES_ENVOI = 8,10,14  -> les heures de vérification des rappels
+     (sépare par des virgules ; chaque valeur de 0 à 23).
 Ne touche pas à APP_URL ni à CLE.
 
 

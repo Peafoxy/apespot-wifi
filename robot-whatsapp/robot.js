@@ -17,7 +17,19 @@ const cron = require("node-cron");
 
 const APP_URL = (process.env.APP_URL || "https://apespot-wifi.vercel.app").replace(/\/+$/, "");
 const CLE = process.env.CLE || "";
-const HEURE = Math.min(23, Math.max(0, parseInt(process.env.HEURE_ENVOI || "8", 10) || 8));
+// Heures de vérification des rappels (plusieurs par jour pour rattraper un
+// éventuel incident : si 8h est raté, 10h ou 14h rattrape — un client déjà
+// relancé dans la journée n'est jamais renotifié).
+const HEURES = (() => {
+  const raw = process.env.HEURES_ENVOI || process.env.HEURE_ENVOI || "8,10,14";
+  const set = new Set();
+  String(raw).split(/[,;\s]+/).forEach((x) => {
+    const h = parseInt(x.trim(), 10);
+    if (Number.isInteger(h) && h >= 0 && h <= 23) set.add(h);
+  });
+  if (set.size === 0) set.add(8);
+  return [...set].sort((a, b) => a - b);
+})();
 
 // Délai aléatoire entre deux envois (en millisecondes) : imite un envoi humain
 // et évite de ressembler à un robot qui tire en rafale.
@@ -53,11 +65,13 @@ client.on("auth_failure", (m) => log("Échec d'authentification :", m));
 
 client.on("ready", () => {
   log("Robot connecté et prêt ✓");
-  log(`Rappels clients : chaque jour à ${HEURE}h (heure de Lomé).`);
+  log(`Rappels clients : à ${HEURES.map((h) => h + "h").join(", ")} (heure de Lomé). Un client déjà relancé n'est pas renotifié.`);
   log(`Alertes équipe : vérifiées toutes les ${ALERTE_INTERVALLE_MIN} min.`);
-  // 1) Rappels d'abonnement aux clients, une fois par jour à l'heure choisie.
-  cron.schedule(`0 ${HEURE} * * *`, () => {
-    envoyerRappels().catch((e) => log("Erreur pendant l'envoi :", e.message));
+  // 1) Rappels d'abonnement aux clients, à plusieurs heures (rattrapage si incident).
+  HEURES.forEach((h) => {
+    cron.schedule(`0 ${h} * * *`, () => {
+      envoyerRappels().catch((e) => log("Erreur pendant l'envoi :", e.message));
+    });
   });
   // 2) Alertes à l'équipe (paiement / ticket / réclamation), régulièrement.
   cron.schedule(`*/${ALERTE_INTERVALLE_MIN} * * * *`, () => {
