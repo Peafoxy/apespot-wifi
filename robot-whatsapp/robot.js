@@ -76,6 +76,119 @@ client.on("disconnected", (raison) => {
   client.initialize().catch(() => {});
 });
 
+// ---------------------------------------------------------------------------
+// Commande WhatsApp : « REACTIVER <nom ou code> <montant> » puis « OUI ».
+// Seuls les administrateurs enregistrés (numéro sur leur fiche) sont obéis ;
+// pour tout autre message, le robot NE répond PAS (les clients écrivent aussi
+// sur ce numéro — on ne doit pas interférer avec le support humain).
+// ---------------------------------------------------------------------------
+const PENDING_TTL_MS = 10 * 60 * 1000; // une confirmation OUI vaut 10 min
+const pendings = new Map();            // numéro admin -> { id, nom, montant, newExpirationFr, expire }
+
+async function appelReactiverGET(q, adminTel) {
+  const url = `${APP_URL}/api/reactiver?cle=${encodeURIComponent(CLE)}&q=${encodeURIComponent(q)}&admin_tel=${encodeURIComponent(adminTel)}`;
+  const res = await fetch(url);
+  return { status: res.status, data: await res.json().catch(() => ({})) };
+}
+async function appelReactiverPOST(id, montant, adminTel) {
+  const res = await fetch(`${APP_URL}/api/reactiver?cle=${encodeURIComponent(CLE)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, montant, admin_tel: adminTel }),
+  });
+  return { status: res.status, data: await res.json().catch(() => ({})) };
+}
+
+client.on("message", async (msg) => {
+  try {
+    if (msg.fromMe) return;
+    if (!msg.from || !msg.from.endsWith("@c.us")) return; // ignore groupes / statuts
+    const adminTel = msg.from.replace("@c.us", "");       // numéro de l'expéditeur
+    const texte = (msg.body || "").trim();
+    const haut = texte.toUpperCase();
+
+    // 1) Commande de réactivation.
+    if (haut.startsWith("REACTIVER") || haut.startsWith("RÉACTIVER")) {
+      const reste = texte.replace(/^r[ée]activer/i, "").trim();
+      const tokens = reste.split(/\s+/).filter(Boolean);
+      const dernier = tokens[tokens.length - 1];
+      const montant = dernier && /^\d+$/.test(dernier.replace(/[.\s]/g, "")) ? parseInt(dernier.replace(/[.\s]/g, ""), 10) : NaN;
+      const q = (isNaN(montant) ? tokens : tokens.slice(0, -1)).join(" ").trim();
+
+      if (!q || isNaN(montant) || montant <= 0) {
+        await msg.reply("Format : REACTIVER <nom ou code> <montant>\nEx : REACTIVER BODJONA 2000");
+        return;
+      }
+
+      const { status, data } = await appelReactiverGET(q, adminTel);
+      if (status === 403) return; // pas un admin : on ignore en silence
+      if (!data.ok) { await msg.reply("Erreur lors de la recherche. Réessaie."); return; }
+
+      const matches = data.matches || [];
+      if (matches.length === 0) {
+        await msg.reply(`Aucun client trouvé pour « ${q} ».`);
+        return;
+      }
+      if (matches.length > 1) {
+        const liste = matches.slice(0, 8)
+          .map((m) => `• ${m.nom} (code ${m.accessCode}) — expire le ${m.dateExpFr}`)
+          .join("\n");
+        await msg.reply(`Plusieurs clients correspondent :\n${liste}\n\nRenvoie avec le CODE, ex : REACTIVER ${matches[0].accessCode} ${montant}`);
+        return;
+      }
+
+      const m = matches[0];
+      pendings.set(adminTel, { id: m.id, nom: m.nom, montant, newExpirationFr: m.newExpirationFr, expire: Date.now() + PENDING_TTL_MS });
+      const avert = m.aNumero ? "" : "\n⚠️ Ce client n'a pas de numéro : il ne recevra pas la notification.";
+      await msg.reply(
+        `Trouvé : *${m.nom}* (code ${m.accessCode})\n` +
+        `Expire le ${m.dateExpFr} → nouvelle échéance le *${m.newExpirationFr}*\n` +
+        `Paiement : *${montant} F*${avert}\n\n` +
+        `Réponds *OUI* pour confirmer la réactivation.`
+      );
+      return;
+    }
+
+    // 2) Confirmation OUI / annulation NON — seulement s'il y a une demande en attente.
+    const pend = pendings.get(adminTel);
+    if (pend && Date.now() > pend.expire) { pendings.delete(adminTel); }
+    const pend2 = pendings.get(adminTel);
+    if (pend2) {
+      if (haut === "OUI") {
+        pendings.delete(adminTel);
+        const { status, data } = await appelReactiverPOST(pend2.id, pend2.montant, adminTel);
+        if (status === 403) { await msg.reply("Action refusée : tu n'es pas autorisé."); return; }
+        if (!data.ok) { await msg.reply("Échec de la réactivation. Réessaie ou vérifie dans l'app."); return; }
+        // Notifie le client (si numéro) puis confirme à l'admin.
+        let clientNotifie = false;
+        const tel = data.client && data.client.telephone;
+        if (tel) {
+          try {
+            const chatId = `${tel}@c.us`;
+            const inscrit = await client.isRegisteredUser(chatId).catch(() => true);
+            if (inscrit) { await client.sendMessage(chatId, data.clientMessage); clientNotifie = true; }
+          } catch (e) { log("Réactivation : envoi au client échoué :", e.message); }
+        }
+        await msg.reply(
+          `✅ *${data.client.nom}* réactivé jusqu'au *${data.client.newExpirationFr}*.\n` +
+          `Paiement de ${pend2.montant} F enregistré dans la caisse.\n` +
+          (clientNotifie ? "Le client a été notifié sur WhatsApp." : "Client NON notifié (pas de numéro WhatsApp).")
+        );
+        log(`Réactivation : ${data.client.nom} jusqu'au ${data.client.newExpirationFr} (${pend2.montant} F)`);
+        return;
+      }
+      if (haut === "NON" || haut === "ANNULER") {
+        pendings.delete(adminTel);
+        await msg.reply("Réactivation annulée.");
+        return;
+      }
+    }
+    // Tout autre message : on ne fait rien (support humain).
+  } catch (e) {
+    log("Erreur traitement message :", e.message);
+  }
+});
+
 async function envoyerRappels() {
   log("Recherche des clients à notifier…");
   let data;

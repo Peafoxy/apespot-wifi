@@ -1,0 +1,218 @@
+// api/reactiver.js
+// Réactivation d'un client pilotée par WhatsApp (via le robot). Un administrateur
+// envoie « REACTIVER <nom ou code> <montant> » au robot, confirme par OUI, et le
+// robot appelle ce point serveur qui :
+//   - retrouve le client,
+//   - prolonge l'abonnement d'1 mois (même règle que l'app),
+//   - enregistre le paiement dans la caisse (montant, mode),
+//   - trace l'action dans le journal d'activité,
+//   - renvoie le message de réactivation à envoyer au client.
+//
+//   GET  ?cle=SECRET&q=<nom|code>&admin_tel=<num> -> { ok, matches:[...] }
+//   POST ?cle=SECRET { id, montant, mode?, admin_tel } -> { ok, client, clientMessage }
+//
+// Sécurité : l'appelant doit fournir le numéro d'un ADMINISTRATEUR enregistré
+// (admin_tel) ; sinon l'opération est refusée. Lomé = UTC+0.
+
+import { SUPABASE_URL, sbHeaders, envError } from "./_lib.js";
+
+const CLE_ROBOT = process.env.ROBOT_WHATSAPP_CLE;
+const CLE_CRON = process.env.RELANCE_CRON_SECRET;
+
+function pad(n) { return String(n).padStart(2, "0"); }
+function todayStrUTC() {
+  const t = new Date();
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+}
+function fmtDateFr(dateExp) {
+  if (!dateExp) return "—";
+  const d = new Date(dateExp + "T00:00:00Z");
+  if (isNaN(d.getTime())) return dateExp;
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
+}
+function greeting() {
+  const h = new Date().getUTCHours();
+  return (h >= 18 || h < 5) ? "Bonsoir" : "Bonjour";
+}
+function normalizePhone(raw) {
+  let d = (raw || "").replace(/[^\d]/g, "");
+  if (!d) return "";
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.length === 8) return "228" + d;
+  return d;
+}
+function estExpire(dateExp, today) {
+  if (!dateExp) return true;
+  return dateExp < today; // chaîne AAAA-MM-JJ comparable
+}
+function addOneMonthClamped(dateStr) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  const day = d.getUTCDate();
+  const totalMonths = d.getUTCFullYear() * 12 + d.getUTCMonth() + 1;
+  const targetYear = Math.floor(totalMonths / 12);
+  const targetMonth = totalMonths % 12;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const newDay = Math.min(day, lastDay);
+  const nd = new Date(Date.UTC(targetYear, targetMonth, newDay));
+  return `${nd.getUTCFullYear()}-${pad(nd.getUTCMonth() + 1)}-${pad(nd.getUTCDate())}`;
+}
+// Même règle que computeRenewedExpiration de l'app : si l'abonnement court encore,
+// on prolonge à partir de l'échéance ; s'il est expiré, à partir d'aujourd'hui.
+function nouvelleEcheance(currentDateExp, today) {
+  if (!currentDateExp) return addOneMonthClamped(today);
+  const base = estExpire(currentDateExp, today) ? today : currentDateExp;
+  return addOneMonthClamped(base);
+}
+
+async function lire(path) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: sbHeaders() });
+  if (!r.ok) throw new Error(`lecture ${path} — ${r.status} ${await r.text().catch(() => "")}`);
+  return (await r.json().catch(() => [])) || [];
+}
+
+// Vrai si admin_tel correspond à un administrateur enregistré.
+async function estAdmin(adminTel) {
+  const num = normalizePhone(adminTel);
+  if (!num) return false;
+  const admins = await lire("wifi_users?select=role,telephone&role=eq.admin");
+  return admins.some((u) => normalizePhone(u.telephone) === num);
+}
+
+function messageClient(c, newExp) {
+  const dateFr = fmtDateFr(newExp);
+  const codeLine = c.access_code ? `TON CODE : ${c.access_code}` : "(demande ton code à APESPOT WI-FI)";
+  return [
+    `${greeting()} ${c.nom}`,
+    ``,
+    `Votre abonnement WiFi APESPOT a été *réactivé* ✅`,
+    `Il est valable jusqu'au *${dateFr}*.`,
+    ``,
+    `Merci de votre confiance !`,
+    ``,
+    `Accède à ton espace :`,
+    `https://apespot-wifi.vercel.app`,
+    ``,
+    codeLine,
+  ].join("\n");
+}
+
+export default async (req, res) => {
+  const err = envError();
+  if (err) { res.status(500).json({ ok: false, error: err }); return; }
+
+  const cle = (req.query && req.query.cle) || "";
+  const autorise = (CLE_ROBOT && cle === CLE_ROBOT) || (CLE_CRON && cle === CLE_CRON);
+  if (!autorise) { res.status(401).json({ ok: false, error: "Non autorisé." }); return; }
+
+  const today = todayStrUTC();
+
+  try {
+    // ---------- POST : réactivation effective ----------
+    if (req.method === "POST") {
+      let body = req.body;
+      if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = null; } }
+      const id = body && body.id;
+      const montant = Number(body && body.montant);
+      const mode = (body && body.mode) ? String(body.mode) : "Espèces";
+      const adminTel = body && body.admin_tel;
+
+      if (!(await estAdmin(adminTel))) { res.status(403).json({ ok: false, error: "non_admin" }); return; }
+      if (!id) { res.status(400).json({ ok: false, error: "id manquant" }); return; }
+      if (!montant || montant <= 0) { res.status(400).json({ ok: false, error: "montant invalide" }); return; }
+
+      const clients = await lire(`wifi_clients?id=eq.${encodeURIComponent(id)}&select=id,nom,telephone,date_exp,access_code`);
+      const c = clients[0];
+      if (!c) { res.status(404).json({ ok: false, error: "client introuvable" }); return; }
+
+      const newExp = nouvelleEcheance(c.date_exp, today);
+
+      // 1) Enregistre le paiement (compte dans la caisse ; verse=false par défaut).
+      const adminNum = normalizePhone(adminTel);
+      const admins = await lire("wifi_users?select=nom,telephone&role=eq.admin");
+      const adminNom = (admins.find((u) => normalizePhone(u.telephone) === adminNum) || {}).nom || "Admin (WhatsApp)";
+      const payRes = await fetch(`${SUPABASE_URL}/rest/v1/wifi_payments`, {
+        method: "POST",
+        headers: sbHeaders({ Prefer: "return=minimal" }),
+        body: JSON.stringify({
+          client_nom: c.nom,
+          montant,
+          mode,
+          date: today,
+          new_expiration: newExp,
+          note: "Réactivation via WhatsApp",
+          encaisse_par: adminNom,
+        }),
+      });
+      if (!payRes.ok) { res.status(500).json({ ok: false, error: `paiement ${payRes.status} ${await payRes.text().catch(() => "")}` }); return; }
+
+      // 2) Prolonge l'abonnement du client.
+      const cliRes = await fetch(`${SUPABASE_URL}/rest/v1/wifi_clients?id=eq.${encodeURIComponent(c.id)}`, {
+        method: "PATCH",
+        headers: sbHeaders({ Prefer: "return=minimal" }),
+        body: JSON.stringify({
+          date_exp: newExp,
+          previous_date_exp: c.date_exp || null,
+          renewed_at: new Date().toISOString(),
+        }),
+      });
+      if (!cliRes.ok) { res.status(500).json({ ok: false, error: `maj client ${cliRes.status} ${await cliRes.text().catch(() => "")}` }); return; }
+
+      // 3) Trace dans le journal d'activité.
+      await fetch(`${SUPABASE_URL}/rest/v1/wifi_activity_log`, {
+        method: "POST",
+        headers: sbHeaders({ Prefer: "return=minimal" }),
+        body: JSON.stringify({
+          actor_nom: adminNom,
+          actor_role: "admin",
+          action: "reactivate_whatsapp",
+          details: `Réactivation WhatsApp de "${c.nom}" · ${montant} F (${mode}) · abonnement jusqu'au ${fmtDateFr(newExp)}`,
+        }),
+      }).catch(() => {});
+
+      res.status(200).json({
+        ok: true,
+        client: {
+          nom: c.nom,
+          telephone: normalizePhone(c.telephone),
+          newExpiration: newExp,
+          newExpirationFr: fmtDateFr(newExp),
+        },
+        clientMessage: messageClient(c, newExp),
+      });
+      return;
+    }
+
+    // ---------- GET : recherche du client ----------
+    const q = ((req.query && req.query.q) || "").trim();
+    const adminTel = (req.query && req.query.admin_tel) || "";
+    if (!(await estAdmin(adminTel))) { res.status(403).json({ ok: false, error: "non_admin" }); return; }
+    if (!q) { res.status(400).json({ ok: false, error: "recherche vide" }); return; }
+
+    // Recherche par code exact OU par nom (contient). Deux requêtes fusionnées
+    // pour éviter les soucis d'échappement du filtre or() de PostgREST.
+    const select = "select=id,nom,telephone,date_exp,access_code";
+    const [parCode, parNom] = await Promise.all([
+      lire(`wifi_clients?access_code=eq.${encodeURIComponent(q.toUpperCase())}&${select}`),
+      lire(`wifi_clients?nom=ilike.*${encodeURIComponent(q)}*&${select}`),
+    ]);
+    const vus = new Set();
+    const matches = [];
+    for (const c of [...parCode, ...parNom]) {
+      if (vus.has(c.id)) continue;
+      vus.add(c.id);
+      matches.push({
+        id: c.id,
+        nom: c.nom,
+        accessCode: c.access_code || "",
+        dateExp: c.date_exp || null,
+        dateExpFr: fmtDateFr(c.date_exp),
+        newExpiration: nouvelleEcheance(c.date_exp, today),
+        newExpirationFr: fmtDateFr(nouvelleEcheance(c.date_exp, today)),
+        aNumero: !!normalizePhone(c.telephone),
+      });
+    }
+    res.status(200).json({ ok: true, total: matches.length, matches });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+};
