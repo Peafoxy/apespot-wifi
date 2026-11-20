@@ -4007,6 +4007,7 @@ export default function AlerteClientWifi() {
   const isPrincipalAdmin = authUser && authUser.id === principalAdminId;
   useEffect(() => {
     if (tab === "notify" && !isPrincipalAdmin) setTab("dashboard");
+    if (tab === "historique" && !isPrincipalAdmin) setTab("dashboard");
   }, [tab, isPrincipalAdmin]);
   const canModifyEntry = (createdAt) => isPrincipalAdmin || (createdAt && Date.now() - new Date(createdAt).getTime() < 24 * 60 * 60 * 1000);
   const RENEW_COOLDOWN_MS = 60 * 60 * 1000; // 1h avant de pouvoir réabonner à nouveau (sauf admin principal)
@@ -4156,6 +4157,7 @@ export default function AlerteClientWifi() {
   }, [versements, payments, fuelExpenses, perdiemExpenses, otherExpenses]);
 
   const [caisseFilter, setCaisseFilter] = useState("periode"); // "periode" (défaut) | "tout"
+  const [historiqueSearch, setHistoriqueSearch] = useState("");
 
   // Marquer un paiement comme versé / non versé (bascule). Fait descendre le compteur.
   const togglePaymentVerse = async (p) => {
@@ -6092,6 +6094,11 @@ export default function AlerteClientWifi() {
             📢 Notifications
           </button>
         )}
+        {isPrincipalAdmin && (
+          <button className={`tab ${tab === "historique" ? "active" : ""}`} onClick={() => setTab("historique")}>
+            🕑 Historique
+          </button>
+        )}
       </div>
 
       {tab === "dashboard" && (
@@ -7295,26 +7302,6 @@ export default function AlerteClientWifi() {
           </div>
 
           {isPrincipalAdmin && (
-            <div className="chart-card" style={{ marginTop: 20 }}>
-              <div className="ctitle">JOURNAL D'ACTIVITÉ</div>
-              <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12 }}>
-                Trace des actions sensibles (suppressions, réinitialisation, transferts, annulations...), les plus récentes en premier.
-              </div>
-              <div style={{ maxHeight: 320, overflowY: "auto" }}>
-                {activityLog.length === 0 && <div className="empty">Aucune activité enregistrée pour l'instant.</div>}
-                {activityLog.map((e) => (
-                  <div key={e.id} className="rah-item" style={{ alignItems: "flex-start" }}>
-                    <span className="rah-date">{e.createdAt ? new Date(e.createdAt).toLocaleString("fr-FR") : ""}</span>
-                    <span style={{ flex: 1 }}>
-                      <strong>{e.actorNom}</strong> — {e.details || e.action}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {isPrincipalAdmin && (
             <div className="chart-card" style={{ borderColor: "var(--red)", marginTop: 20 }}>
               <div className="ctitle" style={{ color: "var(--red)" }}>ZONE DE DANGER</div>
               <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 12, lineHeight: 1.5 }}>
@@ -7332,6 +7319,41 @@ export default function AlerteClientWifi() {
 
       {tab === "money" && (
         <MonArgentView authUser={authUser} fuelExpenses={fuelExpenses} perdiemExpenses={perdiemExpenses} />
+      )}
+
+      {tab === "historique" && isPrincipalAdmin && (
+        <div className="view active">
+          <div className="chart-card">
+            <div className="ctitle">HISTORIQUE D'ACTIVITÉ</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginBottom: 14 }}>
+              Trace de toutes les actions sensibles : suppressions (clients, dépenses, lignes…), validations / rejets de dépenses (avec motif), annulations de paiement, versements supprimés, réinitialisations, transferts… Les plus récentes en premier. Réservé à l'administrateur principal.
+            </div>
+            <input
+              className="search-inline"
+              placeholder="🔎 Rechercher dans l'historique…"
+              value={historiqueSearch}
+              onChange={(e) => setHistoriqueSearch(e.target.value)}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, background: "var(--bg-card)", border: "1px solid var(--line)", color: "var(--text)", fontFamily: "var(--sans)", fontSize: 13.5, marginBottom: 14 }}
+            />
+            <div style={{ maxHeight: 560, overflowY: "auto" }}>
+              {(() => {
+                const q = historiqueSearch.trim().toLowerCase();
+                const list = q
+                  ? activityLog.filter((e) => `${e.actorNom || ""} ${e.details || ""} ${e.action || ""}`.toLowerCase().includes(q))
+                  : activityLog;
+                if (list.length === 0) return <div className="empty">{q ? "Aucun résultat." : "Aucune activité enregistrée pour l'instant."}</div>;
+                return list.map((e) => (
+                  <div key={e.id} className="rah-item" style={{ alignItems: "flex-start" }}>
+                    <span className="rah-date">{e.createdAt ? new Date(e.createdAt).toLocaleString("fr-FR") : ""}</span>
+                    <span style={{ flex: 1 }}>
+                      <strong>{e.actorNom}</strong>{e.actorRole ? ` (${e.actorRole})` : ""} — {e.details || e.action}
+                    </span>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
       )}
 
       {tab === "notify" && isPrincipalAdmin && (
