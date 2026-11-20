@@ -4126,11 +4126,13 @@ export default function AlerteClientWifi() {
     }
   };
 
-  // Reste à verser = somme des paiements NON encore versés (marqués « versé » quand remis).
-  const resteAVerserPaiements = useMemo(
-    () => payments.filter((p) => !p.verse).reduce((s, p) => s + (Number(p.montant) || 0), 0),
-    [payments]
-  );
+  // Total des dépenses engagées (non rejetées) — sert à empêcher de dépenser plus que l'encaissé.
+  const totalDepensesEngagees = useMemo(() => {
+    const f = fuelExpenses.filter((x) => x.approvalStatus !== "rejected").reduce((s, x) => s + (Number(x.montant) || 0), 0);
+    const p = perdiemExpenses.filter((x) => x.approvalStatus !== "rejected").reduce((s, x) => s + (Number(x.montant) || 0), 0);
+    const o = otherExpenses.filter((x) => x.approvalStatus !== "rejected").reduce((s, x) => s + (Number(x.montant) || 0), 0);
+    return f + p + o;
+  }, [fuelExpenses, perdiemExpenses, otherExpenses]);
 
   // Marquer un paiement comme versé / non versé (bascule). Fait descendre le compteur.
   const togglePaymentVerse = async (p) => {
@@ -5189,6 +5191,10 @@ export default function AlerteClientWifi() {
       distanceKm = haversineKm(origin.lat, origin.lng, complaint.latitude, complaint.longitude) * 2; // aller-retour
     }
     const montant = Math.round(distanceKm * fuelRatePerKm);
+    if (totalDepensesEngagees + montant > caisseData.totalEncaisse) {
+      showToast(`Impossible : les dépenses dépasseraient le total encaissé (${fmtFCFA(caisseData.totalEncaisse)}).`);
+      return;
+    }
     try {
       const payload = { complaintId: complaint.id, technicienId: technicienId || null, technicienNom, clientNom: complaint.clientNom, distanceKm, montant, approvalStatus: isPrincipalAdmin ? "approved" : "pending" };
       const created = SUPABASE_CONFIGURED
@@ -5331,6 +5337,10 @@ export default function AlerteClientWifi() {
       showToast("Nom et montant requis.");
       return;
     }
+    if (totalDepensesEngagees + Number(montant) > caisseData.totalEncaisse) {
+      showToast(`Impossible : les dépenses dépasseraient le total encaissé (${fmtFCFA(caisseData.totalEncaisse)}).`);
+      return;
+    }
     setBusyPerdiem(true);
     // Si le nom correspond à un compte enregistré (Admin/Technicien), le perdiem est rattaché
     // automatiquement à ce compte pour qu'il apparaisse dans son onglet "Mon argent".
@@ -5405,6 +5415,10 @@ export default function AlerteClientWifi() {
     if (busyOtherExpense) return;
     if (!description.trim() || !Number(montant)) {
       showToast("Description et montant requis.");
+      return;
+    }
+    if (totalDepensesEngagees + Number(montant) > caisseData.totalEncaisse) {
+      showToast(`Impossible : les dépenses dépasseraient le total encaissé (${fmtFCFA(caisseData.totalEncaisse)}).`);
       return;
     }
     setBusyOtherExpense(true);
@@ -6262,7 +6276,7 @@ export default function AlerteClientWifi() {
                         {monthPayments.length === 0 && <div className="empty">Aucun paiement ce mois-ci.</div>}
                         {nonVerses.map(renderPay)}
                         {monthPayments.length > 0 && (
-                          <div className="verse-band">⬇ Déjà versé (en dessous) — Reste à verser : {fmtFCFA(resteAVerserPaiements)}</div>
+                          <div className="verse-band">⬇ Déjà remis à l'administrateur (en dessous)</div>
                         )}
                         {verses.map(renderPay)}
                       </div>
@@ -7111,14 +7125,14 @@ export default function AlerteClientWifi() {
         <div className="view active">
           <div className="stats">
             <div className="stat total"><div className="n">{fmtFCFA(caisseData.totalEncaisse)}</div><div className="l">Total encaissé</div></div>
-            <div className="stat expire"><div className="n">{fmtFCFA(caisseData.totalDepenses)}</div><div className="l">Dépenses (suivi séparé)</div></div>
-            <div className="stat ok"><div className="n">{fmtFCFA(caisseData.totalEncaisse - resteAVerserPaiements)}</div><div className="l">Déjà versé (paiements)</div></div>
-            <div className="stat attention"><div className="n">{fmtFCFA(resteAVerserPaiements)}</div><div className="l">Reste à verser</div></div>
+            <div className="stat expire"><div className="n">{fmtFCFA(caisseData.totalDepenses)}</div><div className="l">Dépenses (déduites)</div></div>
+            <div className="stat ok"><div className="n">{fmtFCFA(caisseData.totalVerse)}</div><div className="l">Déjà versé</div></div>
+            <div className="stat attention"><div className="n">{fmtFCFA(caisseData.resteAVerser)}</div><div className="l">Reste à verser</div></div>
           </div>
 
           <div className="toolbar">
             <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
-              Le « reste à verser » = la somme des paiements que tu n'as pas encore remis à l'administrateur. Tu marques chaque paiement « versé » dans Paiements → HISTORIQUE PAR MOIS quand tu le remets, et le compteur redescend. Les dépenses sont suivies séparément dans l'onglet Dépenses.
+              Reste à verser = Total des paiements − Déjà versé − Dépenses payées. Les versements ET les dépenses sortent de la caisse. Une dépense ne peut jamais dépasser le total des paiements. La bande jaune dans Paiements est un simple repère visuel de ce que tu as déjà remis.
             </div>
             <button className="btn-add" onClick={() => openVersement()}>+ Enregistrer un versement</button>
           </div>
@@ -7127,11 +7141,14 @@ export default function AlerteClientWifi() {
             <div className="ctitle">CALCUL DU RESTE À VERSER</div>
             <div className="caisse-calc">
               <div className="caisse-calc-row"><span>Total encaissé</span><b>{fmtFCFA(caisseData.totalEncaisse)}</b></div>
-              <div className="caisse-calc-row neg"><span>− Déjà versé (paiements remis)</span><b>− {fmtFCFA(caisseData.totalEncaisse - resteAVerserPaiements)}</b></div>
-              <div className="caisse-calc-row total"><span>Reste à verser (paiements non remis)</span><b>{fmtFCFA(resteAVerserPaiements)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Carburant (payé)</span><b>− {fmtFCFA(caisseData.totalFuel)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Perdiem (payé)</span><b>− {fmtFCFA(caisseData.totalPerdiem)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Autres dépenses</span><b>− {fmtFCFA(caisseData.totalAutres)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Déjà versé</span><b>− {fmtFCFA(caisseData.totalVerse)}</b></div>
+              <div className="caisse-calc-row total"><span>Reste à verser</span><b>{fmtFCFA(caisseData.resteAVerser)}</b></div>
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 12 }}>
-              Marque chaque paiement « versé / non versé » dans Paiements → HISTORIQUE PAR MOIS. La bande jaune sépare les versés des non-versés. Les dépenses ont leur propre suivi dans l'onglet Dépenses.
+              Les dépenses carburant/perdiem ne baissent la caisse qu'une fois « payées » (remboursées). L'Internet se saisit en « Autre dépense ». La bande jaune dans Paiements ne sert qu'à repérer visuellement ce qui est déjà remis.
             </div>
           </div>
 
