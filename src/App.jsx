@@ -5511,6 +5511,7 @@ export default function AlerteClientWifi() {
     try {
       if (SUPABASE_CONFIGURED) await deleteOtherExpenseRow(o.id);
       setOtherExpenses((os) => os.filter((x) => x.id !== o.id));
+      logActivity("delete_other_expense", `Autre dépense supprimée — "${o.description}" (${fmtFCFA(o.montant)})`);
       showToast("Dépense supprimée.");
     } catch (e) {
       console.error(e);
