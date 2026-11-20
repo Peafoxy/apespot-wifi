@@ -90,11 +90,13 @@ async function appelReactiverGET(q, adminTel) {
   const res = await fetch(url);
   return { status: res.status, data: await res.json().catch(() => ({})) };
 }
-async function appelReactiverPOST(id, montant, adminTel) {
+async function appelReactiverPOST(id, montant, mode, adminTel) {
+  const corps = { id, montant, admin_tel: adminTel };
+  if (mode) corps.mode = mode; // sinon le serveur met « Mix by Yas » par défaut
   const res = await fetch(`${APP_URL}/api/reactiver?cle=${encodeURIComponent(CLE)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, montant, admin_tel: adminTel }),
+    body: JSON.stringify(corps),
   });
   return { status: res.status, data: await res.json().catch(() => ({})) };
 }
@@ -111,12 +113,14 @@ client.on("message", async (msg) => {
     if (haut.startsWith("REACTIVER") || haut.startsWith("RÉACTIVER")) {
       const reste = texte.replace(/^r[ée]activer/i, "").trim();
       const tokens = reste.split(/\s+/).filter(Boolean);
-      const dernier = tokens[tokens.length - 1];
-      const montant = dernier && /^\d+$/.test(dernier.replace(/[.\s]/g, "")) ? parseInt(dernier.replace(/[.\s]/g, ""), 10) : NaN;
-      const q = (isNaN(montant) ? tokens : tokens.slice(0, -1)).join(" ").trim();
+      // Le montant est le 1er token purement numérique : avant = client, après = mode (optionnel).
+      const idxMontant = tokens.findIndex((t) => /^\d+$/.test(t.replace(/[.\s]/g, "")));
+      const montant = idxMontant >= 0 ? parseInt(tokens[idxMontant].replace(/[.\s]/g, ""), 10) : NaN;
+      const q = (idxMontant >= 0 ? tokens.slice(0, idxMontant) : tokens).join(" ").trim();
+      const mode = idxMontant >= 0 ? tokens.slice(idxMontant + 1).join(" ").trim() : "";
 
       if (!q || isNaN(montant) || montant <= 0) {
-        await msg.reply("Format : REACTIVER <nom ou code> <montant>\nEx : REACTIVER BODJONA 2000");
+        await msg.reply("Format : REACTIVER <nom ou code> <montant> [mode]\nEx : REACTIVER BODJONA 2000\nEx : REACTIVER BODJONA 2000 espèces");
         return;
       }
 
@@ -138,12 +142,13 @@ client.on("message", async (msg) => {
       }
 
       const m = matches[0];
-      pendings.set(adminTel, { id: m.id, nom: m.nom, montant, newExpirationFr: m.newExpirationFr, expire: Date.now() + PENDING_TTL_MS });
+      const modeAffiche = mode || "Mix by Yas";
+      pendings.set(adminTel, { id: m.id, nom: m.nom, montant, mode, newExpirationFr: m.newExpirationFr, expire: Date.now() + PENDING_TTL_MS });
       const avert = m.aNumero ? "" : "\n⚠️ Ce client n'a pas de numéro : il ne recevra pas la notification.";
       await msg.reply(
         `Trouvé : *${m.nom}* (code ${m.accessCode})\n` +
         `Expire le ${m.dateExpFr} → nouvelle échéance le *${m.newExpirationFr}*\n` +
-        `Paiement : *${montant} F*${avert}\n\n` +
+        `Paiement : *${montant} F* (${modeAffiche})${avert}\n\n` +
         `Réponds *OUI* pour confirmer la réactivation.`
       );
       return;
@@ -156,7 +161,7 @@ client.on("message", async (msg) => {
     if (pend2) {
       if (haut === "OUI") {
         pendings.delete(adminTel);
-        const { status, data } = await appelReactiverPOST(pend2.id, pend2.montant, adminTel);
+        const { status, data } = await appelReactiverPOST(pend2.id, pend2.montant, pend2.mode, adminTel);
         if (status === 403) { await msg.reply("Action refusée : tu n'es pas autorisé."); return; }
         if (!data.ok) { await msg.reply("Échec de la réactivation. Réessaie ou vérifie dans l'app."); return; }
         // Notifie le client (si numéro) puis confirme à l'admin.

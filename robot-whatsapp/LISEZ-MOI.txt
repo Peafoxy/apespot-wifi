@@ -104,9 +104,11 @@ COMMANDE DE RÉACTIVATION (depuis WhatsApp)
 Un ADMINISTRATEUR (dont le numéro est enregistré dans l'app) peut écrire au
 numéro WhatsApp du robot (le téléphone APESPOT) pour réactiver un client :
 
-   1. Envoie :   REACTIVER <nom ou code> <montant>
+   1. Envoie :   REACTIVER <nom ou code> <montant> [mode]
       Exemples :  REACTIVER BODJONA 2000
                   REACTIVER 9632IS 2000
+                  REACTIVER BODJONA 2000 especes   (force un autre mode)
+      -> Si aucun mode n'est précisé, le robot prend « Mix by Yas » par défaut.
 
    2. Le robot répond :
       « Trouvé : BODJONA (code ...) — nouvelle échéance le JJ/MM — Paiement 2000 F.
