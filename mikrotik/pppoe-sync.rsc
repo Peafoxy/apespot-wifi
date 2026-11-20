@@ -116,7 +116,8 @@
 # supprimer=true) ou on l'ecrit dans le Log (si supprimer=false).
 
 # -- Date du jour -> nombre de jours approx --
-:local dnow [/system clock get date]
+# :tostr force le texte (certains v6 renvoient un type date, pas une chaine).
+:local dnow [:tostr [/system clock get date]]
 :local ya 0
 :local ma 0
 :local da 0
@@ -136,7 +137,7 @@
 
 :foreach s in=[/ppp secret find] do={
   :local nm [/ppp secret get $s name]
-  :local llo [/ppp secret get $s last-logged-out]
+  :local llo [:tostr [/ppp secret get $s last-logged-out]]
   :if ([:len $llo] >= 10) do={
     :local yb 0
     :local mb 0
