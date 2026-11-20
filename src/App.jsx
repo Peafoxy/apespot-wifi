@@ -4158,6 +4158,7 @@ export default function AlerteClientWifi() {
 
   const [caisseFilter, setCaisseFilter] = useState("periode"); // "periode" (défaut) | "tout"
   const [historiqueSearch, setHistoriqueSearch] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false); // menu tiroir mobile
 
   // Marquer un paiement comme versé / non versé (bascule). Fait descendre le compteur.
   const togglePaymentVerse = async (p) => {
@@ -6058,48 +6059,55 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
-      <div className="tabs" ref={tabsRef}>
-        <button className={`tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>
-          Tableau de bord
-        </button>
-        <button className={`tab ${tab === "alerts" ? "active" : ""}`} onClick={() => setTab("alerts")}>
-          Alertes WiFi
-        </button>
-        <button className={`tab ${tab === "payments" ? "active" : ""}`} onClick={() => setTab("payments")}>
-          Paiements{pendingRequests.length > 0 && <span className="tab-badge">{pendingRequests.length}</span>}
-        </button>
-        <button className={`tab ${tab === "complaints" ? "active" : ""}`} onClick={() => setTab("complaints")}>
-          Réclamations{newComplaintsCount > 0 && <span className="tab-badge">{newComplaintsCount}</span>}
-        </button>
-        <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => { setTab("messages"); setActiveThreadClient(null); }}>
-          Messages{unansweredThreadsCount > 0 && <span className="tab-badge">{unansweredThreadsCount}</span>}
-        </button>
-        <button className={`tab ${tab === "tickets" ? "active" : ""}`} onClick={() => setTab("tickets")}>
-          Tickets{pendingTicketRequests.length > 0 && <span className="tab-badge">{pendingTicketRequests.length}</span>}
-        </button>
-        <button className={`tab ${tab === "fuel" ? "active" : ""}`} onClick={() => setTab("fuel")}>
-          Dépenses{(unpaidFuelCount + unpaidPerdiemCount + (isPrincipalAdmin ? pendingApprovalsCount : 0)) > 0 && <span className="tab-badge">{unpaidFuelCount + unpaidPerdiemCount + (isPrincipalAdmin ? pendingApprovalsCount : 0)}</span>}
-        </button>
-        <button className={`tab ${tab === "caisse" ? "active" : ""}`} onClick={() => setTab("caisse")}>
-          Caisse
-        </button>
-        <button className={`tab ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>
-          Utilisateurs
-        </button>
-        <button className={`tab ${tab === "money" ? "active" : ""}`} onClick={() => setTab("money")}>
-          Mon argent
-        </button>
-        {isPrincipalAdmin && (
-          <button className={`tab ${tab === "notify" ? "active" : ""}`} onClick={() => setTab("notify")}>
-            📢 Notifications
-          </button>
-        )}
-        {isPrincipalAdmin && (
-          <button className={`tab ${tab === "historique" ? "active" : ""}`} onClick={() => setTab("historique")}>
-            🕑 Historique
-          </button>
-        )}
-      </div>
+      {(() => {
+        const tabDefs = [
+          { key: "dashboard", label: "Tableau de bord", badge: 0 },
+          { key: "alerts", label: "Alertes WiFi", badge: 0 },
+          { key: "payments", label: "Paiements", badge: pendingRequests.length },
+          { key: "complaints", label: "Réclamations", badge: newComplaintsCount },
+          { key: "messages", label: "Messages", badge: unansweredThreadsCount, onSelect: () => setActiveThreadClient(null) },
+          { key: "tickets", label: "Tickets", badge: pendingTicketRequests.length },
+          { key: "fuel", label: "Dépenses", badge: unpaidFuelCount + unpaidPerdiemCount + (isPrincipalAdmin ? pendingApprovalsCount : 0) },
+          { key: "caisse", label: "Caisse", badge: 0 },
+          { key: "users", label: "Utilisateurs", badge: 0 },
+          { key: "money", label: "Mon argent", badge: 0 },
+          ...(isPrincipalAdmin ? [{ key: "notify", label: "Notifications", badge: 0 }] : []),
+          ...(isPrincipalAdmin ? [{ key: "historique", label: "Historique", badge: 0 }] : []),
+        ];
+        const goTab = (t) => { setTab(t.key); if (t.onSelect) t.onSelect(); setDrawerOpen(false); };
+        const current = tabDefs.find((t) => t.key === tab);
+        const totalBadge = tabDefs.reduce((s, t) => s + (t.badge || 0), 0);
+        return (
+          <>
+            <div className="tabs tabs-desktop" ref={tabsRef}>
+              {tabDefs.map((t) => (
+                <button key={t.key} className={`tab ${tab === t.key ? "active" : ""}`} onClick={() => goTab(t)}>
+                  {t.label}{t.badge > 0 && <span className="tab-badge">{t.badge}</span>}
+                </button>
+              ))}
+            </div>
+            <button className="tabs-mobile-btn" onClick={() => setDrawerOpen(true)}>
+              <span className="burger">☰</span>
+              <span className="nm">{current ? current.label : "Menu"}</span>
+              {totalBadge > 0 && <span className="tab-badge">{totalBadge}</span>}
+            </button>
+            {drawerOpen && (
+              <div className="drawer-overlay" onClick={(e) => { if (e.target.classList.contains("drawer-overlay")) setDrawerOpen(false); }}>
+                <div className="drawer">
+                  <div className="drawer-head"><span>Menu</span><button className="drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Fermer">✕</button></div>
+                  <div className="drawer-list">
+                    {tabDefs.map((t) => (
+                      <button key={t.key} className={`drawer-it ${tab === t.key ? "act" : ""}`} onClick={() => goTab(t)}>
+                        <span className="nm">{t.label}</span>{t.badge > 0 && <span className="tab-badge">{t.badge}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {tab === "dashboard" && (
         <div className="view active">
@@ -8075,6 +8083,23 @@ const CSS = `
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);font-weight:800;text-shadow:0 0 16px rgba(62,216,195,.45);}
 .wifi-app .tab:hover{color:#FFFFFF;}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
+/* --- Menu mobile : bouton + tiroir (drawer) qui glisse depuis la gauche --- */
+.wifi-app .tabs-mobile-btn{display:none;}
+.wifi-app .drawer-overlay{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);display:flex;}
+.wifi-app .drawer{width:80%;max-width:320px;height:100%;background:var(--bg-panel);border-right:1px solid var(--line);box-shadow:8px 0 36px -8px rgba(0,0,0,.85);display:flex;flex-direction:column;animation:apDrawerIn .22s ease;padding-top:env(safe-area-inset-top,0px);}
+@keyframes apDrawerIn{from{transform:translateX(-100%);}to{transform:translateX(0);}}
+.wifi-app .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid var(--line);font-weight:800;color:#FFE9A8;font-size:16px;}
+.wifi-app .drawer-close{background:none;border:none;color:var(--text-dim);font-size:19px;cursor:pointer;padding:4px 8px;line-height:1;}
+.wifi-app .drawer-list{display:flex;flex-direction:column;gap:5px;padding:12px;overflow-y:auto;}
+.wifi-app .drawer-it{display:flex;align-items:center;gap:10px;padding:13px 14px;border-radius:10px;background:var(--bg-card);border:1px solid transparent;color:var(--text-dim);font-family:var(--sans);font-size:15px;font-weight:600;cursor:pointer;text-align:left;}
+.wifi-app .drawer-it .nm{flex:1;}
+.wifi-app .drawer-it.act{background:var(--cyan-dim);border-color:rgba(62,216,195,.4);color:var(--cyan);font-weight:800;}
+@media (max-width:640px){
+  .wifi-app .tabs-desktop{display:none;}
+  .wifi-app .tabs-mobile-btn{display:flex;align-items:center;gap:11px;width:100%;padding:13px 15px;border-radius:12px;background:linear-gradient(145deg,#17222F,#121A26);border:1px solid var(--line);color:var(--text);font-family:var(--sans);font-size:15px;font-weight:700;cursor:pointer;margin-bottom:18px;}
+  .wifi-app .tabs-mobile-btn .burger{font-size:18px;color:var(--cyan);flex:none;}
+  .wifi-app .tabs-mobile-btn .nm{flex:1;text-align:left;}
+}
 .wifi-app .session-warning{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--amber-dim);border:1px solid var(--amber);color:var(--amber);padding:10px 14px;border-radius:10px;font-size:12.5px;font-weight:600;margin-bottom:16px;}
 .wifi-app .renew-confirm-box{background:var(--green-dim);border:1px solid var(--green);color:var(--green);padding:14px 16px;border-radius:10px;font-size:14px;font-weight:600;text-align:center;margin:16px 0;}
 .wifi-app .session-warning button{flex-shrink:0;padding:6px 14px;font-size:11.5px;}
