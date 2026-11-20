@@ -1428,8 +1428,11 @@ function NewComplaintModal({ newComplaintModal, setNewComplaintModal, clients, s
   );
 }
 
-function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveClientModal, busySaveClient }) {
+function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveClientModal, busySaveClient, serveursExistants = [] }) {
   if (!clientModal) return null;
+  const serveurVal = clientModal.serveur || "";
+  const serveurNouveau = serveurVal !== "" && !serveursExistants.includes(serveurVal);
+  const serveurSelect = serveurVal === "" ? "" : (serveurNouveau ? "__NOUVEAU__" : serveurVal);
   return (
     <div className="overlay show" onClick={(e) => e.target.classList.contains("overlay") && closeClientModal()}>
       <div className="modal">
@@ -1466,7 +1469,29 @@ function ClientFormModal({ clientModal, setClientModal, closeClientModal, saveCl
         </div>
         <div className="field">
           <label>Serveur</label>
-          <input placeholder="Ex: Serveur 1" value={clientModal.serveur || ""} onChange={(e) => setClientModal({ ...clientModal, serveur: e.target.value })} />
+          <select
+            value={serveurSelect}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "__NOUVEAU__") setClientModal({ ...clientModal, serveur: "SERVEUR " });
+              else setClientModal({ ...clientModal, serveur: v });
+            }}
+          >
+            <option value="">— Choisir un serveur —</option>
+            {serveursExistants.map((s) => <option key={s} value={s}>{s}</option>)}
+            <option value="__NOUVEAU__">➕ Nouveau serveur…</option>
+          </select>
+          {(serveurNouveau || serveurSelect === "__NOUVEAU__") && (
+            <input
+              style={{ marginTop: 8 }}
+              placeholder="Nom du nouveau serveur (ex: SERVEUR V13)"
+              value={serveurVal}
+              onChange={(e) => setClientModal({ ...clientModal, serveur: e.target.value })}
+            />
+          )}
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
+            Choisis un serveur existant, ou « ➕ Nouveau serveur » pour en créer un.
+          </div>
         </div>
         <div className="field">
           <label>Login PPPoE (routeur)</label>
@@ -2409,7 +2434,7 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
         </div>
       )}
 
-      <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
+      <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} serveursExistants={[...new Set((clients || []).map((c) => (c.serveur || "").trim()).filter(Boolean))].sort()} />
       <NewComplaintModal newComplaintModal={newComplaintModal} setNewComplaintModal={setNewComplaintModal} clients={clients} saveNewComplaint={saveNewComplaint} />
 
       <PositionDialogs posConfirm={posConfirm} setPosConfirm={setPosConfirm} posThanks={posThanks} setPosThanks={setPosThanks} />
@@ -7364,7 +7389,7 @@ export default function AlerteClientWifi() {
       <footer>Les données sont enregistrées automatiquement sur cet appareil · calcul des jours restants en temps réel</footer>
 
       {/* ---- Client modal ---- */}
-      <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} />
+      <ClientFormModal clientModal={clientModal} setClientModal={setClientModal} closeClientModal={closeClientModal} saveClientModal={saveClientModal} busySaveClient={busySaveClient} serveursExistants={[...new Set((clients || []).map((c) => (c.serveur || "").trim()).filter(Boolean))].sort()} />
 
 
       <PositionDialogs posConfirm={posConfirm} setPosConfirm={setPosConfirm} posThanks={posThanks} setPosThanks={setPosThanks} />
