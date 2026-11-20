@@ -114,7 +114,8 @@ numéro WhatsApp du robot (le téléphone APESPOT) pour réactiver un client :
 
    3. Réponds :   OUI
       -> Le robot prolonge l'abonnement d'1 mois, ENREGISTRE le paiement dans
-         la caisse, et envoie au CLIENT sa notification de réactivation.
+         la caisse (mode « Mix by Yas » par défaut), et envoie au CLIENT sa
+         notification de réactivation AVEC le reçu en PDF joint.
       -> Pour annuler avant de confirmer : réponds NON.
 
 Notes :

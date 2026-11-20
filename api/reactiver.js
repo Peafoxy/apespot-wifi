@@ -96,6 +96,72 @@ function messageClient(c, newExp) {
   ].join("\n");
 }
 
+function fmtFCFAForPdf(n) {
+  return (Number(n) || 0).toLocaleString("fr-FR").replace(/ /g, " ") + " F";
+}
+
+// Reçu de paiement en PDF (même présentation que l'app), renvoyé en base64.
+// Généré côté serveur avec jsPDF. En cas d'échec (environnement), on renvoie
+// null : la réactivation réussit quand même, juste sans reçu joint.
+async function genererRecuBase64(payment) {
+  try {
+    const _mod = await import("jspdf");
+    const jsPDF = _mod.jsPDF || (_mod.default && _mod.default.jsPDF) || _mod.default;
+    const doc = new jsPDF({ unit: "mm", format: "a5" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 15;
+    const tableWidth = pageWidth - marginX * 2;
+
+    doc.setTextColor(20, 30, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("APESPOT WI-FI", pageWidth / 2, 18, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(110, 120, 130);
+    doc.text("Reçu de paiement", pageWidth / 2, 25, { align: "center" });
+    doc.setDrawColor(62, 216, 195);
+    doc.setLineWidth(0.8);
+    doc.line(pageWidth / 2 - 16, 29, pageWidth / 2 + 16, 29);
+
+    const rows = [
+      ["Client", payment.clientNom || "—"],
+      ["Montant", fmtFCFAForPdf(payment.montant)],
+      ["Mode de paiement", payment.mode || "—"],
+      ["Date", fmtDateFr(payment.date)],
+    ];
+    if (payment.newExpiration) rows.push(["Abonnement valable jusqu'au", fmtDateFr(payment.newExpiration)]);
+    if (payment.note) rows.push(["Référence", payment.note]);
+    rows.push(["N° de reçu", payment.id ? String(payment.id).slice(0, 8).toUpperCase() : "—"]);
+
+    const rowH = 11;
+    const colLabelW = tableWidth * 0.46;
+    const y = 42;
+    doc.setDrawColor(210, 216, 224);
+    doc.setLineWidth(0.25);
+    rows.forEach((row, i) => {
+      const rowY = y + i * rowH;
+      if (i % 2 === 0) { doc.setFillColor(244, 247, 250); doc.rect(marginX, rowY, tableWidth, rowH, "F"); }
+      doc.line(marginX, rowY, marginX + tableWidth, rowY);
+      doc.line(marginX + colLabelW, rowY, marginX + colLabelW, rowY + rowH);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.setTextColor(40, 48, 58);
+      doc.text(row[0], marginX + 4, rowY + rowH / 2 + 1.3, { maxWidth: colLabelW - 6 });
+      doc.setFont("helvetica", "normal"); doc.setTextColor(20, 20, 20);
+      doc.text(String(row[1]), marginX + colLabelW + 4, rowY + rowH / 2 + 1.3, { maxWidth: tableWidth - colLabelW - 8 });
+    });
+    const tableBottom = y + rows.length * rowH;
+    doc.line(marginX, tableBottom, marginX + tableWidth, tableBottom);
+    doc.rect(marginX, y, tableWidth, rows.length * rowH);
+    doc.setFontSize(8.5); doc.setTextColor(140, 148, 158); doc.setFont("helvetica", "italic");
+    doc.text("Merci de votre confiance — APESPOT WI-FI", pageWidth / 2, tableBottom + 12, { align: "center" });
+
+    const ab = doc.output("arraybuffer");
+    return Buffer.from(ab).toString("base64");
+  } catch (e) {
+    return null;
+  }
+}
+
 export default async (req, res) => {
   const err = envError();
   if (err) { res.status(500).json({ ok: false, error: err }); return; }
@@ -113,7 +179,7 @@ export default async (req, res) => {
       if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = null; } }
       const id = body && body.id;
       const montant = Number(body && body.montant);
-      const mode = (body && body.mode) ? String(body.mode) : "Espèces";
+      const mode = (body && body.mode) ? String(body.mode) : "Mix by Yas";
       const adminTel = body && body.admin_tel;
 
       if (!(await estAdmin(adminTel))) { res.status(403).json({ ok: false, error: "non_admin" }); return; }
@@ -132,7 +198,7 @@ export default async (req, res) => {
       const adminNom = (admins.find((u) => normalizePhone(u.telephone) === adminNum) || {}).nom || "Admin (WhatsApp)";
       const payRes = await fetch(`${SUPABASE_URL}/rest/v1/wifi_payments`, {
         method: "POST",
-        headers: sbHeaders({ Prefer: "return=minimal" }),
+        headers: sbHeaders({ Prefer: "return=representation" }),
         body: JSON.stringify({
           client_nom: c.nom,
           montant,
@@ -144,6 +210,8 @@ export default async (req, res) => {
         }),
       });
       if (!payRes.ok) { res.status(500).json({ ok: false, error: `paiement ${payRes.status} ${await payRes.text().catch(() => "")}` }); return; }
+      const payArr = await payRes.json().catch(() => []);
+      const paiementId = (Array.isArray(payArr) && payArr[0] && payArr[0].id) ? payArr[0].id : null;
 
       // 2) Prolonge l'abonnement du client.
       const cliRes = await fetch(`${SUPABASE_URL}/rest/v1/wifi_clients?id=eq.${encodeURIComponent(c.id)}`, {
@@ -169,6 +237,18 @@ export default async (req, res) => {
         }),
       }).catch(() => {});
 
+      // 4) Reçu PDF à joindre au message WhatsApp du client.
+      const recuBase64 = await genererRecuBase64({
+        clientNom: c.nom,
+        montant,
+        mode,
+        date: today,
+        newExpiration: newExp,
+        note: "Réactivation via WhatsApp",
+        id: paiementId,
+      });
+      const recuNom = `Recu-${(c.nom || "client").replace(/[\\/:*?"<>|]+/g, " ").trim().replace(/\s+/g, "-")}-${today}.pdf`;
+
       res.status(200).json({
         ok: true,
         client: {
@@ -178,6 +258,9 @@ export default async (req, res) => {
           newExpirationFr: fmtDateFr(newExp),
         },
         clientMessage: messageClient(c, newExp),
+        mode,
+        recuPdf: recuBase64,     // base64 (sans préfixe), ou null si non généré
+        recuNom,
       });
       return;
     }

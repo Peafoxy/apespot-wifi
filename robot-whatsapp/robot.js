@@ -11,7 +11,7 @@
 // ------------------------------------------------------------------
 
 require("dotenv").config();
-const { Client, LocalAuth } = require("whatsapp-web.js");
+const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
 const cron = require("node-cron");
 
@@ -166,13 +166,22 @@ client.on("message", async (msg) => {
           try {
             const chatId = `${tel}@c.us`;
             const inscrit = await client.isRegisteredUser(chatId).catch(() => true);
-            if (inscrit) { await client.sendMessage(chatId, data.clientMessage); clientNotifie = true; }
+            if (inscrit) {
+              if (data.recuPdf) {
+                // Envoie le reçu PDF en pièce jointe, avec le message en légende.
+                const media = new MessageMedia("application/pdf", data.recuPdf, data.recuNom || "recu.pdf");
+                await client.sendMessage(chatId, media, { caption: data.clientMessage });
+              } else {
+                await client.sendMessage(chatId, data.clientMessage);
+              }
+              clientNotifie = true;
+            }
           } catch (e) { log("Réactivation : envoi au client échoué :", e.message); }
         }
         await msg.reply(
           `✅ *${data.client.nom}* réactivé jusqu'au *${data.client.newExpirationFr}*.\n` +
-          `Paiement de ${pend2.montant} F enregistré dans la caisse.\n` +
-          (clientNotifie ? "Le client a été notifié sur WhatsApp." : "Client NON notifié (pas de numéro WhatsApp).")
+          `Paiement de ${pend2.montant} F (${data.mode || "Mix by Yas"}) enregistré dans la caisse.\n` +
+          (clientNotifie ? "Le client a été notifié + reçu PDF envoyé." : "Client NON notifié (pas de numéro WhatsApp).")
         );
         log(`Réactivation : ${data.client.nom} jusqu'au ${data.client.newExpirationFr} (${pend2.montant} F)`);
         return;
