@@ -966,6 +966,7 @@ const rowToPayment = (r) => ({
   note: r.note,
   receiptPath: r.receipt_path,
   receiptName: r.receipt_name,
+  verse: r.verse === true,
 });
 const paymentToRow = (p) => ({
   client_nom: p.clientNom,
@@ -1309,6 +1310,9 @@ async function updatePaymentRow(id, p) {
 }
 async function deletePaymentRow(id) {
   await sbFetch(`wifi_payments?id=eq.${id}`, { method: "DELETE" });
+}
+async function setPaymentVerseRow(id, verse) {
+  await sbFetch(`wifi_payments?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ verse }) });
 }
 
 async function insertMessageRow(m) {
@@ -4122,6 +4126,25 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // Reste à verser = somme des paiements NON encore versés (marqués « versé » quand remis).
+  const resteAVerserPaiements = useMemo(
+    () => payments.filter((p) => !p.verse).reduce((s, p) => s + (Number(p.montant) || 0), 0),
+    [payments]
+  );
+
+  // Marquer un paiement comme versé / non versé (bascule). Fait descendre le compteur.
+  const togglePaymentVerse = async (p) => {
+    if (!isPrincipalAdmin) { showToast("Seul l'admin principal peut gérer les versements."); return; }
+    const next = !p.verse;
+    try {
+      if (SUPABASE_CONFIGURED) await setPaymentVerseRow(p.id, next);
+      setPayments((ps) => ps.map((x) => (x.id === p.id ? { ...x, verse: next } : x)));
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur de mise à jour.");
+    }
+  };
+
   const pendingExpensesTotal = useMemo(() => {
     const fuel = fuelExpenses.filter((f) => f.status === "a_payer" && f.approvalStatus === "approved").reduce((s, f) => s + (Number(f.montant) || 0), 0);
     const perdiem = perdiemExpenses.filter((p) => p.status === "a_payer" && p.approvalStatus === "approved").reduce((s, p) => s + (Number(p.montant) || 0), 0);
@@ -6219,30 +6242,29 @@ export default function AlerteClientWifi() {
                   </div>
                   {(() => {
                     const selectedMonth = dashboardMonth || paymentsDashboard.months[0][0];
-                    // Timeline fusionnée : paiements du mois + versements du mois (bandes jaunes),
-                    // triés par date décroissante. Chaque versement sépare « pas encore versé »
-                    // (au-dessus) de « déjà versé » (en dessous). Sur une même date, le versement
-                    // passe sous les paiements du jour.
-                    const monthPays = payments.filter((p) => (p.date || "").slice(0, 7) === selectedMonth).map((p) => ({ kind: "pay", date: p.date, data: p }));
-                    const monthVers = versements.filter((v) => (v.date || "").slice(0, 7) === selectedMonth).map((v) => ({ kind: "verse", date: v.date, data: v }));
-                    const timeline = [...monthPays, ...monthVers].sort((a, b) => {
-                      const d = (b.date || "").localeCompare(a.date || "");
-                      if (d !== 0) return d;
-                      return (a.kind === "verse" ? 1 : 0) - (b.kind === "verse" ? 1 : 0);
-                    });
+                    // Paiements NON versés en haut, puis une bande jaune, puis les versés en dessous.
+                    // Le bouton ✓ marque un paiement comme versé (il descend sous la bande).
+                    const monthPayments = payments.filter((p) => (p.date || "").slice(0, 7) === selectedMonth);
+                    const nonVerses = monthPayments.filter((p) => !p.verse).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+                    const verses = monthPayments.filter((p) => p.verse).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+                    const renderPay = (p) => (
+                      <div key={p.id} className="rah-item">
+                        <span>{p.clientNom}</span>
+                        <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{fmtDate(p.date)} · {p.mode}</span>
+                        <span className="rah-amount" style={{ color: p.verse ? "var(--text-faint)" : "var(--green)" }}>{fmtFCFA(p.montant)}</span>
+                        {isPrincipalAdmin && (
+                          <button className="icon-btn" title={p.verse ? "Marquer NON versé" : "Marquer versé"} onClick={() => togglePaymentVerse(p)}>{p.verse ? "↩" : "✓"}</button>
+                        )}
+                      </div>
+                    );
                     return (
                       <div className="scroll-list">
-                        {timeline.map((it) => it.kind === "verse" ? (
-                          <div key={`v-${it.data.id}`} className="verse-band">
-                            ⬇ Versé {fmtFCFA(it.data.montant)} le {fmtDate(it.data.date)}{it.data.recuPar ? ` · reçu par ${it.data.recuPar}` : ""} — en dessous = déjà versé
-                          </div>
-                        ) : (
-                          <div key={it.data.id} className="rah-item">
-                            <span>{it.data.clientNom}</span>
-                            <span style={{ color: "var(--text-faint)", fontSize: 11.5 }}>{fmtDate(it.data.date)} · {it.data.mode}</span>
-                            <span className="rah-amount" style={{ color: "var(--green)" }}>{fmtFCFA(it.data.montant)}</span>
-                          </div>
-                        ))}
+                        {monthPayments.length === 0 && <div className="empty">Aucun paiement ce mois-ci.</div>}
+                        {nonVerses.map(renderPay)}
+                        {monthPayments.length > 0 && (
+                          <div className="verse-band">⬇ Déjà versé (en dessous) — Reste à verser : {fmtFCFA(resteAVerserPaiements)}</div>
+                        )}
+                        {verses.map(renderPay)}
                       </div>
                     );
                   })()}
@@ -7089,14 +7111,14 @@ export default function AlerteClientWifi() {
         <div className="view active">
           <div className="stats">
             <div className="stat total"><div className="n">{fmtFCFA(caisseData.totalEncaisse)}</div><div className="l">Total encaissé</div></div>
-            <div className="stat expire"><div className="n">{fmtFCFA(caisseData.totalDepenses)}</div><div className="l">Dépenses (déduites)</div></div>
-            <div className="stat ok"><div className="n">{fmtFCFA(caisseData.totalVerse)}</div><div className="l">Déjà versé</div></div>
-            <div className="stat attention"><div className="n">{fmtFCFA(caisseData.resteAVerser)}</div><div className="l">Reste à verser</div></div>
+            <div className="stat expire"><div className="n">{fmtFCFA(caisseData.totalDepenses)}</div><div className="l">Dépenses (suivi séparé)</div></div>
+            <div className="stat ok"><div className="n">{fmtFCFA(caisseData.totalEncaisse - resteAVerserPaiements)}</div><div className="l">Déjà versé (paiements)</div></div>
+            <div className="stat attention"><div className="n">{fmtFCFA(resteAVerserPaiements)}</div><div className="l">Reste à verser</div></div>
           </div>
 
           <div className="toolbar">
             <div style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
-              Caisse commune. Le reste à verser = tout l'encaissé − les dépenses réellement payées (carburant/perdiem remboursés, autres dépenses) − ce qui est déjà versé. Les dépenses encore « à payer » ne baissent pas la caisse tant qu'elles ne sont pas remboursées. L'Internet se saisit en « Autre dépense ».
+              Le « reste à verser » = la somme des paiements que tu n'as pas encore remis à l'administrateur. Tu marques chaque paiement « versé » dans Paiements → HISTORIQUE PAR MOIS quand tu le remets, et le compteur redescend. Les dépenses sont suivies séparément dans l'onglet Dépenses.
             </div>
             <button className="btn-add" onClick={() => openVersement()}>+ Enregistrer un versement</button>
           </div>
@@ -7105,14 +7127,11 @@ export default function AlerteClientWifi() {
             <div className="ctitle">CALCUL DU RESTE À VERSER</div>
             <div className="caisse-calc">
               <div className="caisse-calc-row"><span>Total encaissé</span><b>{fmtFCFA(caisseData.totalEncaisse)}</b></div>
-              <div className="caisse-calc-row neg"><span>− Carburant (payé)</span><b>− {fmtFCFA(caisseData.totalFuel)}</b></div>
-              <div className="caisse-calc-row neg"><span>− Perdiem (payé)</span><b>− {fmtFCFA(caisseData.totalPerdiem)}</b></div>
-              <div className="caisse-calc-row neg"><span>− Autres dépenses</span><b>− {fmtFCFA(caisseData.totalAutres)}</b></div>
-              <div className="caisse-calc-row neg"><span>− Déjà versé</span><b>− {fmtFCFA(caisseData.totalVerse)}</b></div>
-              <div className="caisse-calc-row total"><span>Reste à verser</span><b>{fmtFCFA(caisseData.resteAVerser)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Déjà versé (paiements remis)</span><b>− {fmtFCFA(caisseData.totalEncaisse - resteAVerserPaiements)}</b></div>
+              <div className="caisse-calc-row total"><span>Reste à verser (paiements non remis)</span><b>{fmtFCFA(resteAVerserPaiements)}</b></div>
             </div>
             <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 12 }}>
-              Les lignes récurrentes (abonnements Internet) ne sont PAS déduites ici : saisis chaque paiement Internet en « Autre dépense » (évite de compter deux fois). Les lignes gardent seulement leurs rappels d'échéance.
+              Marque chaque paiement « versé / non versé » dans Paiements → HISTORIQUE PAR MOIS. La bande jaune sépare les versés des non-versés. Les dépenses ont leur propre suivi dans l'onglet Dépenses.
             </div>
           </div>
 
