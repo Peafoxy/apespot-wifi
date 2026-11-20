@@ -6072,12 +6072,12 @@ export default function AlerteClientWifi() {
           )}
 
           <div className="table-shell client-list-shell has-server-col">
-            <div className="client-list-header">
-              <span onClick={() => toggleSort("nom")}>Client</span>
-              <span onClick={() => toggleSort("jours")}>Jours · Statut</span>
-              <span className="col-server">Serveur</span>
-            </div>
             <div className="client-list-scroll">
+              <div className="client-list-header">
+                <span onClick={() => toggleSort("nom")}>Client</span>
+                <span onClick={() => toggleSort("jours")}>Jours · Statut</span>
+                <span className="col-server">Serveur</span>
+              </div>
               <div>
                 {visibleClients.slice(0, clientPageSize).map((c) => {
                   const jc = jourClass(c.jours, c.statut);
@@ -7981,11 +7981,14 @@ const CSS = `
 .wifi-app .client-row-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .wifi-app .client-row-left{display:flex;align-items:center;gap:8px;min-width:0;}
 .wifi-app .client-row-server{flex:1;text-align:center;font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px;}
-.wifi-app .has-server-col .client-list-header{display:grid;grid-template-columns:minmax(0,1fr) 104px 118px;gap:8px;align-items:center;}
-.wifi-app .has-server-col .client-list-header .col-server{text-align:right;cursor:default;}
-.wifi-app .has-server-col .client-row-top{display:grid;grid-template-columns:minmax(0,1fr) 104px 118px;gap:8px;align-items:center;}
-.wifi-app .has-server-col .client-row-server{flex:none;text-align:right;padding:0;}
-.wifi-app .has-server-col .client-row-top>.badge{justify-self:start;}
+.wifi-app .has-server-col .client-list-header{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:center;position:sticky;top:0;z-index:2;background:var(--card-top);}
+.wifi-app .has-server-col .client-list-header span:nth-child(1){justify-self:start;}
+.wifi-app .has-server-col .client-list-header span:nth-child(2){justify-self:center;text-align:center;}
+.wifi-app .has-server-col .client-list-header .col-server{justify-self:center;text-align:center;cursor:default;}
+.wifi-app .has-server-col .client-row-top{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:center;}
+.wifi-app .has-server-col .client-row-left{justify-self:start;min-width:0;}
+.wifi-app .has-server-col .client-row-top>.badge{justify-self:center;}
+.wifi-app .has-server-col .client-row-server{flex:none;justify-self:center;text-align:center;padding:0 4px;}
 .wifi-app .client-row-name{font-weight:600;font-size:13.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wifi-app .client-row-meta{display:flex;align-items:center;gap:6px;font-size:11.5px;font-family:var(--mono);color:var(--text-dim);flex-wrap:wrap;padding-left:22px;}
 .wifi-app .client-row-meta .dot{color:var(--text-faint);}
