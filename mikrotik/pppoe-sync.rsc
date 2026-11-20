@@ -126,7 +126,7 @@
   :set ma [:tonum [:pick $dnow 5 7]]
   :set da [:tonum [:pick $dnow 8 10]]
 } else={
-  :local mnn [:tolower [:pick $dnow 0 3]]
+  :local mnn [:pick $dnow 0 3]
   :if ($mnn = "jan") do={ :set ma 1 }
   :if ($mnn = "feb") do={ :set ma 2 }
   :if ($mnn = "mar") do={ :set ma 3 }
@@ -156,7 +156,7 @@
       :set mb [:tonum [:pick $llo 5 7]]
       :set db [:tonum [:pick $llo 8 10]]
     } else={
-      :local mnl [:tolower [:pick $llo 0 3]]
+      :local mnl [:pick $llo 0 3]
       :if ($mnl = "jan") do={ :set mb 1 }
       :if ($mnl = "feb") do={ :set mb 2 }
       :if ($mnl = "mar") do={ :set mb 3 }
