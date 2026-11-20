@@ -126,10 +126,19 @@
   :set ma [:tonum [:pick $dnow 5 7]]
   :set da [:tonum [:pick $dnow 8 10]]
 } else={
-  :local mnn [:tolower [:pick $dnow 0 3]]
-  :local nomsn "janfebmaraprmayjunjulaugsepoctnovdec"
-  :local pn [:find $nomsn $mnn]
-  :if ([:typeof $pn] = "num") do={ :set ma (($pn / 3) + 1) }
+  :local mnn [:pick $dnow 0 3]
+  :if ($mnn = "jan") do={ :set ma 1 }
+  :if ($mnn = "feb") do={ :set ma 2 }
+  :if ($mnn = "mar") do={ :set ma 3 }
+  :if ($mnn = "apr") do={ :set ma 4 }
+  :if ($mnn = "may") do={ :set ma 5 }
+  :if ($mnn = "jun") do={ :set ma 6 }
+  :if ($mnn = "jul") do={ :set ma 7 }
+  :if ($mnn = "aug") do={ :set ma 8 }
+  :if ($mnn = "sep") do={ :set ma 9 }
+  :if ($mnn = "oct") do={ :set ma 10 }
+  :if ($mnn = "nov") do={ :set ma 11 }
+  :if ($mnn = "dec") do={ :set ma 12 }
   :set da [:tonum [:pick $dnow 4 6]]
   :set ya [:tonum [:pick $dnow 7 11]]
 }
@@ -147,10 +156,19 @@
       :set mb [:tonum [:pick $llo 5 7]]
       :set db [:tonum [:pick $llo 8 10]]
     } else={
-      :local mnl [:tolower [:pick $llo 0 3]]
-      :local nomsl "janfebmaraprmayjunjulaugsepoctnovdec"
-      :local pl [:find $nomsl $mnl]
-      :if ([:typeof $pl] = "num") do={ :set mb (($pl / 3) + 1) }
+      :local mnl [:pick $llo 0 3]
+      :if ($mnl = "jan") do={ :set mb 1 }
+      :if ($mnl = "feb") do={ :set mb 2 }
+      :if ($mnl = "mar") do={ :set mb 3 }
+      :if ($mnl = "apr") do={ :set mb 4 }
+      :if ($mnl = "may") do={ :set mb 5 }
+      :if ($mnl = "jun") do={ :set mb 6 }
+      :if ($mnl = "jul") do={ :set mb 7 }
+      :if ($mnl = "aug") do={ :set mb 8 }
+      :if ($mnl = "sep") do={ :set mb 9 }
+      :if ($mnl = "oct") do={ :set mb 10 }
+      :if ($mnl = "nov") do={ :set mb 11 }
+      :if ($mnl = "dec") do={ :set mb 12 }
       :set db [:tonum [:pick $llo 4 6]]
       :set yb [:tonum [:pick $llo 7 11]]
     }
@@ -172,4 +190,4 @@
 }
 
 # 5) Resume dans Log (les lignes "(TEST)" ci-dessus disent ce qui est simule).
-:log info ("APESPOT PPPoE " . $serveur . " ok. coupe=" . $nbCoupe . " actif=" . $nbActive . " suppr=" . $nbSuppr)
+:log info ("APESPOT PPPoE " . $serveur . " ok. coupe=" . $nbCoupe . " actif=" . $nbActive . " suppr=" . $nbSuppr . " auj=" . $aujJours)
