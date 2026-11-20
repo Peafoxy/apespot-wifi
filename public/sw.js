@@ -9,6 +9,11 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Gestionnaire fetch minimal (pass-through). Requis pour qu'Android installe
+// l'app en VRAIE application plein écran (WebAPK) et non en simple raccourci.
+// On ne met rien en cache : on laisse le navigateur gérer la requête normalement.
+self.addEventListener("fetch", () => {});
+
 self.addEventListener("push", (event) => {
   let data = { title: "APESPOT WI-FI", body: "N'oublie pas de consulter l'application aujourd'hui.", url: "/" };
   try {
