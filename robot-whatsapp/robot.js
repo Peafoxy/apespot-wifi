@@ -168,14 +168,32 @@ const messagesTraites = new Set();
 async function traiterMessage(msg) {
   try {
     if (msg.fromMe) return;
-    if (!msg.from || !msg.from.endsWith("@c.us")) return; // ignore groupes / statuts
-    // Déduplication (si les deux events se déclenchent pour le même message).
+    if (!msg.from) return;
+    // On ignore les groupes et les diffusions ; on accepte les conversations
+    // individuelles, qu'elles soient en @c.us ou en @lid (nouveau format des
+    // comptes récents / Business).
+    if (msg.from.endsWith("@g.us") || msg.from.endsWith("@broadcast") || msg.from.endsWith("@newsletter")) return;
+
+    // Déduplication (si plusieurs sources signalent le même message).
     const mid = (msg.id && (msg.id._serialized || msg.id.id)) || `${msg.from}|${msg.timestamp}|${msg.body}`;
     if (messagesTraites.has(mid)) return;
     messagesTraites.add(mid);
     if (messagesTraites.size > 600) { let n = 0; for (const k of messagesTraites) { messagesTraites.delete(k); if (++n >= 200) break; } }
 
-    const adminTel = msg.from.replace("@c.us", "");       // numéro de l'expéditeur
+    // Numéro réel de l'expéditeur. En @c.us il est dans l'identifiant ; en @lid
+    // (identifiant masqué) il faut le demander à la fiche contact.
+    let adminTel = "";
+    if (msg.from.endsWith("@c.us")) {
+      adminTel = msg.from.replace("@c.us", "");
+    } else {
+      try {
+        const c = await msg.getContact();
+        adminTel = (c && (c.number || (c.id && c.id.user))) || "";
+      } catch { adminTel = ""; }
+    }
+    adminTel = (adminTel || "").replace(/[^\d]/g, "");
+    if (!adminTel) return;
+
     const texte = (msg.body || "").trim();
     const haut = texte.toUpperCase();
     log("📩 Message reçu de", adminTel, ":", JSON.stringify(texte.slice(0, 50)));
@@ -330,7 +348,9 @@ async function sonderCommandes() {
     const maintenant = Math.floor(Date.now() / 1000);
     let chats = await client.getChats();
     const total = Array.isArray(chats) ? chats.length : -1;
-    const indiv = (chats || []).filter((c) => c && c.id && c.id._serialized && c.id._serialized.endsWith("@c.us"));
+    // Conversations individuelles : @c.us OU @lid (les groupes @g.us sont exclus).
+    const indiv = (chats || []).filter((c) => c && !c.isGroup && c.id && c.id._serialized &&
+      (c.id._serialized.endsWith("@c.us") || c.id._serialized.endsWith("@lid")));
     log(`[SONDAGE] ${total} conversations, ${indiv.length} individuelles.`);
     const recents = indiv.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 20);
     for (const chat of recents) {
