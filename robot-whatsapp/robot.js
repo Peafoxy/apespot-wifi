@@ -61,6 +61,13 @@ const MAX_PAR_RUN = 40;   // sécurité : jamais plus de 40 messages par passage
 // Alertes à l'équipe (paiement / ticket / réclamation) : fréquence de contrôle.
 const ALERTE_INTERVALLE_MIN = Math.max(1, parseInt(process.env.ALERTE_INTERVALLE_MIN || "3", 10) || 3);
 
+// Lecture active des commandes reçues (VALIDER, REACTIVER, OUI…) : intervalle en
+// millisecondes. On lit nous-mêmes les conversations car, sur certains comptes
+// WhatsApp (Business), les événements "message" ne se déclenchent pas.
+const SONDAGE_MS = Math.max(5000, (parseInt(process.env.SONDAGE_SECONDES || "12", 10) || 12) * 1000);
+// On ne traite que les messages récents (évite de rejouer un vieux « OUI »).
+const SONDAGE_FENETRE_S = 15 * 60; // 15 minutes
+
 function log(...a) { console.log(new Date().toLocaleString("fr-FR"), "-", ...a); }
 function dodo(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function alea(a, b) { return Math.floor(a + Math.random() * (b - a)); }
@@ -91,9 +98,15 @@ client.on("authenticated", () => log("WhatsApp authentifié ✓"));
 client.on("auth_failure", (m) => log("Échec d'authentification :", m));
 
 client.on("ready", () => {
-  log("Robot connecté et prêt ✓");
+  log("Robot connecté et prêt ✓  [VERSION 3 : lecture active des commandes]");
   log(`Rappels clients : à ${HEURES.map((h) => h + "h").join(", ")} (heure de Lomé). Un client déjà relancé n'est pas renotifié.`);
   log(`Alertes équipe : vérifiées toutes les ${ALERTE_INTERVALLE_MIN} min.`);
+  log(`Commandes (VALIDER/REJETER/REACTIVER/OUI) : lues toutes les ${Math.round(SONDAGE_MS / 1000)} s.`);
+  // Lecture ACTIVE des messages reçus : certains comptes WhatsApp (Business /
+  // multi-appareils) ne déclenchent pas les événements "message". On va donc
+  // lire nous-mêmes les conversations récentes à intervalle régulier.
+  setInterval(() => { sonderCommandes().catch((e) => log("Sondage échoué :", e.message)); }, SONDAGE_MS);
+  setTimeout(() => { sonderCommandes().catch(() => {}); }, 4000); // premier passage rapide
   // 1) Rappels d'abonnement aux clients, à plusieurs heures (rattrapage si incident).
   HEURES.forEach((h) => {
     cron.schedule(`0 ${h} * * *`, () => {
@@ -302,6 +315,39 @@ async function traiterMessage(msg) {
 // déduplication par id ci-dessus, un message reçu une fois n'est traité qu'une fois.
 client.on("message", (msg) => { traiterMessage(msg).catch((e) => log("Erreur message :", e.message)); });
 client.on("message_create", (msg) => { traiterMessage(msg).catch((e) => log("Erreur message_create :", e.message)); });
+
+// LECTURE ACTIVE (sondage) : indispensable pour les comptes WhatsApp Business,
+// où les événements "message"/"message_create" ne se déclenchent pas pour les
+// messages reçus. On lit les conversations individuelles les plus récentes et on
+// traite les messages récents non encore vus (la déduplication évite les doublons
+// avec les événements). Les droits sont vérifiés côté serveur, donc lire toutes
+// les conversations récentes est sans danger.
+let sondageEnCours = false;
+async function sonderCommandes() {
+  if (sondageEnCours) return; // évite les chevauchements si un passage est lent
+  sondageEnCours = true;
+  try {
+    const maintenant = Math.floor(Date.now() / 1000);
+    let chats = await client.getChats();
+    // On garde les conversations individuelles, triées par activité récente.
+    chats = chats
+      .filter((c) => c && c.id && c.id._serialized && c.id._serialized.endsWith("@c.us"))
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, 20); // 20 conversations les plus récentes suffisent
+    for (const chat of chats) {
+      // On ignore les conversations sans message récent.
+      if (chat.timestamp && (maintenant - chat.timestamp) > SONDAGE_FENETRE_S) continue;
+      const msgs = await chat.fetchMessages({ limit: 6 }).catch(() => []);
+      for (const m of msgs) {
+        if (!m || m.fromMe) continue;
+        if (m.timestamp && (maintenant - m.timestamp) > SONDAGE_FENETRE_S) continue;
+        await traiterMessage(m); // la déduplication par id gère les répétitions
+      }
+    }
+  } finally {
+    sondageEnCours = false;
+  }
+}
 
 async function envoyerRappels() {
   log("Recherche des clients à notifier…");
