@@ -6139,6 +6139,7 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
+      <div className="topbar">
       <header>
         <div className="brand">
           <div className="brand-mark brand-mark-logo">
@@ -6217,6 +6218,7 @@ export default function AlerteClientWifi() {
           </>
         );
       })()}
+      </div>
 
       {tab === "dashboard" && (
         <div className="view active">
@@ -8196,11 +8198,17 @@ const CSS = `
     radial-gradient(900px 900px at 50% 120%, rgba(62,216,195,.05), transparent 60%),
     linear-gradient(180deg,#0B111B 0%, var(--bg) 60%);
   color:var(--text); font-family:var(--sans); min-height:100vh; padding:28px 20px 60px;
-  overflow-x:clip;
 }
 .wifi-app *{box-sizing:border-box;}
 .wifi-app{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
-.wifi-app header{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;position:sticky;top:0;z-index:50;background:rgba(9,13,20,.9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);margin:0 -20px 18px;padding:14px 20px 12px;box-shadow:0 10px 22px -12px rgba(0,0,0,.75);}
+/* Barre supérieure FIGÉE : englobe le logo + les onglets, reste visible au défilement. */
+/* NB : pas de backdrop-filter ici — sinon .topbar deviendrait le bloc conteneur
+   des éléments position:fixed descendants (le fond du menu mobile), qui ne
+   couvrirait plus tout l'écran. Un fond quasi opaque suffit. */
+.wifi-app .topbar{position:sticky;top:0;z-index:50;margin:0 -20px 16px;padding:0 20px;background:#0A0E16;box-shadow:0 10px 22px -12px rgba(0,0,0,.75);}
+.wifi-app header{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;margin:0 0 8px;padding:14px 0 4px;}
+.wifi-app .topbar .tabs{margin-bottom:0;}
+.wifi-app .topbar .tabs-mobile-wrap{margin-bottom:0;}
 .wifi-app .brand{display:flex;align-items:center;gap:14px;}
 .wifi-app .brand-mark{width:44px;height:44px;border-radius:12px;background:linear-gradient(145deg,var(--cyan),#1E9E8C);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px rgba(62,216,195,.25), 0 8px 20px -6px rgba(62,216,195,.5);}
 .wifi-app .brand-mark svg{width:24px;height:24px;}

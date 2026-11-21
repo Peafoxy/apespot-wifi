@@ -61,6 +61,13 @@ const MAX_PAR_RUN = 40;   // sécurité : jamais plus de 40 messages par passage
 // Alertes à l'équipe (paiement / ticket / réclamation) : fréquence de contrôle.
 const ALERTE_INTERVALLE_MIN = Math.max(1, parseInt(process.env.ALERTE_INTERVALLE_MIN || "3", 10) || 3);
 
+// Lecture active des commandes reçues (VALIDER, REACTIVER, OUI…) : intervalle en
+// millisecondes. On lit nous-mêmes les conversations car, sur certains comptes
+// WhatsApp (Business), les événements "message" ne se déclenchent pas.
+const SONDAGE_MS = Math.max(5000, (parseInt(process.env.SONDAGE_SECONDES || "12", 10) || 12) * 1000);
+// On ne traite que les messages récents (évite de rejouer un vieux « OUI »).
+const SONDAGE_FENETRE_S = 15 * 60; // 15 minutes
+
 function log(...a) { console.log(new Date().toLocaleString("fr-FR"), "-", ...a); }
 function dodo(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function alea(a, b) { return Math.floor(a + Math.random() * (b - a)); }
@@ -91,9 +98,15 @@ client.on("authenticated", () => log("WhatsApp authentifié ✓"));
 client.on("auth_failure", (m) => log("Échec d'authentification :", m));
 
 client.on("ready", () => {
-  log("Robot connecté et prêt ✓");
+  log("Robot connecté et prêt ✓  [VERSION 3 : lecture active des commandes]");
   log(`Rappels clients : à ${HEURES.map((h) => h + "h").join(", ")} (heure de Lomé). Un client déjà relancé n'est pas renotifié.`);
   log(`Alertes équipe : vérifiées toutes les ${ALERTE_INTERVALLE_MIN} min.`);
+  log(`Commandes (VALIDER/REJETER/REACTIVER/OUI) : lues toutes les ${Math.round(SONDAGE_MS / 1000)} s.`);
+  // Lecture ACTIVE des messages reçus : certains comptes WhatsApp (Business /
+  // multi-appareils) ne déclenchent pas les événements "message". On va donc
+  // lire nous-mêmes les conversations récentes à intervalle régulier.
+  setInterval(() => { sonderCommandes().catch((e) => log("Sondage échoué :", e.message)); }, SONDAGE_MS);
+  setTimeout(() => { sonderCommandes().catch(() => {}); }, 4000); // premier passage rapide
   // 1) Rappels d'abonnement aux clients, à plusieurs heures (rattrapage si incident).
   HEURES.forEach((h) => {
     cron.schedule(`0 ${h} * * *`, () => {
@@ -152,17 +165,61 @@ async function appelReactiverPOST(id, montant, mode, adminTel) {
 // pour les messages reçus. On branche le même traitement sur les deux et on
 // déduplique par identifiant de message pour ne jamais traiter deux fois.
 const messagesTraites = new Set();
+// Résout le VRAI numéro de téléphone de l'expéditeur. Les comptes récents /
+// Business reçoivent les messages avec un identifiant masqué @lid (ex.
+// 114409456279581@lid) qui N'EST PAS le numéro : on le convertit via l'API
+// interne de WhatsApp Web. Renvoie une suite de chiffres, ou "".
+async function resoudreTelephone(msg) {
+  try {
+    if (msg.from && msg.from.endsWith("@c.us")) return msg.from.replace("@c.us", "").replace(/\D/g, "");
+    const idBrut = msg.author || msg.from || "";
+    try {
+      const phone = await client.pupPage.evaluate(async (uid) => {
+        const extraire = (p) => (p ? (p._serialized || p.user || (typeof p === "string" ? p : null)) : null);
+        try {
+          if (window.WWebJS && typeof window.WWebJS.enforceLidAndPnRetrieval === "function") {
+            const r = await window.WWebJS.enforceLidAndPnRetrieval(uid);
+            const v = extraire(r && r.phone);
+            if (v) return v;
+          }
+        } catch (e) {}
+        try {
+          const wid = window.require("WAWebWidFactory").createWid(uid);
+          const api = window.require("WAWebApiContact");
+          const v = extraire(api && api.getPhoneNumber ? api.getPhoneNumber(wid) : null);
+          if (v) return v;
+        } catch (e) {}
+        return null;
+      }, idBrut);
+      if (phone) return String(phone).replace(/@.*/, "").replace(/\D/g, "");
+    } catch (e) {}
+    // Repli : fiche contact (déjà résolue sur certaines versions).
+    try {
+      const c = await msg.getContact();
+      return String((c && (c.number || (c.id && c.id.user))) || "").replace(/\D/g, "");
+    } catch (e) {}
+  } catch (e) {}
+  return "";
+}
+
 async function traiterMessage(msg) {
   try {
     if (msg.fromMe) return;
-    if (!msg.from || !msg.from.endsWith("@c.us")) return; // ignore groupes / statuts
-    // Déduplication (si les deux events se déclenchent pour le même message).
+    if (!msg.from) return;
+    // On ignore les groupes et les diffusions ; on accepte les conversations
+    // individuelles, qu'elles soient en @c.us ou en @lid (nouveau format des
+    // comptes récents / Business).
+    if (msg.from.endsWith("@g.us") || msg.from.endsWith("@broadcast") || msg.from.endsWith("@newsletter")) return;
+
+    // Déduplication (si plusieurs sources signalent le même message).
     const mid = (msg.id && (msg.id._serialized || msg.id.id)) || `${msg.from}|${msg.timestamp}|${msg.body}`;
     if (messagesTraites.has(mid)) return;
     messagesTraites.add(mid);
     if (messagesTraites.size > 600) { let n = 0; for (const k of messagesTraites) { messagesTraites.delete(k); if (++n >= 200) break; } }
 
-    const adminTel = msg.from.replace("@c.us", "");       // numéro de l'expéditeur
+    const adminTel = await resoudreTelephone(msg);
+    if (!adminTel) return;
+
     const texte = (msg.body || "").trim();
     const haut = texte.toUpperCase();
     log("📩 Message reçu de", adminTel, ":", JSON.stringify(texte.slice(0, 50)));
@@ -303,6 +360,40 @@ async function traiterMessage(msg) {
 client.on("message", (msg) => { traiterMessage(msg).catch((e) => log("Erreur message :", e.message)); });
 client.on("message_create", (msg) => { traiterMessage(msg).catch((e) => log("Erreur message_create :", e.message)); });
 
+// LECTURE ACTIVE (sondage) : indispensable pour les comptes WhatsApp Business,
+// où les événements "message"/"message_create" ne se déclenchent pas pour les
+// messages reçus. On lit les conversations individuelles les plus récentes et on
+// traite les messages récents non encore vus (la déduplication évite les doublons
+// avec les événements). Les droits sont vérifiés côté serveur, donc lire toutes
+// les conversations récentes est sans danger.
+let sondageEnCours = false;
+async function sonderCommandes() {
+  if (sondageEnCours) return; // évite les chevauchements si un passage est lent
+  sondageEnCours = true;
+  try {
+    const maintenant = Math.floor(Date.now() / 1000);
+    let chats = await client.getChats();
+    // Conversations individuelles : @c.us OU @lid (les groupes @g.us sont exclus).
+    const indiv = (chats || []).filter((c) => c && !c.isGroup && c.id && c.id._serialized &&
+      (c.id._serialized.endsWith("@c.us") || c.id._serialized.endsWith("@lid")));
+    const recents = indiv.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 20);
+    for (const chat of recents) {
+      if (chat.timestamp && (maintenant - chat.timestamp) > SONDAGE_FENETRE_S) continue;
+      const msgs = await chat.fetchMessages({ limit: 6 }).catch(() => []);
+      for (const m of msgs) {
+        if (!m) continue;
+        if (m.timestamp && (maintenant - m.timestamp) > SONDAGE_FENETRE_S) continue;
+        if (m.fromMe) continue;
+        await traiterMessage(m); // la déduplication par id gère les répétitions
+      }
+    }
+  } catch (e) {
+    log("Lecture des commandes — erreur :", e.message);
+  } finally {
+    sondageEnCours = false;
+  }
+}
+
 async function envoyerRappels() {
   log("Recherche des clients à notifier…");
   let data;
@@ -322,7 +413,7 @@ async function envoyerRappels() {
   }
   log(`${clients.length} client(s) à notifier.`);
 
-  const envoyes = [];
+  let nbEnvoyes = 0;
   for (const c of clients) {
     const chatId = `${c.telephone}@c.us`;
     try {
@@ -334,30 +425,34 @@ async function envoyerRappels() {
         continue;
       }
       await client.sendMessage(chatId, c.message);
-      envoyes.push(c.id);
       log(`✓ Envoyé à ${c.nom} (${c.telephone})`);
+      // IMPORTANT : on marque « relancé » IMMÉDIATEMENT après l'envoi (un client
+      // à la fois), avant même de passer au suivant. Ainsi, même si le robot est
+      // coupé juste après, ce client ne recevra JAMAIS une seconde notification
+      // le même jour — ni par le robot, ni proposé à un administrateur.
+      try {
+        await marquerRelance([c.id]);
+        nbEnvoyes++;
+      } catch (e) {
+        log(`⚠ ${c.nom} : envoyé mais marquage « relancé » échoué (${e.message}) — risque de doublon.`);
+      }
     } catch (e) {
       log(`✗ Échec pour ${c.nom} (${c.telephone}) :`, e.message);
     }
     await dodo(alea(DELAI_MIN, DELAI_MAX));
   }
+  log(`Terminé. ${nbEnvoyes} client(s) notifié(s) et marqué(s) « relancé ».`);
+}
 
-  // Marque côté serveur les clients réellement relancés (pour ne pas les
-  // renvoyer le même jour). Un client dont l'envoi a échoué n'est PAS marqué :
-  // il sera retenté au prochain passage.
-  if (envoyes.length) {
-    try {
-      await fetch(`${APP_URL}/api/relance-whatsapp?cle=${encodeURIComponent(CLE)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: envoyes }),
-      });
-      log(`${envoyes.length} client(s) marqué(s) comme relancé(s).`);
-    } catch (e) {
-      log("Envois réalisés mais marquage échoué :", e.message);
-    }
-  }
-  log("Terminé.");
+// Marque une liste de clients comme « relancés aujourd'hui » côté serveur.
+// Lève une erreur si le serveur ne confirme pas (pour pouvoir avertir d'un doublon possible).
+async function marquerRelance(ids) {
+  const r = await fetch(`${APP_URL}/api/relance-whatsapp?cle=${encodeURIComponent(CLE)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }
 
 // Alertes à l'ÉQUIPE : nouveaux paiements / tickets / réclamations. Le serveur
