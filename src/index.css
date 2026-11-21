@@ -56,6 +56,12 @@ body {
   background: #080C13; /* fond sombre de l'app, pour éviter les bandes blanches sur les côtés / au rebond */
 }
 
+/* overflow-x au niveau de la page (et non sur .wifi-app) : empêche le défilement
+   horizontal SANS casser le position:sticky des barres (header + onglets). */
+html {
+  overflow-x: clip;
+}
+
 #root {
   width: 100%;
   max-width: 100%;
