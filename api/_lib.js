@@ -86,6 +86,19 @@ export async function readRawBody(req) {
   return Buffer.concat(chunks);
 }
 
+// Lit et parse le corps JSON de façon fiable : utilise req.body s'il est déjà
+// un objet, sinon lit le flux brut (certaines requêtes arrivent non parsées).
+export async function readJsonBody(req) {
+  try {
+    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) return req.body;
+    const buf = await readRawBody(req);
+    const raw = buf.toString("utf8");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
 export function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
