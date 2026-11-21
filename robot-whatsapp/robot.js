@@ -147,16 +147,25 @@ async function appelReactiverPOST(id, montant, mode, adminTel) {
   return { status: res.status, data: await res.json().catch(() => ({})) };
 }
 
-// On écoute "message_create" (et pas "message") : en multi-appareils, l'event
-// "message" ne se déclenche pas toujours pour les messages reçus. "message_create"
-// couvre tout ; on ignore nos propres messages avec fromMe.
-client.on("message_create", async (msg) => {
+// On écoute À LA FOIS "message" ET "message_create" : selon le type de compte
+// (WhatsApp Business, multi-appareils), l'un OU l'autre peut ne pas se déclencher
+// pour les messages reçus. On branche le même traitement sur les deux et on
+// déduplique par identifiant de message pour ne jamais traiter deux fois.
+const messagesTraites = new Set();
+async function traiterMessage(msg) {
   try {
     if (msg.fromMe) return;
     if (!msg.from || !msg.from.endsWith("@c.us")) return; // ignore groupes / statuts
+    // Déduplication (si les deux events se déclenchent pour le même message).
+    const mid = (msg.id && (msg.id._serialized || msg.id.id)) || `${msg.from}|${msg.timestamp}|${msg.body}`;
+    if (messagesTraites.has(mid)) return;
+    messagesTraites.add(mid);
+    if (messagesTraites.size > 600) { let n = 0; for (const k of messagesTraites) { messagesTraites.delete(k); if (++n >= 200) break; } }
+
     const adminTel = msg.from.replace("@c.us", "");       // numéro de l'expéditeur
     const texte = (msg.body || "").trim();
     const haut = texte.toUpperCase();
+    log("📩 Message reçu de", adminTel, ":", JSON.stringify(texte.slice(0, 50)));
     if (!haut) return;
 
     // 1) Commande de réactivation.
@@ -219,7 +228,8 @@ client.on("message_create", async (msg) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "decider", code, decision: estRejet ? "rejeter" : "valider", motif, admin_tel: adminTel }),
       });
-      if (res.status === 403) return; // pas l'admin principal : on ignore en silence
+      log(`${estRejet ? "REJETER" : "VALIDER"} ${code} → serveur HTTP ${res.status}`);
+      if (res.status === 403) { await msg.reply("Validation réservée à l'administrateur principal."); return; }
       const data = await res.json().catch(() => ({}));
       if (!data.ok) {
         if (data.error === "introuvable") await msg.reply(`Aucune dépense en attente avec le code ${code}.`);
@@ -286,7 +296,12 @@ client.on("message_create", async (msg) => {
   } catch (e) {
     log("Erreur traitement message :", e.message);
   }
-});
+}
+
+// Le même traitement est branché sur les deux événements WhatsApp. Grâce à la
+// déduplication par id ci-dessus, un message reçu une fois n'est traité qu'une fois.
+client.on("message", (msg) => { traiterMessage(msg).catch((e) => log("Erreur message :", e.message)); });
+client.on("message_create", (msg) => { traiterMessage(msg).catch((e) => log("Erreur message_create :", e.message)); });
 
 async function envoyerRappels() {
   log("Recherche des clients à notifier…");

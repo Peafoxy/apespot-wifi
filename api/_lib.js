@@ -22,7 +22,11 @@ export function envError() {
 }
 
 export function sbHeaders(extra = {}) {
-  const h = { apikey: SERVICE_KEY };
+  // Content-Type par défaut : PostgREST REFUSE les écritures (POST/PATCH/DELETE
+  // avec corps) si l'en-tête n'est pas application/json — sans lui, fetch envoie
+  // "text/plain" et PostgREST renvoie 400 PGRST102. Les lectures (GET) l'ignorent.
+  // Un appelant qui envoie un autre type (ex. upload PDF) le remplace via `extra`.
+  const h = { apikey: SERVICE_KEY, "Content-Type": "application/json" };
   // Les anciennes clés Supabase sont des JWT ("eyJ...") et se passent aussi en
   // Authorization. Les nouvelles clés (sb_secret_...) ne sont PAS des JWT :
   // elles se passent uniquement dans l'en-tête apikey — un Authorization:

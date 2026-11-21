@@ -85,13 +85,6 @@ export default async (req, res) => {
       const body = await readJsonBody(req);
       const action = body && body.action;
 
-      // Trace de diagnostic (temporaire) : visible dans l'Historique.
-      await fetch(`${SUPABASE_URL}/rest/v1/wifi_activity_log`, {
-        method: "POST", headers: sbHeaders({ Prefer: "return=minimal" }),
-        body: JSON.stringify({ actor_nom: "ROBOT", actor_role: "systeme", action: "debug_validation",
-          details: `action=${action} keys=${body ? Object.keys(body).join(",") : "none"} code=${body && body.code} tel=${body && body.admin_tel}` }),
-      }).catch(() => {});
-
       // Marquer des dépenses comme "déjà notifiées à l'admin".
       if (action === "marquer") {
         const ids = (body && Array.isArray(body.ids)) ? body.ids : [];
@@ -185,12 +178,6 @@ export default async (req, res) => {
     }
 
     // ---------- GET : dépenses en attente à notifier à l'admin ----------
-    // Test d'écriture (temporaire) : confirme si les écritures passent depuis ici.
-    const wtest = await fetch(`${SUPABASE_URL}/rest/v1/wifi_activity_log`, {
-      method: "POST", headers: sbHeaders({ Prefer: "return=minimal" }),
-      body: JSON.stringify({ actor_nom: "ROBOT", actor_role: "systeme", action: "debug_get", details: `test ecriture GET ${new Date().toISOString()}` }),
-    });
-    const debugEcriture = `${wtest.status} ${wtest.ok ? "OK" : (await wtest.text().catch(() => ""))}`;
     const admin = await adminPrincipal();
     const events = [];
     for (const [table, conf] of Object.entries(TYPES)) {
