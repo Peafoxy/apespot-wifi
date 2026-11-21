@@ -147,13 +147,17 @@ async function appelReactiverPOST(id, montant, mode, adminTel) {
   return { status: res.status, data: await res.json().catch(() => ({})) };
 }
 
-client.on("message", async (msg) => {
+// On écoute "message_create" (et pas "message") : en multi-appareils, l'event
+// "message" ne se déclenche pas toujours pour les messages reçus. "message_create"
+// couvre tout ; on ignore nos propres messages avec fromMe.
+client.on("message_create", async (msg) => {
   try {
     if (msg.fromMe) return;
     if (!msg.from || !msg.from.endsWith("@c.us")) return; // ignore groupes / statuts
     const adminTel = msg.from.replace("@c.us", "");       // numéro de l'expéditeur
     const texte = (msg.body || "").trim();
     const haut = texte.toUpperCase();
+    if (!haut) return;
 
     // 1) Commande de réactivation.
     if (haut.startsWith("REACTIVER") || haut.startsWith("RÉACTIVER")) {
