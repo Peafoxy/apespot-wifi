@@ -178,6 +178,12 @@ export default async (req, res) => {
     }
 
     // ---------- GET : dépenses en attente à notifier à l'admin ----------
+    // Test d'écriture (temporaire) : confirme si les écritures passent depuis ici.
+    const wtest = await fetch(`${SUPABASE_URL}/rest/v1/wifi_activity_log`, {
+      method: "POST", headers: sbHeaders({ Prefer: "return=minimal" }),
+      body: JSON.stringify({ actor_nom: "ROBOT", actor_role: "systeme", action: "debug_get", details: `test ecriture GET ${new Date().toISOString()}` }),
+    });
+    const debugEcriture = `${wtest.status} ${wtest.ok ? "OK" : (await wtest.text().catch(() => ""))}`;
     const admin = await adminPrincipal();
     const events = [];
     for (const [table, conf] of Object.entries(TYPES)) {
