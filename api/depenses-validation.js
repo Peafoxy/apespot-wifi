@@ -85,13 +85,6 @@ export default async (req, res) => {
       const body = await readJsonBody(req);
       const action = body && body.action;
 
-      // Trace de diagnostic (temporaire) : visible dans l'Historique.
-      await fetch(`${SUPABASE_URL}/rest/v1/wifi_activity_log`, {
-        method: "POST", headers: sbHeaders({ Prefer: "return=minimal" }),
-        body: JSON.stringify({ actor_nom: "ROBOT", actor_role: "systeme", action: "debug_validation",
-          details: `action=${action} keys=${body ? Object.keys(body).join(",") : "none"} code=${body && body.code} tel=${body && body.admin_tel}` }),
-      }).catch(() => {});
-
       // Marquer des dépenses comme "déjà notifiées à l'admin".
       if (action === "marquer") {
         const ids = (body && Array.isArray(body.ids)) ? body.ids : [];
@@ -185,16 +178,6 @@ export default async (req, res) => {
     }
 
     // ---------- GET : dépenses en attente à notifier à l'admin ----------
-    // Test d'écriture (temporaire) : confirme si les écritures passent depuis ici.
-    const wtest = await fetch(`${SUPABASE_URL}/rest/v1/wifi_activity_log`, {
-      method: "POST", headers: sbHeaders({ Prefer: "return=minimal" }),
-      body: JSON.stringify({ actor_nom: "ROBOT", actor_role: "systeme", action: "debug_get", details: `test ecriture GET ${new Date().toISOString()}` }),
-    });
-    const wtxt = await wtest.text().catch(() => "");
-    const debugEcriture = `${wtest.status} ${wtest.ok ? "OK" : "FAIL"} ${wtxt}`.trim();
-    // Diagnostic clé (non sensible : préfixe seulement).
-    const k = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-    const diagCle = { prefixe: k.slice(0, 7), longueur: k.length, authBearer: k.startsWith("eyJ"), url: (process.env.SUPABASE_URL || "").slice(0, 40) };
     const admin = await adminPrincipal();
     const events = [];
     for (const [table, conf] of Object.entries(TYPES)) {
@@ -203,7 +186,7 @@ export default async (req, res) => {
         events.push({ table, id: row.id, code: codeDe(row.id), message: messageAdmin(conf, row) });
       }
     }
-    res.status(200).json({ ok: true, adminTel: admin ? admin.tel : "", events, debugEcriture, diagCle });
+    res.status(200).json({ ok: true, adminTel: admin ? admin.tel : "", events });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
