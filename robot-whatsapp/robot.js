@@ -413,7 +413,7 @@ async function envoyerRappels() {
   }
   log(`${clients.length} client(s) à notifier.`);
 
-  const envoyes = [];
+  let nbEnvoyes = 0;
   for (const c of clients) {
     const chatId = `${c.telephone}@c.us`;
     try {
@@ -425,30 +425,34 @@ async function envoyerRappels() {
         continue;
       }
       await client.sendMessage(chatId, c.message);
-      envoyes.push(c.id);
       log(`✓ Envoyé à ${c.nom} (${c.telephone})`);
+      // IMPORTANT : on marque « relancé » IMMÉDIATEMENT après l'envoi (un client
+      // à la fois), avant même de passer au suivant. Ainsi, même si le robot est
+      // coupé juste après, ce client ne recevra JAMAIS une seconde notification
+      // le même jour — ni par le robot, ni proposé à un administrateur.
+      try {
+        await marquerRelance([c.id]);
+        nbEnvoyes++;
+      } catch (e) {
+        log(`⚠ ${c.nom} : envoyé mais marquage « relancé » échoué (${e.message}) — risque de doublon.`);
+      }
     } catch (e) {
       log(`✗ Échec pour ${c.nom} (${c.telephone}) :`, e.message);
     }
     await dodo(alea(DELAI_MIN, DELAI_MAX));
   }
+  log(`Terminé. ${nbEnvoyes} client(s) notifié(s) et marqué(s) « relancé ».`);
+}
 
-  // Marque côté serveur les clients réellement relancés (pour ne pas les
-  // renvoyer le même jour). Un client dont l'envoi a échoué n'est PAS marqué :
-  // il sera retenté au prochain passage.
-  if (envoyes.length) {
-    try {
-      await fetch(`${APP_URL}/api/relance-whatsapp?cle=${encodeURIComponent(CLE)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: envoyes }),
-      });
-      log(`${envoyes.length} client(s) marqué(s) comme relancé(s).`);
-    } catch (e) {
-      log("Envois réalisés mais marquage échoué :", e.message);
-    }
-  }
-  log("Terminé.");
+// Marque une liste de clients comme « relancés aujourd'hui » côté serveur.
+// Lève une erreur si le serveur ne confirme pas (pour pouvoir avertir d'un doublon possible).
+async function marquerRelance(ids) {
+  const r = await fetch(`${APP_URL}/api/relance-whatsapp?cle=${encodeURIComponent(CLE)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }
 
 // Alertes à l'ÉQUIPE : nouveaux paiements / tickets / réclamations. Le serveur
