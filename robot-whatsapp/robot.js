@@ -373,25 +373,22 @@ async function sonderCommandes() {
   try {
     const maintenant = Math.floor(Date.now() / 1000);
     let chats = await client.getChats();
-    const total = Array.isArray(chats) ? chats.length : -1;
     // Conversations individuelles : @c.us OU @lid (les groupes @g.us sont exclus).
     const indiv = (chats || []).filter((c) => c && !c.isGroup && c.id && c.id._serialized &&
       (c.id._serialized.endsWith("@c.us") || c.id._serialized.endsWith("@lid")));
-    log(`[SONDAGE] ${total} conversations, ${indiv.length} individuelles.`);
     const recents = indiv.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 20);
     for (const chat of recents) {
       if (chat.timestamp && (maintenant - chat.timestamp) > SONDAGE_FENETRE_S) continue;
-      const msgs = await chat.fetchMessages({ limit: 6 }).catch((e) => { log(`[SONDAGE] fetch KO ${chat.id._serialized}: ${e.message}`); return []; });
+      const msgs = await chat.fetchMessages({ limit: 6 }).catch(() => []);
       for (const m of msgs) {
         if (!m) continue;
         if (m.timestamp && (maintenant - m.timestamp) > SONDAGE_FENETRE_S) continue;
         if (m.fromMe) continue;
-        log(`[SONDAGE] reçu de=${m.from} texte=${JSON.stringify((m.body || "").slice(0, 25))}`);
         await traiterMessage(m); // la déduplication par id gère les répétitions
       }
     }
   } catch (e) {
-    log("[SONDAGE] erreur:", e.message);
+    log("Lecture des commandes — erreur :", e.message);
   } finally {
     sondageEnCours = false;
   }
