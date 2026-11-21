@@ -56,8 +56,14 @@ export default async (req, res) => {
   if (!token || token !== SECRET) return res.status(401).send("# token invalide");
 
   try {
+    // Optimisation egress : on ne récupère QUE les clients de CE serveur, au lieu
+    // de toute la table à chaque appel (÷ ~4 sur une base partagée par 3 apps).
+    // `serveur` est déjà normalisé en [A-Z0-9] (ex. "V11") -> aucune injection.
+    // Le filtre couvre le format standard « SERVEUR V11 » ET un éventuel « V11 »
+    // seul ; le garde-fou JS (normServeur) refiltre ensuite au cas où.
+    const filtreServeur = `or=(serveur.ilike.SERVEUR*${serveur},serveur.ilike.${serveur})`;
     const upstream = await fetch(
-      `${SUPABASE_URL}/rest/v1/wifi_clients?select=nom,serveur,pppoe_login,date_exp,derniere_connexion_vue,suivi_depuis`,
+      `${SUPABASE_URL}/rest/v1/wifi_clients?select=nom,serveur,pppoe_login,date_exp,derniere_connexion_vue,suivi_depuis&${filtreServeur}`,
       { headers: sbHeaders({ Accept: "application/json" }) }
     );
     if (!upstream.ok) return res.status(502).send("# erreur base");

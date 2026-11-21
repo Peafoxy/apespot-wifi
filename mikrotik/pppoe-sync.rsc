@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 # A COLLER dans le MikroTik :
 #   1) System > Scripts > (+) : Name = apespot-pppoe, colle TOUT ce texte.
-#   2) System > Scheduler > (+) : Name = apespot-pppoe, Interval = 00:05:00,
+#   2) System > Scheduler > (+) : Name = apespot-pppoe, Interval = 00:02:00,
 #      On Event = /system script run apespot-pppoe
 # Compatible RouterOS v6 ET v7.
 #
