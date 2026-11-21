@@ -2,34 +2,24 @@
 REM ====================================================================
 REM  Installe le DEMARRAGE AUTOMATIQUE du robot APESPOT.
 REM  Double-clique sur ce fichier UNE SEULE FOIS.
-REM  Apres ca, le robot se lancera tout seul a chaque ouverture de
-REM  session Windows (donc a chaque redemarrage de l'ordinateur).
 REM ====================================================================
 cd /d "%~dp0"
-set "CIBLE=%~dp0demarrer.bat"
-set "DOSSIER=%~dp0"
-set "DEMARRAGE=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$w = New-Object -ComObject WScript.Shell;" ^
-  "$lnk = $w.CreateShortcut(Join-Path '%DEMARRAGE%' 'Robot APESPOT.lnk');" ^
-  "$lnk.TargetPath = '%CIBLE%';" ^
-  "$lnk.WorkingDirectory = '%DOSSIER%';" ^
-  "$lnk.Description = 'Robot WhatsApp APESPOT';" ^
-  "$lnk.Save()"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $l=$w.CreateShortcut([Environment]::GetFolderPath('Startup')+'\Robot APESPOT.lnk'); $l.TargetPath='%~dp0demarrer.bat'; $l.WorkingDirectory='%~dp0'; $l.Description='Robot WhatsApp APESPOT'; $l.Save(); Write-Host 'Raccourci cree avec succes.'"
 
 echo.
-echo ====================================================================
-echo   OK ! Le robot demarrera AUTOMATIQUEMENT a chaque demarrage
-echo   de Windows (ouverture de session).
+echo ================================================================
+echo   Si la ligne "Raccourci cree avec succes." s'affiche juste
+echo   au-dessus, c'est bon : le robot demarrera tout seul a chaque
+echo   demarrage de Windows (ouverture de session).
 echo.
-echo   Pour que cela marche apres un redemarrage SANS que personne ne
-echo   se connecte, active l'ouverture de session automatique de Windows
-echo   (commande : netplwiz).
+echo   S'il y a des lignes en ROUGE, dis-le a l'administrateur.
 echo.
-echo   Pour ANNULER le demarrage auto : supprime le raccourci
-echo   "Robot APESPOT" dans le dossier Demarrage (touche Windows + R,
-echo   tape  shell:startup  puis Entree).
-echo ====================================================================
+echo   Pour un redemarrage SANS connexion manuelle : active
+echo   l'ouverture de session auto (Windows + R, tape : netplwiz).
+echo.
+echo   Pour ANNULER le demarrage auto : Windows + R, tape
+echo   shell:startup, puis supprime le raccourci "Robot APESPOT".
+echo ================================================================
 echo.
 pause
