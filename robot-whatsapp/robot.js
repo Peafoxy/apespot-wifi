@@ -329,21 +329,23 @@ async function sonderCommandes() {
   try {
     const maintenant = Math.floor(Date.now() / 1000);
     let chats = await client.getChats();
-    // On garde les conversations individuelles, triées par activité récente.
-    chats = chats
-      .filter((c) => c && c.id && c.id._serialized && c.id._serialized.endsWith("@c.us"))
-      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-      .slice(0, 20); // 20 conversations les plus récentes suffisent
-    for (const chat of chats) {
-      // On ignore les conversations sans message récent.
+    const total = Array.isArray(chats) ? chats.length : -1;
+    const indiv = (chats || []).filter((c) => c && c.id && c.id._serialized && c.id._serialized.endsWith("@c.us"));
+    log(`[SONDAGE] ${total} conversations, ${indiv.length} individuelles.`);
+    const recents = indiv.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 20);
+    for (const chat of recents) {
       if (chat.timestamp && (maintenant - chat.timestamp) > SONDAGE_FENETRE_S) continue;
-      const msgs = await chat.fetchMessages({ limit: 6 }).catch(() => []);
+      const msgs = await chat.fetchMessages({ limit: 6 }).catch((e) => { log(`[SONDAGE] fetch KO ${chat.id._serialized}: ${e.message}`); return []; });
       for (const m of msgs) {
-        if (!m || m.fromMe) continue;
+        if (!m) continue;
         if (m.timestamp && (maintenant - m.timestamp) > SONDAGE_FENETRE_S) continue;
+        log(`[SONDAGE] lu de=${m.from} moi=${m.fromMe} texte=${JSON.stringify((m.body || "").slice(0, 25))}`);
+        if (m.fromMe) continue;
         await traiterMessage(m); // la déduplication par id gère les répétitions
       }
     }
+  } catch (e) {
+    log("[SONDAGE] erreur:", e.message);
   } finally {
     sondageEnCours = false;
   }
