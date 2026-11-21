@@ -77,11 +77,16 @@ client.on("ready", () => {
   cron.schedule(`*/${ALERTE_INTERVALLE_MIN} * * * *`, () => {
     envoyerAlertesEquipe().catch((e) => log("Erreur alertes équipe :", e.message));
   });
-  // Option de test : « npm run test-envoi » lance tout de suite les deux.
+  // 3) Dépenses à faire valider par l'admin principal, régulièrement.
+  cron.schedule(`*/${ALERTE_INTERVALLE_MIN} * * * *`, () => {
+    envoyerValidations().catch((e) => log("Erreur validations :", e.message));
+  });
+  // Option de test : « npm run test-envoi » lance tout de suite.
   if (process.argv.includes("--maintenant")) {
     log("Option --maintenant : envoi immédiat (test).");
     envoyerRappels().catch((e) => log("Erreur pendant l'envoi :", e.message));
     envoyerAlertesEquipe().catch((e) => log("Erreur alertes équipe :", e.message));
+    envoyerValidations().catch((e) => log("Erreur validations :", e.message));
   }
 });
 
@@ -165,6 +170,41 @@ client.on("message", async (msg) => {
         `Paiement : *${montant} F* (${modeAffiche})${avert}\n\n` +
         `Réponds *OUI* pour confirmer la réactivation.`
       );
+      return;
+    }
+
+    // 1bis) Validation / rejet d'une dépense (réservé à l'admin principal).
+    if (haut.startsWith("VALIDER") || haut.startsWith("REJETER")) {
+      const estRejet = haut.startsWith("REJETER");
+      const reste = texte.replace(/^(valider|rejeter)/i, "").trim();
+      const toks = reste.split(/\s+/).filter(Boolean);
+      const code = (toks[0] || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const motif = toks.slice(1).join(" ").trim();
+      if (!code) { await msg.reply("Format : VALIDER <code>  ou  REJETER <code> motif"); return; }
+      if (estRejet && !motif) { await msg.reply(`Motif obligatoire pour rejeter.\nEx : REJETER ${code} trop cher`); return; }
+
+      const res = await fetch(`${APP_URL}/api/depenses-validation?cle=${encodeURIComponent(CLE)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "decider", code, decision: estRejet ? "rejeter" : "valider", motif, admin_tel: adminTel }),
+      });
+      if (res.status === 403) return; // pas l'admin principal : on ignore en silence
+      const data = await res.json().catch(() => ({}));
+      if (!data.ok) {
+        if (data.error === "introuvable") await msg.reply(`Aucune dépense en attente avec le code ${code}.`);
+        else if (data.error === "motif_requis") await msg.reply("Motif obligatoire pour rejeter.");
+        else await msg.reply("Erreur lors de la décision. Réessaie.");
+        return;
+      }
+      // Notifie l'initiateur de la dépense (si numéro enregistré).
+      if (data.initiator && data.initiator.telephone) {
+        try {
+          const cid = `${data.initiator.telephone}@c.us`;
+          const ok = await client.isRegisteredUser(cid).catch(() => true);
+          if (ok) await client.sendMessage(cid, data.initiator.message);
+        } catch (e) { log("Notif initiateur échouée :", e.message); }
+      }
+      await msg.reply(data.adminConfirm || "Fait.");
       return;
     }
 
@@ -324,6 +364,49 @@ async function envoyerAlertesEquipe() {
     } catch (e) {
       log("Alertes envoyées mais marquage échoué :", e.message);
     }
+  }
+}
+
+// Dépenses à faire valider : envoie à l'ADMIN PRINCIPAL un message par dépense
+// en attente, avec les instructions VALIDER / REJETER.
+async function envoyerValidations() {
+  let data;
+  try {
+    const res = await fetch(`${APP_URL}/api/depenses-validation?cle=${encodeURIComponent(CLE)}`);
+    data = await res.json();
+    if (!data.ok) throw new Error(data.error || "réponse invalide");
+  } catch (e) {
+    log("Validations — récupération échouée :", e.message);
+    return;
+  }
+  const events = data.events || [];
+  if (events.length === 0) return;
+  const adminTel = data.adminTel;
+  if (!adminTel) { log("Validations : aucun admin principal avec numéro — rien envoyé."); return; }
+
+  log(`${events.length} dépense(s) à faire valider par l'admin.`);
+  const chatId = `${adminTel}@c.us`;
+  const marks = [];
+  for (const ev of events) {
+    try {
+      const inscrit = await client.isRegisteredUser(chatId).catch(() => true);
+      if (!inscrit) { log(`✗ Admin ${adminTel} pas sur WhatsApp.`); break; }
+      await client.sendMessage(chatId, ev.message);
+      marks.push({ table: ev.table, id: ev.id });
+      log(`✓ Dépense #${ev.code} envoyée à l'admin.`);
+    } catch (e) {
+      log(`✗ Envoi validation #${ev.code} échoué :`, e.message);
+    }
+    await dodo(alea(2000, 5000));
+  }
+  if (marks.length) {
+    try {
+      await fetch(`${APP_URL}/api/depenses-validation?cle=${encodeURIComponent(CLE)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "marquer", ids: marks }),
+      });
+    } catch (e) { log("Validations marquage échoué :", e.message); }
   }
 }
 
