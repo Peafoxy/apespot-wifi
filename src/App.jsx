@@ -4144,16 +4144,16 @@ export default function AlerteClientWifi() {
   //   - carburant / perdiem : uniquement ceux marqués « payé » (remboursés) ;
   //     tant qu'ils sont « à payer », l'argent est encore dans la caisse.
   //   - autres dépenses : toujours (elles sont immédiates, pas de statut).
-  //   - lignes récurrentes (abonnements Internet) : NON déduites ici. L'utilisateur
-  //     saisit chaque paiement Internet en « Autre dépense » (évite le double
-  //     comptage ligne + autre dépense). Les lignes gardent seulement leurs rappels.
+  //   - lignes récurrentes (abonnements Internet) : chaque paiement d'une ligne
+  //     (CANAL BOX, FIBRE…) EST maintenant déduit de la caisse. ⚠️ Ne PAS saisir
+  //     en plus la même dépense en « Autre dépense », sinon double comptage.
   const caisseData = useMemo(() => {
     const totalEncaisse = payments.reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const totalFuel = fuelExpenses.filter((f) => f.status === "paye" && f.approvalStatus === "approved").reduce((s, f) => s + (Number(f.montant) || 0), 0);
     const totalPerdiem = perdiemExpenses.filter((p) => p.status === "paye" && p.approvalStatus === "approved").reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const totalAutres = otherExpenses.filter((o) => o.approvalStatus === "approved").reduce((s, o) => s + (Number(o.montant) || 0), 0);
-    const totalLignes = expenseLines.reduce((s, l) => s + (Number(l.totalPaid) || 0), 0); // suivi seulement — PAS déduit de la caisse (Internet saisi en « Autres dépenses »)
-    const totalDepenses = totalFuel + totalPerdiem + totalAutres;
+    const totalLignes = expenseLines.reduce((s, l) => s + (Number(l.totalPaid) || 0), 0); // paiements des lignes Internet : déduits de la caisse
+    const totalDepenses = totalFuel + totalPerdiem + totalAutres + totalLignes;
     const totalVerse = versements.reduce((s, v) => s + (Number(v.montant) || 0), 0);
     const resteAVerser = totalEncaisse - totalDepenses - totalVerse;
     return { totalEncaisse, totalFuel, totalPerdiem, totalAutres, totalLignes, totalDepenses, totalVerse, resteAVerser };
@@ -4236,9 +4236,11 @@ export default function AlerteClientWifi() {
     const fuel = fuelExpenses.filter((f) => f.status === "paye" && f.approvalStatus === "approved" && apres(f.createdAt)).reduce((s, f) => s + (Number(f.montant) || 0), 0);
     const perdiem = perdiemExpenses.filter((p) => p.status === "paye" && p.approvalStatus === "approved" && apres(p.createdAt)).reduce((s, p) => s + (Number(p.montant) || 0), 0);
     const autres = otherExpenses.filter((o) => o.approvalStatus === "approved" && apres(o.createdAt)).reduce((s, o) => s + (Number(o.montant) || 0), 0);
-    const depenses = fuel + perdiem + autres;
+    // Paiements de lignes Internet effectués DANS la période (date du dernier paiement après le dernier versement).
+    const lignes = expenseLines.filter((l) => l.paidActionAt && apres(l.paidActionAt)).reduce((s, l) => s + (Number(l.montant) || 0), 0);
+    const depenses = fuel + perdiem + autres + lignes;
     return { depuis, paiements, nbPaiements, depenses, net: paiements - depenses };
-  }, [versements, payments, fuelExpenses, perdiemExpenses, otherExpenses]);
+  }, [versements, payments, fuelExpenses, perdiemExpenses, otherExpenses, expenseLines]);
 
   const [caisseFilter, setCaisseFilter] = useState("periode"); // "periode" (défaut) | "tout"
   const [historiqueSearch, setHistoriqueSearch] = useState("");
