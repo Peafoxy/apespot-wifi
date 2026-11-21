@@ -14,6 +14,27 @@ require("dotenv").config();
 const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
 const cron = require("node-cron");
+const fs = require("fs");
+
+// Trouve un navigateur Chrome/Edge DÉJÀ installé sur le PC, pour éviter de
+// dépendre du téléchargement automatique de Chrome par le robot (qui échoue sur
+// certaines machines / connexions). On peut forcer un chemin via CHROME_PATH
+// dans le fichier .env.
+function fichierExiste(p) { try { return !!p && fs.existsSync(p); } catch { return false; } }
+function trouverNavigateur() {
+  if (fichierExiste(process.env.CHROME_PATH)) return process.env.CHROME_PATH;
+  const local = process.env.LOCALAPPDATA || "";
+  const candidats = [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    local && local + "\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+  ].filter(Boolean);
+  for (const p of candidats) if (fichierExiste(p)) return p;
+  return null;
+}
+const NAVIGATEUR = trouverNavigateur();
 
 const APP_URL = (process.env.APP_URL || "https://apespot-wifi.vercel.app").replace(/\/+$/, "");
 const CLE = process.env.CLE || "";
@@ -49,9 +70,15 @@ if (!CLE) {
   process.exit(1);
 }
 
+if (NAVIGATEUR) log("Navigateur utilisé :", NAVIGATEUR);
+else log("Aucun Chrome/Edge détecté — le robot utilisera le navigateur téléchargé (si présent).");
+
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: "./session" }),
-  puppeteer: { args: ["--no-sandbox", "--disable-setuid-sandbox"] },
+  puppeteer: {
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    ...(NAVIGATEUR ? { executablePath: NAVIGATEUR } : {}),
+  },
 });
 
 client.on("qr", (qr) => {
