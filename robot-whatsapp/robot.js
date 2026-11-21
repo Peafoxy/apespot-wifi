@@ -165,6 +165,43 @@ async function appelReactiverPOST(id, montant, mode, adminTel) {
 // pour les messages reçus. On branche le même traitement sur les deux et on
 // déduplique par identifiant de message pour ne jamais traiter deux fois.
 const messagesTraites = new Set();
+// Résout le VRAI numéro de téléphone de l'expéditeur. Les comptes récents /
+// Business reçoivent les messages avec un identifiant masqué @lid (ex.
+// 114409456279581@lid) qui N'EST PAS le numéro : on le convertit via l'API
+// interne de WhatsApp Web. Renvoie une suite de chiffres, ou "".
+async function resoudreTelephone(msg) {
+  try {
+    if (msg.from && msg.from.endsWith("@c.us")) return msg.from.replace("@c.us", "").replace(/\D/g, "");
+    const idBrut = msg.author || msg.from || "";
+    try {
+      const phone = await client.pupPage.evaluate(async (uid) => {
+        const extraire = (p) => (p ? (p._serialized || p.user || (typeof p === "string" ? p : null)) : null);
+        try {
+          if (window.WWebJS && typeof window.WWebJS.enforceLidAndPnRetrieval === "function") {
+            const r = await window.WWebJS.enforceLidAndPnRetrieval(uid);
+            const v = extraire(r && r.phone);
+            if (v) return v;
+          }
+        } catch (e) {}
+        try {
+          const wid = window.require("WAWebWidFactory").createWid(uid);
+          const api = window.require("WAWebApiContact");
+          const v = extraire(api && api.getPhoneNumber ? api.getPhoneNumber(wid) : null);
+          if (v) return v;
+        } catch (e) {}
+        return null;
+      }, idBrut);
+      if (phone) return String(phone).replace(/@.*/, "").replace(/\D/g, "");
+    } catch (e) {}
+    // Repli : fiche contact (déjà résolue sur certaines versions).
+    try {
+      const c = await msg.getContact();
+      return String((c && (c.number || (c.id && c.id.user))) || "").replace(/\D/g, "");
+    } catch (e) {}
+  } catch (e) {}
+  return "";
+}
+
 async function traiterMessage(msg) {
   try {
     if (msg.fromMe) return;
@@ -180,18 +217,7 @@ async function traiterMessage(msg) {
     messagesTraites.add(mid);
     if (messagesTraites.size > 600) { let n = 0; for (const k of messagesTraites) { messagesTraites.delete(k); if (++n >= 200) break; } }
 
-    // Numéro réel de l'expéditeur. En @c.us il est dans l'identifiant ; en @lid
-    // (identifiant masqué) il faut le demander à la fiche contact.
-    let adminTel = "";
-    if (msg.from.endsWith("@c.us")) {
-      adminTel = msg.from.replace("@c.us", "");
-    } else {
-      try {
-        const c = await msg.getContact();
-        adminTel = (c && (c.number || (c.id && c.id.user))) || "";
-      } catch { adminTel = ""; }
-    }
-    adminTel = (adminTel || "").replace(/[^\d]/g, "");
+    const adminTel = await resoudreTelephone(msg);
     if (!adminTel) return;
 
     const texte = (msg.body || "").trim();
@@ -359,8 +385,8 @@ async function sonderCommandes() {
       for (const m of msgs) {
         if (!m) continue;
         if (m.timestamp && (maintenant - m.timestamp) > SONDAGE_FENETRE_S) continue;
-        log(`[SONDAGE] lu de=${m.from} moi=${m.fromMe} texte=${JSON.stringify((m.body || "").slice(0, 25))}`);
         if (m.fromMe) continue;
+        log(`[SONDAGE] reçu de=${m.from} texte=${JSON.stringify((m.body || "").slice(0, 25))}`);
         await traiterMessage(m); // la déduplication par id gère les répétitions
       }
     }
