@@ -39,7 +39,9 @@ Pour **chacun** des 4 MikroTik :
    - `token` = **la même valeur** que `PPPOE_SYNC_SECRET`,
    - `appliquer` = `false` (**mode test** pour commencer).
 3. **System → Scheduler → (+)** : Name = `apespot-pppoe`,
-   Interval = `00:05:00`, On Event = `/system script run apespot-pppoe`.
+   Interval = `00:02:00`, On Event = `/system script run apespot-pppoe`.
+   *(2 min = reconnexion quasi immédiate après paiement. 5 min marche aussi ;
+   descendre à 1 min n'apporte pas grand-chose de plus.)*
 
 ### 3. Tester sans rien couper
 Avec `appliquer=false`, lance le script une fois
