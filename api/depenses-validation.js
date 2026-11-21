@@ -15,7 +15,7 @@
 // un motif. L'initiateur (technicien / personne) est prévenu via son numéro
 // enregistré dans sa fiche utilisateur.
 
-import { SUPABASE_URL, sbHeaders, envError } from "./_lib.js";
+import { SUPABASE_URL, sbHeaders, envError, readJsonBody } from "./_lib.js";
 
 const CLE_ROBOT = process.env.ROBOT_WHATSAPP_CLE;
 const CLE_CRON = process.env.RELANCE_CRON_SECRET;
@@ -82,9 +82,15 @@ export default async (req, res) => {
   try {
     // ---------- POST ----------
     if (req.method === "POST") {
-      let body = req.body;
-      if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = null; } }
+      const body = await readJsonBody(req);
       const action = body && body.action;
+
+      // Trace de diagnostic (temporaire) : visible dans l'Historique.
+      await fetch(`${SUPABASE_URL}/rest/v1/wifi_activity_log`, {
+        method: "POST", headers: sbHeaders({ Prefer: "return=minimal" }),
+        body: JSON.stringify({ actor_nom: "ROBOT", actor_role: "systeme", action: "debug_validation",
+          details: `action=${action} keys=${body ? Object.keys(body).join(",") : "none"} code=${body && body.code} tel=${body && body.admin_tel}` }),
+      }).catch(() => {});
 
       // Marquer des dépenses comme "déjà notifiées à l'admin".
       if (action === "marquer") {
