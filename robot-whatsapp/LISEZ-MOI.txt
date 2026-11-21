@@ -159,6 +159,27 @@ Notes :
 
 
 ----------------------------------------------------
+VALIDATION DES DÉPENSES (depuis WhatsApp)
+----------------------------------------------------
+Quand une dépense est créée et attend une validation, le robot envoie un
+message à l'ADMINISTRATEUR PRINCIPAL avec un code, par ex. :
+
+   💸 Dépense à valider — #A3F2
+   Type : Carburant · 5 000 F
+   Par : DJEDJE
+   ✅ Pour VALIDER, réponds : VALIDER A3F2
+   ❌ Pour REJETER, réponds : REJETER A3F2 motif
+
+L'admin principal répond simplement :
+   - VALIDER A3F2            -> la dépense est validée dans l'app
+   - REJETER A3F2 trop cher  -> la dépense est rejetée (motif obligatoire)
+
+-> Dès la décision, celui qui a CRÉÉ la dépense (technicien / personne) reçoit
+   aussi un WhatsApp : « Votre dépense a été validée / rejetée (motif…) ».
+-> Tout se fait sans ouvrir le site. Seul l'admin principal peut décider.
+
+
+----------------------------------------------------
 QUESTIONS FRÉQUENTES
 ----------------------------------------------------
 • « Le robot s'est arrêté / l'ordinateur a redémarré »
