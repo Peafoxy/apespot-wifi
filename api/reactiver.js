@@ -64,18 +64,67 @@ function nouvelleEcheance(currentDateExp, today) {
   return addOneMonthClamped(base);
 }
 
+// ---- Garde-fou anti double-réabonnement (mêmes seuils que l'app) ----
+const RENEW_COOLDOWN_MS = 60 * 60 * 1000;        // 1h : blocage ferme (sauf admin principal)
+const RENEW_GUARD_MS = 24 * 60 * 60 * 1000;      // 1h-24h : avertissement + confirmation OUI
+function fmtDateHeureFr(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)} à ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+// Calcule l'état du garde-fou pour un client qui vient (ou non) d'être réabonné.
+// isPrincipal : l'admin principal n'est jamais bloqué (comme sur l'app).
+function calcGarde(renewedAt, renewedBy, isPrincipal) {
+  if (!renewedAt) return { bloque: false, avertir: false };
+  const elapsed = Date.now() - new Date(renewedAt).getTime();
+  if (isNaN(elapsed)) return { bloque: false, avertir: false };
+  if (!isPrincipal && elapsed < RENEW_COOLDOWN_MS) {
+    const minutesLeft = Math.max(1, Math.ceil((RENEW_COOLDOWN_MS - elapsed) / 60000));
+    return { bloque: true, avertir: false, minutesLeft };
+  }
+  if (elapsed < RENEW_GUARD_MS) {
+    return { bloque: false, avertir: true, qui: renewedBy || "", quandFr: fmtDateHeureFr(renewedAt) };
+  }
+  return { bloque: false, avertir: false };
+}
+
+// Message diffusé aux AUTRES administrateurs après un réabonnement.
+// Ex. : « ✅ANGEL a réactivé FATI. Valide jusqu'au 22/12/2026. Paiement de 10 300 F (Mix by Yas) enregistré dans la caisse. »
+function messageEquipe(adminNom, clientNom, newExpFr, montant, mode) {
+  const m = (Number(montant) || 0).toLocaleString("fr-FR");
+  return `✅${adminNom} a réactivé ${clientNom}. Valide jusqu'au ${newExpFr}. Paiement de ${m} F (${mode}) enregistré dans la caisse.`;
+}
+
 async function lire(path) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: sbHeaders() });
   if (!r.ok) throw new Error(`lecture ${path} — ${r.status} ${await r.text().catch(() => "")}`);
   return (await r.json().catch(() => [])) || [];
 }
 
+// Retrouve l'administrateur correspondant à admin_tel (ou null).
+async function trouverAdmin(adminTel) {
+  const num = normalizePhone(adminTel);
+  if (!num) return null;
+  const admins = await lire("wifi_users?select=nom,telephone,is_principal&role=eq.admin");
+  return admins.find((u) => normalizePhone(u.telephone) === num) || null;
+}
 // Vrai si admin_tel correspond à un administrateur enregistré.
 async function estAdmin(adminTel) {
-  const num = normalizePhone(adminTel);
-  if (!num) return false;
-  const admins = await lire("wifi_users?select=role,telephone&role=eq.admin");
-  return admins.some((u) => normalizePhone(u.telephone) === num);
+  return !!(await trouverAdmin(adminTel));
+}
+// Numéros (normalisés) de tous les admins SAUF l'auteur, pour la diffusion d'équipe.
+async function autresAdminsTel(auteurTel) {
+  const auteur = normalizePhone(auteurTel);
+  const admins = await lire("wifi_users?select=nom,telephone&role=eq.admin");
+  const vus = new Set();
+  const out = [];
+  for (const u of admins) {
+    const tel = normalizePhone(u.telephone);
+    if (!tel || tel === auteur || vus.has(tel)) continue;
+    vus.add(tel);
+    out.push({ nom: u.nom || "", telephone: tel });
+  }
+  return out;
 }
 
 function messageClient(c, newExp) {
@@ -181,21 +230,36 @@ export default async (req, res) => {
       const montant = Number(body && body.montant);
       const mode = (body && body.mode) ? String(body.mode) : "Mix by Yas";
       const adminTel = body && body.admin_tel;
+      const force = body && (body.force === true || body.force === "true" || body.force === 1);
 
-      if (!(await estAdmin(adminTel))) { res.status(403).json({ ok: false, error: "non_admin" }); return; }
+      const admin = await trouverAdmin(adminTel);
+      if (!admin) { res.status(403).json({ ok: false, error: "non_admin" }); return; }
       if (!id) { res.status(400).json({ ok: false, error: "id manquant" }); return; }
       if (!montant || montant <= 0) { res.status(400).json({ ok: false, error: "montant invalide" }); return; }
 
-      const clients = await lire(`wifi_clients?id=eq.${encodeURIComponent(id)}&select=id,nom,telephone,date_exp,access_code`);
+      const clients = await lire(`wifi_clients?id=eq.${encodeURIComponent(id)}&select=id,nom,telephone,date_exp,access_code,renewed_at,renewed_by`);
       const c = clients[0];
       if (!c) { res.status(404).json({ ok: false, error: "client introuvable" }); return; }
+
+      // Garde-fou anti double-réabonnement.
+      const garde = calcGarde(c.renewed_at, c.renewed_by, !!admin.is_principal);
+      if (garde.bloque) {
+        res.status(409).json({ ok: false, error: "bloque_1h", minutesLeft: garde.minutesLeft, client: { nom: c.nom } });
+        return;
+      }
+      if (garde.avertir && !force) {
+        res.status(409).json({ ok: false, error: "confirmation_requise", qui: garde.qui, quandFr: garde.quandFr, client: { nom: c.nom } });
+        return;
+      }
 
       const newExp = nouvelleEcheance(c.date_exp, today);
 
       // 1) Enregistre le paiement (compte dans la caisse ; verse=false par défaut).
+      //    equipe_alertee=true : le robot diffuse le message à l'équipe tout de
+      //    suite (recipients ci-dessous), donc alertes-equipe.js ne le reprend pas.
       const adminNum = normalizePhone(adminTel);
-      const admins = await lire("wifi_users?select=nom,telephone&role=eq.admin");
-      const adminNom = (admins.find((u) => normalizePhone(u.telephone) === adminNum) || {}).nom || "Admin (WhatsApp)";
+      const adminNom = admin.nom || "Admin (WhatsApp)";
+      const noteReact = `Réactivation via WhatsApp par ${adminNom}`;
       const payRes = await fetch(`${SUPABASE_URL}/rest/v1/wifi_payments`, {
         method: "POST",
         headers: sbHeaders({ Prefer: "return=representation" }),
@@ -205,8 +269,9 @@ export default async (req, res) => {
           mode,
           date: today,
           new_expiration: newExp,
-          note: "Réactivation via WhatsApp",
+          note: noteReact,
           encaisse_par: adminNom,
+          equipe_alertee: true,
         }),
       });
       if (!payRes.ok) { res.status(500).json({ ok: false, error: `paiement ${payRes.status} ${await payRes.text().catch(() => "")}` }); return; }
@@ -221,6 +286,7 @@ export default async (req, res) => {
           date_exp: newExp,
           previous_date_exp: c.date_exp || null,
           renewed_at: new Date().toISOString(),
+          renewed_by: adminNom,
         }),
       });
       if (!cliRes.ok) { res.status(500).json({ ok: false, error: `maj client ${cliRes.status} ${await cliRes.text().catch(() => "")}` }); return; }
@@ -253,10 +319,17 @@ export default async (req, res) => {
         mode,
         date: today,
         newExpiration: newExp,
-        note: "Réactivation via WhatsApp",
+        note: noteReact,
         id: paiementId,
       });
       const recuNom = `Recu-${(c.nom || "client").replace(/[\\/:*?"<>|]+/g, " ").trim().replace(/\s+/g, "-")}-${today}.pdf`;
+
+      // 5) Diffusion immédiate à TOUS les autres admins (sauf l'auteur).
+      const destinataires = await autresAdminsTel(adminTel).catch(() => []);
+      const broadcast = {
+        message: messageEquipe(adminNom, c.nom, fmtDateFr(newExp), montant, mode),
+        destinataires, // [{ nom, telephone }]
+      };
 
       res.status(200).json({
         ok: true,
@@ -270,6 +343,7 @@ export default async (req, res) => {
         mode,
         recuPdf: recuBase64,     // base64 (sans préfixe), ou null si non généré
         recuNom,
+        broadcast,               // message + destinataires (autres admins) à diffuser
       });
       return;
     }
@@ -277,12 +351,13 @@ export default async (req, res) => {
     // ---------- GET : recherche du client ----------
     const q = ((req.query && req.query.q) || "").trim();
     const adminTel = (req.query && req.query.admin_tel) || "";
-    if (!(await estAdmin(adminTel))) { res.status(403).json({ ok: false, error: "non_admin" }); return; }
+    const adminGet = await trouverAdmin(adminTel);
+    if (!adminGet) { res.status(403).json({ ok: false, error: "non_admin" }); return; }
     if (!q) { res.status(400).json({ ok: false, error: "recherche vide" }); return; }
 
     // Recherche par code exact OU par nom (contient). Deux requêtes fusionnées
     // pour éviter les soucis d'échappement du filtre or() de PostgREST.
-    const select = "select=id,nom,telephone,date_exp,access_code";
+    const select = "select=id,nom,telephone,date_exp,access_code,renewed_at,renewed_by";
     const [parCode, parNom] = await Promise.all([
       lire(`wifi_clients?access_code=eq.${encodeURIComponent(q.toUpperCase())}&${select}`),
       lire(`wifi_clients?nom=ilike.*${encodeURIComponent(q)}*&${select}`),
@@ -301,6 +376,8 @@ export default async (req, res) => {
         newExpiration: nouvelleEcheance(c.date_exp, today),
         newExpirationFr: fmtDateFr(nouvelleEcheance(c.date_exp, today)),
         aNumero: !!normalizePhone(c.telephone),
+        // Garde-fou : indique au robot si ce client vient d'être réabonné.
+        garde: calcGarde(c.renewed_at, c.renewed_by, !!adminGet.is_principal),
       });
     }
     res.status(200).json({ ok: true, total: matches.length, matches });

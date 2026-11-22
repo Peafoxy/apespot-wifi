@@ -25,7 +25,12 @@ const TABLES_AUTORISEES = new Set([
   "wifi_payment_requests",
   "wifi_ticket_requests",
   "wifi_complaints",
+  "wifi_payments", // réabonnements fiche (colonne de marquage : equipe_alertee)
 ]);
+// Colonne « déjà alerté » selon la table (wifi_payments diffère des *_requests).
+function colAlerte(table) {
+  return table === "wifi_payments" ? "equipe_alertee" : "alertee_equipe";
+}
 
 function normalizePhone(raw) {
   let d = (raw || "").replace(/[^\d]/g, "");
@@ -40,6 +45,22 @@ function fmtMontant(n) {
   if (!isFinite(v)) return String(n ?? "");
   return v.toLocaleString("fr-FR").replace(/ /g, " ");
 }
+
+function pad(n) { return String(n).padStart(2, "0"); }
+function fmtDateFr(dateExp) {
+  if (!dateExp) return "—";
+  const d = new Date(dateExp + "T00:00:00Z");
+  if (isNaN(d.getTime())) return dateExp;
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
+}
+// Annonce d'un réabonnement fait depuis la fiche client, diffusée aux AUTRES
+// admins (même formulation que api/reactiver.js → messageEquipe).
+function messageReabonnement(adminNom, clientNom, newExpFr, montant, mode) {
+  return `✅${adminNom} a réactivé ${clientNom}. Valide jusqu'au ${newExpFr}. Paiement de ${fmtMontant(montant)} F (${mode}) enregistré dans la caisse.`;
+}
+// Fenêtre de fraîcheur des réabonnements fiche : au-delà, l'annonce est périmée
+// (et évite de rediffuser l'historique au premier passage après déploiement).
+const REABO_FENETRE_MIN = 20;
 
 async function lire(path) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: sbHeaders() });
@@ -76,7 +97,7 @@ export default async (req, res) => {
       const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=in.(${liste})`, {
         method: "PATCH",
         headers: sbHeaders({ Prefer: "return=minimal" }),
-        body: JSON.stringify({ alertee_equipe: true }),
+        body: JSON.stringify({ [colAlerte(table)]: true }),
       });
       if (!r.ok) {
         const t = await r.text().catch(() => "");
@@ -91,14 +112,16 @@ export default async (req, res) => {
 
   // GET : nouveaux événements à signaler.
   try {
-    // 1) Numéros de l'équipe par rôle (on ne lit PAS les PIN).
-    const membres = await lire("wifi_users?select=role,telephone");
+    // 1) Numéros de l'équipe par rôle (on ne lit PAS les PIN). On garde aussi le
+    //    nom des admins pour exclure l'auteur d'un réabonnement de sa diffusion.
+    const membres = await lire("wifi_users?select=nom,role,telephone");
     const numAdmins = [];
     const numTechs = [];
+    const adminsNommes = []; // { nom, tel }
     for (const u of membres) {
       const tel = normalizePhone(u.telephone);
       if (!tel) continue;
-      if (u.role === "admin") numAdmins.push(tel);
+      if (u.role === "admin") { numAdmins.push(tel); adminsNommes.push({ nom: (u.nom || "").trim(), tel }); }
       else if (u.role === "technicien") numTechs.push(tel);
     }
     const uniq = (arr) => Array.from(new Set(arr));
@@ -107,13 +130,31 @@ export default async (req, res) => {
 
     // 2) Nouveaux événements = pas encore alertés (alertee_equipe = false).
     //    L'historique a été backfillé à true, donc seuls les NOUVEAUX ressortent.
-    const [paiements, tickets, reclamations] = await Promise.all([
+    //    Réabonnements fiche : paiements récents avec échéance + encaisseur, pas
+    //    encore annoncés (equipe_alertee=false), dans la fenêtre de fraîcheur.
+    const reaboCutoff = new Date(Date.now() - REABO_FENETRE_MIN * 60000).toISOString();
+    const [paiements, tickets, reclamations, reabonnements] = await Promise.all([
       lire("wifi_payment_requests?select=id,client_nom,montant,mode,note&alertee_equipe=is.false&order=created_at.asc"),
       lire("wifi_ticket_requests?select=id,client_nom,note&alertee_equipe=is.false&order=created_at.asc"),
       lire("wifi_complaints?select=id,client_nom,reason,description,localisation&alertee_equipe=is.false&order=created_at.asc"),
+      lire(`wifi_payments?select=id,client_nom,montant,mode,new_expiration,encaisse_par&equipe_alertee=eq.false&new_expiration=not.is.null&encaisse_par=not.is.null&created_at=gte.${encodeURIComponent(reaboCutoff)}&order=created_at.asc`),
     ]);
 
     const events = [];
+
+    // Réabonnements faits depuis la fiche : on annonce à tous les admins SAUF
+    // l'auteur (encaisse_par). Les réabonnements WhatsApp sont déjà annoncés par
+    // le robot au moment de l'opération (equipe_alertee=true) : ils ne passent pas ici.
+    for (const r of reabonnements) {
+      const auteur = (r.encaisse_par || "").trim();
+      const recipients = uniq(adminsNommes.filter((a) => a.nom !== auteur).map((a) => a.tel));
+      events.push({
+        table: "wifi_payments",
+        id: r.id,
+        recipients,
+        message: messageReabonnement(auteur || "Un administrateur", r.client_nom || "?", fmtDateFr(r.new_expiration), r.montant, r.mode || "Cash"),
+      });
+    }
 
     for (const p of paiements) {
       const lignes = [

@@ -98,7 +98,7 @@ client.on("authenticated", () => log("WhatsApp authentifié ✓"));
 client.on("auth_failure", (m) => log("Échec d'authentification :", m));
 
 client.on("ready", () => {
-  log("Robot connecté et prêt ✓  [VERSION 3 : lecture active des commandes]");
+  log("Robot connecté et prêt ✓  [VERSION 4 : garde-fou double-réabonnement + annonce équipe]");
   log(`Rappels clients : à ${HEURES.map((h) => h + "h").join(", ")} (heure de Lomé). Un client déjà relancé n'est pas renotifié.`);
   log(`Alertes équipe : vérifiées toutes les ${ALERTE_INTERVALLE_MIN} min.`);
   log(`Commandes (VALIDER/REJETER/REACTIVER/OUI) : lues toutes les ${Math.round(SONDAGE_MS / 1000)} s.`);
@@ -149,15 +149,39 @@ async function appelReactiverGET(q, adminTel) {
   const res = await fetch(url);
   return { status: res.status, data: await res.json().catch(() => ({})) };
 }
-async function appelReactiverPOST(id, montant, mode, adminTel) {
+async function appelReactiverPOST(id, montant, mode, adminTel, force) {
   const corps = { id, montant, admin_tel: adminTel };
   if (mode) corps.mode = mode; // sinon le serveur met « Mix by Yas » par défaut
+  if (force) corps.force = true; // confirme un réabonnement dans la fenêtre 1h-24h
   const res = await fetch(`${APP_URL}/api/reactiver?cle=${encodeURIComponent(CLE)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(corps),
   });
   return { status: res.status, data: await res.json().catch(() => ({})) };
+}
+
+// Diffuse le message de réabonnement aux autres admins (data.broadcast de l'API).
+async function diffuserEquipe(broadcast) {
+  if (!broadcast || !broadcast.message) return 0;
+  const dests = broadcast.destinataires || [];
+  let n = 0;
+  for (const d of dests) {
+    const tel = d && d.telephone;
+    if (!tel) continue;
+    const chatId = `${tel}@c.us`;
+    try {
+      const inscrit = await client.isRegisteredUser(chatId).catch(() => true);
+      if (!inscrit) { log(`✗ Équipe ${tel} pas sur WhatsApp — ignoré.`); continue; }
+      await client.sendMessage(chatId, broadcast.message);
+      n++;
+      log(`✓ Réabonnement annoncé à l'équipe (${tel})`);
+    } catch (e) {
+      log(`✗ Annonce équipe échouée pour ${tel} :`, e.message);
+    }
+    await dodo(alea(2000, 5000));
+  }
+  return n;
 }
 
 // On écoute À LA FOIS "message" ET "message_create" : selon le type de compte
@@ -259,12 +283,29 @@ async function traiterMessage(msg) {
 
       const m = matches[0];
       const modeAffiche = mode || "Mix by Yas";
-      pendings.set(adminTel, { id: m.id, nom: m.nom, montant, mode, newExpirationFr: m.newExpirationFr, expire: Date.now() + PENDING_TTL_MS });
+      const garde = m.garde || {};
+      // Garde-fou < 1h : blocage ferme (sauf admin principal, géré côté serveur).
+      if (garde.bloque) {
+        await msg.reply(
+          `⏳ *${m.nom}* vient d'être réabonné.\n` +
+          `Réessaie dans ${garde.minutesLeft} min (ou via l'app par l'administrateur principal).`
+        );
+        return;
+      }
+      // Garde-fou 1h-24h : on avertit (qui / quand) ; le OUI confirme quand même
+      // (force=true transmis au serveur).
       const avert = m.aNumero ? "" : "\n⚠️ Ce client n'a pas de numéro : il ne recevra pas la notification.";
+      let avertDouble = "";
+      if (garde.avertir) {
+        const qui = garde.qui ? ` par ${garde.qui}` : "";
+        const quand = garde.quandFr ? ` le ${garde.quandFr}` : "";
+        avertDouble = `\n⚠️ Déjà réabonné${qui}${quand}. Confirme seulement si c'est bien un nouveau paiement.`;
+      }
+      pendings.set(adminTel, { id: m.id, nom: m.nom, montant, mode, newExpirationFr: m.newExpirationFr, force: !!garde.avertir, expire: Date.now() + PENDING_TTL_MS });
       await msg.reply(
         `Trouvé : *${m.nom}* (code ${m.accessCode})\n` +
         `Expire le ${m.dateExpFr} → nouvelle échéance le *${m.newExpirationFr}*\n` +
-        `Paiement : *${montant} F* (${modeAffiche})${avert}\n\n` +
+        `Paiement : *${montant} F* (${modeAffiche})${avert}${avertDouble}\n\n` +
         `Réponds *OUI* pour confirmer la réactivation.`
       );
       return;
@@ -313,8 +354,20 @@ async function traiterMessage(msg) {
     if (pend2) {
       if (haut === "OUI") {
         pendings.delete(adminTel);
-        const { status, data } = await appelReactiverPOST(pend2.id, pend2.montant, pend2.mode, adminTel);
+        const { status, data } = await appelReactiverPOST(pend2.id, pend2.montant, pend2.mode, adminTel, pend2.force);
         if (status === 403) { await msg.reply("Action refusée : tu n'es pas autorisé."); return; }
+        // Garde-fou serveur (sécurité) : blocage < 1h ou confirmation requise.
+        if (status === 409 && data && data.error === "bloque_1h") {
+          await msg.reply(`⏳ *${pend2.nom}* vient d'être réabonné. Réessaie dans ${data.minutesLeft} min.`);
+          return;
+        }
+        if (status === 409 && data && data.error === "confirmation_requise") {
+          const qui = data.qui ? ` par ${data.qui}` : "";
+          const quand = data.quandFr ? ` le ${data.quandFr}` : "";
+          pendings.set(adminTel, { ...pend2, force: true, expire: Date.now() + PENDING_TTL_MS });
+          await msg.reply(`⚠️ *${pend2.nom}* a déjà été réabonné${qui}${quand}.\nRéponds *OUI* pour confirmer quand même.`);
+          return;
+        }
         if (!data.ok) { await msg.reply("Échec de la réactivation. Réessaie ou vérifie dans l'app."); return; }
         // Notifie le client (si numéro) puis confirme à l'admin.
         let clientNotifie = false;
@@ -335,10 +388,14 @@ async function traiterMessage(msg) {
             }
           } catch (e) { log("Réactivation : envoi au client échoué :", e.message); }
         }
+        // Diffusion immédiate à tous les autres admins (sauf l'auteur).
+        let nbEquipe = 0;
+        try { nbEquipe = await diffuserEquipe(data.broadcast); } catch (e) { log("Diffusion équipe échouée :", e.message); }
         await msg.reply(
           `✅ *${data.client.nom}* réactivé jusqu'au *${data.client.newExpirationFr}*.\n` +
           `Paiement de ${pend2.montant} F (${data.mode || "Mix by Yas"}) enregistré dans la caisse.\n` +
-          (clientNotifie ? "Le client a été notifié + reçu PDF envoyé." : "Client NON notifié (pas de numéro WhatsApp).")
+          (clientNotifie ? "Le client a été notifié + reçu PDF envoyé." : "Client NON notifié (pas de numéro WhatsApp).") +
+          (nbEquipe > 0 ? `\n📣 ${nbEquipe} admin(s) informé(s).` : "")
         );
         log(`Réactivation : ${data.client.nom} jusqu'au ${data.client.newExpirationFr} (${pend2.montant} F)`);
         return;
