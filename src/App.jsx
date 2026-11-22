@@ -4691,9 +4691,23 @@ export default function AlerteClientWifi() {
         }
       }
 
-      if (pendingRequestId) {
-        if (SUPABASE_CONFIGURED) await updatePaymentRequestRow(pendingRequestId, { status: "accepted" });
-        setPaymentRequests((rs) => rs.map((r) => (r.id === pendingRequestId ? { ...r, status: "accepted" } : r)));
+      // Résout les demandes de paiement EN ATTENTE du client concerné :
+      //  - celle explicitement acceptée via « Accepter » (pendingRequestId) ;
+      //  - ET, si l'admin a réabonné depuis la fiche client sans passer par
+      //    « Accepter », toute demande en attente de ce client — évite une
+      //    demande orpheline qui resterait « à valider » alors que le client a
+      //    déjà été réabonné (le paiement, lui, n'est enregistré qu'une fois).
+      const demandesAResoudre = new Set();
+      if (pendingRequestId) demandesAResoudre.add(pendingRequestId);
+      if (!editingId && clientNom) {
+        const cible = clientNom.trim().toLowerCase();
+        paymentRequests.forEach((r) => {
+          if (r.status === "pending" && (r.clientNom || "").trim().toLowerCase() === cible) demandesAResoudre.add(r.id);
+        });
+      }
+      for (const rid of demandesAResoudre) {
+        if (SUPABASE_CONFIGURED) await updatePaymentRequestRow(rid, { status: "accepted" });
+        setPaymentRequests((rs) => rs.map((r) => (r.id === rid ? { ...r, status: "accepted" } : r)));
       }
 
       closePaymentModal();
