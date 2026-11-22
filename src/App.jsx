@@ -953,8 +953,8 @@ function saveLocal(key, value) {
 }
 
 // ---- Supabase mapping helpers (DB uses snake_case, app state uses camelCase) ----
-const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, serveur: r.serveur, pppoeLogin: r.pppoe_login, latitude: r.latitude, longitude: r.longitude, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, accessCode: r.access_code, relanceLe: r.relance_le });
-const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, serveur: c.serveur || null, pppoe_login: c.pppoeLogin || null, latitude: c.latitude ?? null, longitude: c.longitude ?? null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, renewed_at: c.renewedAt || null, access_code: c.accessCode || null });
+const rowToClient = (r) => ({ id: r.id, nom: r.nom, offre: r.offre, telephone: r.telephone, serveur: r.serveur, pppoeLogin: r.pppoe_login, latitude: r.latitude, longitude: r.longitude, dateExp: r.date_exp, previousDateExp: r.previous_date_exp, renewedAt: r.renewed_at, renewedBy: r.renewed_by || null, accessCode: r.access_code, relanceLe: r.relance_le });
+const clientToRow = (c) => ({ nom: c.nom, offre: c.offre, telephone: c.telephone || null, serveur: c.serveur || null, pppoe_login: c.pppoeLogin || null, latitude: c.latitude ?? null, longitude: c.longitude ?? null, date_exp: c.dateExp || null, previous_date_exp: c.previousDateExp || null, renewed_at: c.renewedAt || null, renewed_by: c.renewedBy || null, access_code: c.accessCode || null });
 
 const rowToPayment = (r) => ({
   id: r.id,
@@ -967,6 +967,8 @@ const rowToPayment = (r) => ({
   receiptPath: r.receipt_path,
   receiptName: r.receipt_name,
   verse: r.verse === true,
+  encaissePar: r.encaisse_par || null,
+  equipeAlertee: r.equipe_alertee === true,
 });
 const paymentToRow = (p) => ({
   client_nom: p.clientNom,
@@ -977,6 +979,7 @@ const paymentToRow = (p) => ({
   note: p.note || null,
   receipt_path: p.receiptPath || null,
   receipt_name: p.receiptName || null,
+  encaisse_par: p.encaissePar || null,
 });
 
 // ---- Versements (caisse) ----
@@ -3348,6 +3351,85 @@ async function generateClientsPDF(clients, filterLabel) {
   doc.save(`clients_apespot_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
+// Historique des paiements/réabonnements en PDF réel (jsPDF). La colonne Note
+// reprend qui a réactivé (via WhatsApp ou via la fiche). Multi-pages.
+async function generatePaymentsPDF(payments, periodeLabel) {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX = 12;
+  const contentW = pageW - marginX * 2;
+  const bottomLimit = pageH - 14;
+  let y = 0;
+
+  const INK = [14, 21, 32], MUTE = [92, 108, 126];
+  const LINE = [226, 230, 235], ZEBRA = [244, 246, 248], HEAD = [240, 243, 246];
+  const newPage = () => { doc.addPage(); y = 14; };
+  const total = payments.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+
+  y = 16;
+  doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(17);
+  doc.text("APESPOT WI-FI", pageW / 2, y, { align: "center" }); y += 6;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10.5); doc.setTextColor(...MUTE);
+  doc.text("Historique des réabonnements", pageW / 2, y, { align: "center" }); y += 5;
+  doc.setFontSize(9);
+  const dateGen = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const tot = new Intl.NumberFormat("fr-FR").format(total) + " F";
+  doc.text(`${periodeLabel}  ·  ${payments.length} paiement${payments.length > 1 ? "s" : ""}  ·  Total ${tot}  ·  Généré le ${dateGen}`, pageW / 2, y, { align: "center" }); y += 5;
+  doc.setDrawColor(62, 216, 195); doc.setLineWidth(0.8);
+  doc.line(pageW / 2 - 18, y, pageW / 2 + 18, y); y += 8;
+
+  const cols = [
+    { w: 0.18, header: "Client" },
+    { w: 0.12, header: "Montant", align: "right" },
+    { w: 0.11, header: "Mode" },
+    { w: 0.12, header: "Date" },
+    { w: 0.14, header: "Nouv. exp." },
+    { w: 0.33, header: "Note" },
+  ];
+  const xs = []; let acc = marginX; cols.forEach((c) => { xs.push(acc); acc += c.w * contentW; });
+  const headH = 8, rowH = 7;
+  const drawHeader = () => {
+    doc.setFillColor(...HEAD); doc.rect(marginX, y, contentW, headH, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(...MUTE);
+    cols.forEach((c, i) => {
+      const tx = c.align === "right" ? xs[i] + c.w * contentW - 2 : xs[i] + 2;
+      doc.text(c.header.toUpperCase(), tx, y + 5.2, { align: c.align === "right" ? "right" : "left" });
+    });
+    doc.setDrawColor(...LINE); doc.setLineWidth(0.3); doc.line(marginX, y + headH, marginX + contentW, y + headH);
+    y += headH;
+  };
+  drawHeader();
+  const fmtMontant = (m) => new Intl.NumberFormat("fr-FR").format(Number(m) || 0);
+  payments.forEach((p, idx) => {
+    if (y + rowH > bottomLimit) { newPage(); drawHeader(); }
+    if (idx % 2 === 0) { doc.setFillColor(...ZEBRA); doc.rect(marginX, y, contentW, rowH, "F"); }
+    const cells = [
+      { t: p.clientNom || "" },
+      { t: fmtMontant(p.montant), align: "right" },
+      { t: p.mode || "—" },
+      { t: p.date ? fmtDate(p.date) : "—" },
+      { t: p.newExpiration ? fmtDate(p.newExpiration) : "—" },
+      { t: p.note || "—" },
+    ];
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+    cells.forEach((cell, i) => {
+      doc.setTextColor(...INK);
+      const col = cols[i];
+      const tx = col.align === "right" ? xs[i] + col.w * contentW - 2 : xs[i] + 2;
+      doc.text(String(cell.t), tx, y + 5, { align: col.align === "right" ? "right" : "left", maxWidth: col.w * contentW - 4 });
+    });
+    doc.setDrawColor(...LINE); doc.setLineWidth(0.2); doc.line(marginX, y + rowH, marginX + contentW, y + rowH);
+    y += rowH;
+  });
+  if (payments.length === 0) {
+    doc.setFont("helvetica", "italic"); doc.setFontSize(9); doc.setTextColor(...MUTE);
+    doc.text("Aucun paiement pour cette période.", marginX + 2, y + 6);
+  }
+  doc.save(`paiements_apespot_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
 export default function AlerteClientWifi() {
   // ---- Rôle / authentification (PIN partagé pour Admin/Technicien, code unique pour Client) ----
   const [role, setRole] = useState(null); // null | 'admin' | 'technicien' | 'client'
@@ -4101,6 +4183,18 @@ export default function AlerteClientWifi() {
     const remaining = RENEW_COOLDOWN_MS - (Date.now() - new Date(client.renewedAt).getTime());
     return Math.max(0, Math.ceil(remaining / 60000));
   };
+  const RENEW_GUARD_MS = 24 * 60 * 60 * 1000; // fenêtre d'avertissement double-paiement (après la 1h de blocage)
+  // Avertissement 1h-24h : retourne un message de confirmation si le client vient d'être réabonné
+  // (entre 1h et 24h), sinon null. Au-delà de 24h ou jamais réabonné => pas d'avertissement.
+  const renewGuardMessage = (client) => {
+    if (!client.renewedAt) return null;
+    const elapsed = Date.now() - new Date(client.renewedAt).getTime();
+    if (elapsed < RENEW_COOLDOWN_MS || elapsed >= RENEW_GUARD_MS) return null;
+    const d = new Date(client.renewedAt);
+    const quand = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} à ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const qui = client.renewedBy ? ` par ${client.renewedBy}` : "";
+    return `⚠️ ${client.nom} a déjà été réabonné${qui} le ${quand}.\n\nVeux-tu vraiment refaire l'abonnement ?`;
+  };
 
   const transferPrincipal = async (target) => {
     if (!isPrincipalAdmin || target.id === authUser.id) return;
@@ -4246,6 +4340,7 @@ export default function AlerteClientWifi() {
   const [historiqueSearch, setHistoriqueSearch] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false); // menu tiroir mobile
   const [exportMenuOpen, setExportMenuOpen] = useState(false); // menu Export (Excel/PDF)
+  const [exportPaymentsMenuOpen, setExportPaymentsMenuOpen] = useState(false); // menu Export Paiements (CSV/PDF)
 
   // Marquer un paiement comme versé / non versé (bascule). Fait descendre le compteur.
   const togglePaymentVerse = async (p) => {
@@ -4513,7 +4608,7 @@ export default function AlerteClientWifi() {
     const previousDateExp = client.dateExp || null;
     const newDateExp = computeRenewedExpiration(client.dateExp);
     const renewedAt = new Date().toISOString();
-    const updated = { ...client, dateExp: newDateExp, previousDateExp, renewedAt };
+    const updated = { ...client, dateExp: newDateExp, previousDateExp, renewedAt, renewedBy: authUser?.nom || null };
     try {
       if (SUPABASE_CONFIGURED) await updateClientRow(client.id, updated);
       setClients((cs) => cs.map((c) => (c.id === client.id ? updated : c)));
@@ -4639,15 +4734,24 @@ export default function AlerteClientWifi() {
     setBusySavePayment(true);
 
     const original = editingId ? payments.find((p) => p.id === editingId) : null;
+    // Traçabilité : si réabonnement via la fiche sans note saisie, on note
+    // automatiquement qui l'a fait (le robot note déjà « via WhatsApp par … »).
+    let noteFinale = note.trim();
+    if (!editingId && _fromRenewal && !noteFinale && authUser?.nom) {
+      noteFinale = `Réabonnement via la fiche client par ${authUser.nom}`;
+    }
     const payload = {
       clientNom: clientNom.trim(),
       montant: Number(montant),
       mode,
       date,
       newExpiration: newExpiration || null,
-      note: note.trim(),
+      note: noteFinale,
       receiptPath: original?.receiptPath || null,
       receiptName: original?.receiptName || null,
+      // Qui encaisse (pour la traçabilité + le message à l'équipe envoyé par le robot
+      // via alertes-equipe.js, qui exclut cet auteur des destinataires).
+      encaissePar: editingId ? (original?.encaissePar || null) : (authUser?.nom || null),
     };
 
     try {
@@ -4676,7 +4780,7 @@ export default function AlerteClientWifi() {
       if (!editingId && newExpiration && !_prolonged) {
         const c = findClientByName(clientNom);
         if (c) {
-          const updated = { ...c, dateExp: newExpiration, previousDateExp: c.dateExp || null, renewedAt: new Date().toISOString() };
+          const updated = { ...c, dateExp: newExpiration, previousDateExp: c.dateExp || null, renewedAt: new Date().toISOString(), renewedBy: authUser?.nom || null };
           if (SUPABASE_CONFIGURED) await updateClientRow(c.id, updated);
           setClients((cs) => cs.map((x) => (x.id === c.id ? updated : x)));
           setPaymentModal((pm) => (pm ? { ...pm, _prolonged: true } : pm));
@@ -4919,9 +5023,21 @@ export default function AlerteClientWifi() {
   };
 
   const exportPaymentsCSV = () => {
+    setExportPaymentsMenuOpen(false);
     const header = ["Client", "Montant", "Mode", "Date", "Nouvelle expiration", "Note"];
     const rows = [header, ...payments.map((p) => [p.clientNom || "", p.montant || 0, p.mode || "", p.date || "", p.newExpiration || "", p.note || ""])];
     downloadCSV(`paiements_apespot_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  };
+
+  const exportPaymentsPDF = async () => {
+    setExportPaymentsMenuOpen(false);
+    try {
+      await generatePaymentsPDF(payments, "Tous les paiements");
+      showToast("Export PDF téléchargé.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur lors de l'export PDF.");
+    }
   };
 
   const exportComplaintsCSV = () => {
@@ -5877,6 +5993,15 @@ export default function AlerteClientWifi() {
   // l'admin — fenêtre de confirmation puis envoi WhatsApp au client via OK.
   const acceptPaymentRequest = (req) => {
     const c = findClientByName(req.clientNom);
+    // Garde-fou anti double-réabonnement, comme sur le bouton « Réabonné ».
+    if (c) {
+      if (!canRenewClient(c)) {
+        showToast(`Attends encore ${renewCooldownMinutesLeft(c)} min avant de réabonner à nouveau, ou contacte l'administrateur principal.`);
+        return;
+      }
+      const garde = renewGuardMessage(c);
+      if (garde && !window.confirm(garde)) return;
+    }
     setPendingRequestId(req.id);
     setPaymentModal({
       editingId: null,
@@ -6575,10 +6700,21 @@ export default function AlerteClientWifi() {
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2.4" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /><path d="M9 15h6M9 11h2" /></svg>
               Bilan mensuel (PDF)
             </button>
-            <button className="btn-add btn-report" onClick={exportPaymentsCSV}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 19h16" /></svg>
-              Export CSV
-            </button>
+            <div className="export-menu-wrap">
+              <button className="btn-add btn-report" onClick={() => setExportPaymentsMenuOpen((v) => !v)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 19h16" /></svg>
+                Export ▾
+              </button>
+              {exportPaymentsMenuOpen && (
+                <>
+                  <div className="export-backdrop" onClick={() => setExportPaymentsMenuOpen(false)} />
+                  <div className="export-menu">
+                    <button onClick={exportPaymentsCSV}>📊 CSV</button>
+                    <button onClick={exportPaymentsPDF}>📄 PDF</button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="table-shell table-scroll">
@@ -7941,6 +8077,10 @@ export default function AlerteClientWifi() {
                     showToast(`Attends encore ${renewCooldownMinutesLeft(rowActionsClient)} min avant de réabonner à nouveau, ou contacte l'administrateur principal.`);
                     return;
                   }
+                  // Garde-fou 1h-24h : si le client vient d'être réabonné, on demande
+                  // confirmation (qui / quand) avant de refaire l'abonnement.
+                  const garde = renewGuardMessage(rowActionsClient);
+                  if (garde && !window.confirm(garde)) return;
                   const previewDate = computeRenewedExpiration(rowActionsClient.dateExp);
                   setPaymentModal({
                     editingId: null,
