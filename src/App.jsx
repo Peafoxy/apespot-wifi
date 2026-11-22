@@ -4697,17 +4697,25 @@ export default function AlerteClientWifi() {
       //    « Accepter », toute demande en attente de ce client — évite une
       //    demande orpheline qui resterait « à valider » alors que le client a
       //    déjà été réabonné (le paiement, lui, n'est enregistré qu'une fois).
-      const demandesAResoudre = new Set();
-      if (pendingRequestId) demandesAResoudre.add(pendingRequestId);
+      const demandesResolues = [];
+      const ajouterDemande = (r) => { if (r && !demandesResolues.some((x) => x.id === r.id)) demandesResolues.push(r); };
+      if (pendingRequestId) ajouterDemande(paymentRequests.find((r) => r.id === pendingRequestId));
       if (!editingId && clientNom) {
         const cible = clientNom.trim().toLowerCase();
         paymentRequests.forEach((r) => {
-          if (r.status === "pending" && (r.clientNom || "").trim().toLowerCase() === cible) demandesAResoudre.add(r.id);
+          if (r.status === "pending" && (r.clientNom || "").trim().toLowerCase() === cible) ajouterDemande(r);
         });
       }
-      for (const rid of demandesAResoudre) {
-        if (SUPABASE_CONFIGURED) await updatePaymentRequestRow(rid, { status: "accepted" });
-        setPaymentRequests((rs) => rs.map((r) => (r.id === rid ? { ...r, status: "accepted" } : r)));
+      for (const r of demandesResolues) {
+        if (SUPABASE_CONFIGURED) await updatePaymentRequestRow(r.id, { status: "accepted" });
+        setPaymentRequests((rs) => rs.map((x) => (x.id === r.id ? { ...x, status: "accepted" } : x)));
+      }
+      // Information NON bloquante : si le montant déclaré par le client dans sa
+      // demande diffère du montant réellement enregistré (ex. réabonnement via la
+      // fiche avec un autre montant), on prévient — sans rien bloquer.
+      const ecartDemande = demandesResolues.find((r) => Number(r.montant) !== Number(montant));
+      if (ecartDemande) {
+        showToast(`ℹ️ Demande de ${clientNom.trim()} : ${fmtFCFA(ecartDemande.montant)} déclarés · ${fmtFCFA(Number(montant))} enregistrés. Validée quand même.`);
       }
 
       closePaymentModal();
