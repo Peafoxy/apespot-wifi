@@ -3375,8 +3375,10 @@ async function generatePaymentsPDF(payments, periodeLabel) {
   doc.text("Historique des réabonnements", pageW / 2, y, { align: "center" }); y += 5;
   doc.setFontSize(9);
   const dateGen = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-  const tot = new Intl.NumberFormat("fr-FR").format(total) + " F";
-  doc.text(`${periodeLabel}  ·  ${payments.length} paiement${payments.length > 1 ? "s" : ""}  ·  Total ${tot}  ·  Généré le ${dateGen}`, pageW / 2, y, { align: "center" }); y += 5;
+  // Séparateur de milliers = espace ASCII normal (la police du PDF n'affiche pas
+  // correctement l'espace fine insérée par toLocaleString → « 10 300 » devenait « 1 0 / 3 0 0 »).
+  const grouper = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  doc.text(`${periodeLabel}  ·  ${payments.length} paiement${payments.length > 1 ? "s" : ""}  ·  Total ${grouper(total)} F  ·  Généré le ${dateGen}`, pageW / 2, y, { align: "center" }); y += 5;
   doc.setDrawColor(62, 216, 195); doc.setLineWidth(0.8);
   doc.line(pageW / 2 - 18, y, pageW / 2 + 18, y); y += 8;
 
@@ -3401,7 +3403,7 @@ async function generatePaymentsPDF(payments, periodeLabel) {
     y += headH;
   };
   drawHeader();
-  const fmtMontant = (m) => new Intl.NumberFormat("fr-FR").format(Number(m) || 0);
+  const fmtMontant = (m) => grouper(m);
   payments.forEach((p, idx) => {
     if (y + rowH > bottomLimit) { newPage(); drawHeader(); }
     if (idx % 2 === 0) { doc.setFillColor(...ZEBRA); doc.rect(marginX, y, contentW, rowH, "F"); }
@@ -3426,6 +3428,18 @@ async function generatePaymentsPDF(payments, periodeLabel) {
   if (payments.length === 0) {
     doc.setFont("helvetica", "italic"); doc.setFontSize(9); doc.setTextColor(...MUTE);
     doc.text("Aucun paiement pour cette période.", marginX + 2, y + 6);
+  } else {
+    // Ligne TOTAL en bas du tableau.
+    const totalRowH = 8;
+    if (y + totalRowH > bottomLimit) { newPage(); }
+    doc.setFillColor(...HEAD); doc.rect(marginX, y, contentW, totalRowH, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...INK);
+    doc.text("TOTAL", xs[0] + 2, y + 5.4, { align: "left" });
+    // Montant total aligné à droite de la colonne Montant.
+    const xMontantRight = xs[1] + cols[1].w * contentW - 2;
+    doc.text(`${grouper(total)} F`, xMontantRight, y + 5.4, { align: "right" });
+    doc.setDrawColor(...MUTE); doc.setLineWidth(0.4); doc.rect(marginX, y, contentW, totalRowH);
+    y += totalRowH;
   }
   doc.save(`paiements_apespot_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
