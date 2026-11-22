@@ -98,7 +98,7 @@ client.on("authenticated", () => log("WhatsApp authentifié ✓"));
 client.on("auth_failure", (m) => log("Échec d'authentification :", m));
 
 client.on("ready", () => {
-  log("Robot connecté et prêt ✓  [VERSION 4 : garde-fou double-réabonnement + annonce équipe]");
+  log("Robot connecté et prêt ✓  [VERSION 5 : garde-fou + annonce équipe + « NON » pour annuler]");
   log(`Rappels clients : à ${HEURES.map((h) => h + "h").join(", ")} (heure de Lomé). Un client déjà relancé n'est pas renotifié.`);
   log(`Alertes équipe : vérifiées toutes les ${ALERTE_INTERVALLE_MIN} min.`);
   log(`Commandes (VALIDER/REJETER/REACTIVER/OUI) : lues toutes les ${Math.round(SONDAGE_MS / 1000)} s.`);
@@ -306,7 +306,7 @@ async function traiterMessage(msg) {
         `Trouvé : *${m.nom}* (code ${m.accessCode})\n` +
         `Expire le ${m.dateExpFr} → nouvelle échéance le *${m.newExpirationFr}*\n` +
         `Paiement : *${montant} F* (${modeAffiche})${avert}${avertDouble}\n\n` +
-        `Réponds *OUI* pour confirmer la réactivation.`
+        `Réponds *OUI* pour confirmer, ou *NON* pour annuler.`
       );
       return;
     }
@@ -365,7 +365,7 @@ async function traiterMessage(msg) {
           const qui = data.qui ? ` par ${data.qui}` : "";
           const quand = data.quandFr ? ` le ${data.quandFr}` : "";
           pendings.set(adminTel, { ...pend2, force: true, expire: Date.now() + PENDING_TTL_MS });
-          await msg.reply(`⚠️ *${pend2.nom}* a déjà été réabonné${qui}${quand}.\nRéponds *OUI* pour confirmer quand même.`);
+          await msg.reply(`⚠️ *${pend2.nom}* a déjà été réabonné${qui}${quand}.\nRéponds *OUI* pour confirmer quand même, ou *NON* pour annuler.`);
           return;
         }
         if (!data.ok) { await msg.reply("Échec de la réactivation. Réessaie ou vérifie dans l'app."); return; }
