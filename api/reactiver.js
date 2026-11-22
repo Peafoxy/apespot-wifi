@@ -225,6 +225,15 @@ export default async (req, res) => {
       });
       if (!cliRes.ok) { res.status(500).json({ ok: false, error: `maj client ${cliRes.status} ${await cliRes.text().catch(() => "")}` }); return; }
 
+      // 2bis) Résout toute demande de paiement EN ATTENTE de ce client : le
+      // réabonnement WhatsApp fait office de validation, pour ne pas laisser une
+      // demande orpheline « à valider » sur le site.
+      await fetch(`${SUPABASE_URL}/rest/v1/wifi_payment_requests?client_nom=eq.${encodeURIComponent(c.nom)}&status=eq.pending`, {
+        method: "PATCH",
+        headers: sbHeaders({ Prefer: "return=minimal" }),
+        body: JSON.stringify({ status: "accepted" }),
+      }).catch(() => {});
+
       // 3) Trace dans le journal d'activité.
       await fetch(`${SUPABASE_URL}/rest/v1/wifi_activity_log`, {
         method: "POST",
