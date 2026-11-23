@@ -3601,11 +3601,16 @@ export default function AlerteClientWifi() {
     })();
   }, [sessionChecked, role]);
 
-  // Rafraîchissement automatique en arrière-plan (toutes les 90s), pour voir les nouvelles
-  // réclamations / messages / demandes sans recharger la page manuellement.
+  // Rafraîchissement automatique (toutes les 10 min, et seulement quand l'onglet
+  // est visible), pour voir les nouvelles réclamations / messages / demandes sans
+  // recharger la page. Objectif : limiter fortement les lectures Supabase — les
+  // actions de l'utilisateur mettent déjà l'écran à jour localement ; ce cycle ne
+  // sert qu'à refléter ce que FONT LES AUTRES. On relit aussi au retour sur l'onglet.
   useEffect(() => {
     if (!SUPABASE_CONFIGURED || !role) return;
-    const t = setInterval(async () => {
+    const rafraichir = async () => {
+      // B : aucune lecture quand l'onglet est en arrière-plan (économie de quota).
+      if (document.visibilityState === "hidden") return;
       try {
         const debutTick = Date.now();
         const [c, p, m, cp, u, pr, tr, td, st, fe, el, pd, oe, al, vs] = await Promise.all([
@@ -3652,8 +3657,14 @@ export default function AlerteClientWifi() {
       } catch (e) {
         console.error("Rafraîchissement automatique échoué:", e);
       }
-    }, 90000);
-    return () => clearInterval(t);
+    };
+    // A : 90 s → 10 min (bien suffisant pour refléter les actions des autres).
+    const t = setInterval(rafraichir, 10 * 60 * 1000);
+    // B : relire une seule fois dès qu'on revient sur l'onglet, au lieu de sonder
+    // en continu en arrière-plan.
+    const onVisible = () => { if (document.visibilityState === "visible") rafraichir(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
   }, [role]);
 
   // En mode démo (sans Supabase), on sauvegarde localement à chaque changement.
@@ -3801,7 +3812,8 @@ export default function AlerteClientWifi() {
 
   // ---------- Présence « personnel en ligne » (pour la relance automatique) ----------
   // Tant qu'un membre du personnel a l'app ouverte, on signale discrètement au
-  // serveur « je suis là » (toutes les minutes + au retour sur l'onglet). Cela
+  // serveur « je suis là » (toutes les 3 min + au retour sur l'onglet ; bien en
+  // dessous de la fenêtre de 10 min utilisée pour la relance). Cela
   // permet à /api/relance-activite de n'envoyer les rappels QUE si personne n'a
   // ouvert l'app depuis 10 min. Best-effort : n'interrompt jamais l'usage, et
   // ne concerne que le personnel (une session client ne compte pas comme « vu »).
@@ -3824,7 +3836,7 @@ export default function AlerteClientWifi() {
     };
 
     signaler();
-    const interval = setInterval(signaler, 60 * 1000);
+    const interval = setInterval(signaler, 3 * 60 * 1000);
     const onVisible = () => { if (document.visibilityState === "visible") signaler(); };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", signaler, true);

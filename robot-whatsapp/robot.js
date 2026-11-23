@@ -59,7 +59,9 @@ const DELAI_MAX = 22000;  // 22 secondes
 const MAX_PAR_RUN = 40;   // sécurité : jamais plus de 40 messages par passage
 
 // Alertes à l'équipe (paiement / ticket / réclamation) : fréquence de contrôle.
-const ALERTE_INTERVALLE_MIN = Math.max(1, parseInt(process.env.ALERTE_INTERVALLE_MIN || "3", 10) || 3);
+// 5 min par défaut pour alléger les lectures Supabase (l'annonce d'un réabonnement
+// aux autres admins arrive donc en ~5 min au lieu de ~3).
+const ALERTE_INTERVALLE_MIN = Math.max(1, parseInt(process.env.ALERTE_INTERVALLE_MIN || "5", 10) || 5);
 
 // Lecture active des commandes reçues (VALIDER, REACTIVER, OUI…) : intervalle en
 // millisecondes. On lit nous-mêmes les conversations car, sur certains comptes
@@ -98,7 +100,7 @@ client.on("authenticated", () => log("WhatsApp authentifié ✓"));
 client.on("auth_failure", (m) => log("Échec d'authentification :", m));
 
 client.on("ready", () => {
-  log("Robot connecté et prêt ✓  [VERSION 5 : garde-fou + annonce équipe + « NON » pour annuler]");
+  log("Robot connecté et prêt ✓  [VERSION 6 : contrôles équipe toutes les 5 min (économie Supabase)]");
   log(`Rappels clients : à ${HEURES.map((h) => h + "h").join(", ")} (heure de Lomé). Un client déjà relancé n'est pas renotifié.`);
   log(`Alertes équipe : vérifiées toutes les ${ALERTE_INTERVALLE_MIN} min.`);
   log(`Commandes (VALIDER/REJETER/REACTIVER/OUI) : lues toutes les ${Math.round(SONDAGE_MS / 1000)} s.`);
