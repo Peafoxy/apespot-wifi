@@ -2090,7 +2090,7 @@ function PositionDialogs({ posConfirm, setPosConfirm, posThanks, setPosThanks })
 
 // -------------------- Technicien view --------------------
 
-function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onUploadTicketFile, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint, toast, posConfirm, setPosConfirm, posThanks, setPosThanks }) {
+function TechnicienView({ clients, enrichedClients, messages, complaints, ticketRequests, officeLocation, fuelExpenses, fuelRatePerKm, perdiemExpenses, busyFuelId, onSendMessage, onUpdateComplaintStatus, onUploadTicketFile, onMarkTicketSent, onLogFuelExpense, onRequestApproval, onCaptureStartPosition, onSetClientLocation, onSaveTechnicienComment, onCaptureClientLocation, onMarkStaffRead, onShowToast, busyUploadId, onLogout, authUser, sessionWarningSeconds, onStayConnected, clientModal, setClientModal, openAddClient, closeClientModal, saveClientModal, busySaveClient, newComplaintModal, setNewComplaintModal, saveNewComplaint, toast, posConfirm, setPosConfirm, posThanks, setPosThanks }) {
   const [tab, setTab] = useState(() => localStorage.getItem("apespot-tech-tab") || "complaints");
   const tabsRef = useRef(null);
   useEffect(() => {
@@ -2501,32 +2501,42 @@ function TechnicienView({ clients, enrichedClients, messages, complaints, ticket
             <div className="complaint-card" key={r.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{r.clientNom}</div>
-                <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "ready" ? "OK" : r.status === "expired" ? "EXPIRE" : "NA"}`}>
-                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : r.status === "expired" ? "Expiré" : "Livré"}
+                <span className={`badge ${r.status === "pending" ? "ATTENTION" : (r.status === "ready" || r.status === "envoye_manuel") ? "OK" : r.status === "expired" ? "EXPIRE" : "NA"}`}>
+                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : r.status === "envoye_manuel" ? "Envoyé" : r.status === "expired" ? "Expiré" : "Livré"}
                 </span>
               </div>
               {r.note && <div className="complaint-desc">{r.note}</div>}
               <div className="complaint-date">{r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}</div>
 
               {r.status === "pending" && (
-                <label
-                  className="btn-add"
-                  style={{ marginTop: 10, display: "inline-flex", cursor: busyUploadId === r.id ? "wait" : "pointer", opacity: busyUploadId === r.id ? 0.6 : 1 }}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="#08201C" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5-5 5 5" /><path d="M4 19h16" /></svg>
-                  {busyUploadId === r.id ? "Envoi..." : "Joindre le PDF"}
-                  <input
-                    type="file"
-                    accept="application/pdf"
-                    disabled={busyUploadId === r.id}
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (file) onUploadTicketFile(r, file);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                  <label
+                    className="btn-add"
+                    style={{ display: "inline-flex", cursor: busyUploadId === r.id ? "wait" : "pointer", opacity: busyUploadId === r.id ? 0.6 : 1 }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#08201C" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5-5 5 5" /><path d="M4 19h16" /></svg>
+                    {busyUploadId === r.id ? "Envoi..." : "Joindre le PDF"}
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      disabled={busyUploadId === r.id}
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) onUploadTicketFile(r, file);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {onMarkTicketSent && (
+                    <button className="btn-add btn-report" style={{ display: "inline-flex" }} disabled={busyUploadId === r.id} onClick={() => onMarkTicketSent(r)}>
+                      ✓ Déjà envoyé
+                    </button>
+                  )}
+                </div>
+              )}
+              {r.status === "envoye_manuel" && (
+                <div style={{ fontSize: 12, color: "var(--green)", marginTop: 8 }}>✓ Marqué comme déjà envoyé (hors app, ex. WhatsApp).</div>
               )}
               {r.status === "ready" && (
                 <div style={{ fontSize: 12, color: "var(--green)", marginTop: 8 }}>✓ {r.fileName} envoyé — en attente que le client le télécharge.</div>
@@ -5517,6 +5527,22 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // « Déjà envoyé » : quand on a transmis le ticket au client hors de l'app
+  // (ex. directement par WhatsApp), on marque la demande comme traitée pour
+  // qu'elle ne reste pas « en attente ». Pas de fichier stocké dans l'app.
+  const markTicketSentHandler = async (req) => {
+    if (typeof window !== "undefined" && !window.confirm(`Marquer le ticket de "${req.clientNom}" comme déjà envoyé (ex. par WhatsApp) ? Il ne sera plus « en attente ».`)) return;
+    const now = new Date().toISOString();
+    try {
+      if (SUPABASE_CONFIGURED) await updateTicketRequestRow(req.id, { status: "envoye_manuel", ready_at: now });
+      setTicketRequests((rs) => rs.map((r) => (r.id === req.id ? { ...r, status: "envoye_manuel", readyAt: now } : r)));
+      showToast("Ticket marqué comme déjà envoyé.");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur lors du marquage.");
+    }
+  };
+
   // Le client télécharge le PDF ; le fichier est ensuite supprimé de Supabase Storage.
   // Ticket "Prêt" jamais téléchargé après 45 jours : le PDF est supprimé du stockage
   // pour ne pas encombrer Supabase indéfiniment.
@@ -6500,6 +6526,7 @@ export default function AlerteClientWifi() {
         onSendMessage={sendMessageHandler}
         onUpdateComplaintStatus={updateComplaintStatusHandler}
         onUploadTicketFile={uploadTicketFileHandler}
+        onMarkTicketSent={markTicketSentHandler}
         onLogFuelExpense={logFuelExpense}
         onRequestApproval={requestInterventionApproval}
         onCaptureStartPosition={captureTechnicienStartPosition}
@@ -7271,32 +7298,40 @@ export default function AlerteClientWifi() {
             <div className="complaint-card" key={r.id}>
               <div className="complaint-top">
                 <div className="complaint-client">{r.clientNom}</div>
-                <span className={`badge ${r.status === "pending" ? "ATTENTION" : r.status === "ready" ? "OK" : r.status === "expired" ? "EXPIRE" : "NA"}`}>
-                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : r.status === "expired" ? "Expiré" : "Livré"}
+                <span className={`badge ${r.status === "pending" ? "ATTENTION" : (r.status === "ready" || r.status === "envoye_manuel") ? "OK" : r.status === "expired" ? "EXPIRE" : "NA"}`}>
+                  {r.status === "pending" ? "En attente" : r.status === "ready" ? "Prêt" : r.status === "envoye_manuel" ? "Envoyé" : r.status === "expired" ? "Expiré" : "Livré"}
                 </span>
               </div>
               {r.note && <div className="complaint-desc">{r.note}</div>}
               <div className="complaint-date">{r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}</div>
 
               {r.status === "pending" && (
-                <label
-                  className="btn-add"
-                  style={{ marginTop: 10, display: "inline-flex", cursor: busyUploadId === r.id ? "wait" : "pointer", opacity: busyUploadId === r.id ? 0.6 : 1 }}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="#08201C" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5-5 5 5" /><path d="M4 19h16" /></svg>
-                  {busyUploadId === r.id ? "Envoi..." : "Joindre le PDF"}
-                  <input
-                    type="file"
-                    accept="application/pdf"
-                    disabled={busyUploadId === r.id}
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (file) uploadTicketFileHandler(r, file);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                  <label
+                    className="btn-add"
+                    style={{ display: "inline-flex", cursor: busyUploadId === r.id ? "wait" : "pointer", opacity: busyUploadId === r.id ? 0.6 : 1 }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#08201C" strokeWidth="2.4" strokeLinecap="round"><path d="M12 3v12M7 10l5-5 5 5" /><path d="M4 19h16" /></svg>
+                    {busyUploadId === r.id ? "Envoi..." : "Joindre le PDF"}
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      disabled={busyUploadId === r.id}
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) uploadTicketFileHandler(r, file);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  <button className="btn-add btn-report" style={{ display: "inline-flex" }} disabled={busyUploadId === r.id} onClick={() => markTicketSentHandler(r)}>
+                    ✓ Déjà envoyé
+                  </button>
+                </div>
+              )}
+              {r.status === "envoye_manuel" && (
+                <div style={{ fontSize: 12, color: "var(--green)", marginTop: 8 }}>✓ Marqué comme déjà envoyé (hors app, ex. WhatsApp).</div>
               )}
               {r.status === "ready" && (
                 <div style={{ fontSize: 12, color: "var(--green)", marginTop: 8 }}>✓ {r.fileName} envoyé — en attente que le client le télécharge.</div>
