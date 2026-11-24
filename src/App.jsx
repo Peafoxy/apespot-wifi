@@ -837,6 +837,138 @@ async function generateBilanPDF(bilanData, monthLabel, totalClients) {
   return doc.output("blob");
 }
 
+// Bilan COMPLET en PDF (reprend tout l'onglet Bilan). Multi-pages.
+async function generateBilanCompletPDF(bc) {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX = 15;
+  const contentW = pageW - marginX * 2;
+  const bottomLimit = pageH - 18;
+  let y = 0;
+
+  const INK = [14, 21, 32], MUTE = [92, 108, 126], RED = [179, 38, 30], GREEN = [22, 120, 70];
+  const LINE = [226, 230, 235], ZEBRA = [244, 246, 248], HEAD = [244, 246, 248];
+  const newPage = () => { doc.addPage(); y = 18; };
+  const ensure = (h) => { if (y + h > bottomLimit) newPage(); };
+
+  y = 18;
+  doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(18);
+  doc.text("APESPOT WI-FI", pageW / 2, y, { align: "center" }); y += 6;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(...MUTE);
+  doc.text("Bilan complet", pageW / 2, y, { align: "center" }); y += 5;
+  doc.setFontSize(9.5);
+  const dateGen = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  doc.text(`${bc.scopeLabel}  ·  Généré le ${dateGen}`, pageW / 2, y, { align: "center" }); y += 5;
+  doc.setDrawColor(62, 216, 195); doc.setLineWidth(0.8);
+  doc.line(pageW / 2 - 18, y, pageW / 2 + 18, y); y += 10;
+
+  // Cartes résumé
+  const cards = [
+    [fmtFCFAForPdf(bc.recettes), "Recettes"],
+    [fmtFCFAForPdf(bc.depenses.total), "Dépenses"],
+    [fmtFCFAForPdf(bc.benefice), "Bénéfice net"],
+    [bc.marge + "%", "Marge"],
+  ];
+  const cardW = (contentW - 8) / 2, cardH = 16;
+  cards.forEach(([n, l], i) => {
+    const cx = marginX + (i % 2) * (cardW + 8);
+    const cy = y + Math.floor(i / 2) * (cardH + 6);
+    doc.setDrawColor(...LINE); doc.setLineWidth(0.3); doc.roundedRect(cx, cy, cardW, cardH, 2, 2);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(...INK);
+    doc.text(String(n), cx + 5, cy + 8);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...MUTE);
+    doc.text(l.toUpperCase(), cx + 5, cy + 13);
+  });
+  y += cardH * 2 + 6 + 8;
+
+  const sectionTitle = (title) => {
+    ensure(14);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...MUTE);
+    doc.text(title.toUpperCase(), marginX, y); y += 2;
+    doc.setDrawColor(...LINE); doc.setLineWidth(0.3); doc.line(marginX, y, marginX + contentW, y); y += 5;
+  };
+  const table = (cols, rows, { totalRow } = {}) => {
+    const rowH = 8, headH = 8;
+    const xs = []; let acc = marginX; cols.forEach((c) => { xs.push(acc); acc += c.w * contentW; });
+    const drawHeader = () => {
+      doc.setFillColor(...HEAD); doc.rect(marginX, y, contentW, headH, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...MUTE);
+      cols.forEach((c, i) => { const tx = c.align === "right" ? xs[i] + c.w * contentW - 3 : xs[i] + 3; doc.text(c.header.toUpperCase(), tx, y + 5.4, { align: c.align === "right" ? "right" : "left" }); });
+      doc.setDrawColor(...LINE); doc.setLineWidth(0.3); doc.line(marginX, y + headH, marginX + contentW, y + headH); y += headH;
+    };
+    ensure(headH + rowH); drawHeader();
+    const drawRow = (cells, { bold, fill } = {}) => {
+      if (y + rowH > bottomLimit) { newPage(); drawHeader(); }
+      if (fill) { doc.setFillColor(...ZEBRA); doc.rect(marginX, y, contentW, rowH, "F"); }
+      doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(8.5);
+      cells.forEach((cell, i) => { doc.setTextColor(...(cell.color || INK)); const c = cols[i]; const tx = c.align === "right" ? xs[i] + c.w * contentW - 3 : xs[i] + 3; doc.text(String(cell.t), tx, y + 5.3, { align: c.align === "right" ? "right" : "left", maxWidth: c.w * contentW - 6 }); });
+      doc.setDrawColor(...LINE); doc.setLineWidth(0.2); doc.line(marginX, y + rowH, marginX + contentW, y + rowH); y += rowH;
+    };
+    rows.forEach((r, i) => drawRow(r, { fill: i % 2 === 0 }));
+    if (totalRow) drawRow(totalRow, { bold: true, fill: true });
+    y += 8;
+  };
+
+  // Rentabilité
+  sectionTitle("Rentabilité");
+  table([{ w: 0.70, header: "Poste" }, { w: 0.30, header: "Montant", align: "right" }], [
+    [{ t: "Recettes (abonnements)" }, { t: fmtFCFAForPdf(bc.recettes), align: "right" }],
+    [{ t: `Carburant (${bc.depenses.fuelCount})` }, { t: "- " + fmtFCFAForPdf(bc.depenses.fuelTotal), color: RED, align: "right" }],
+    [{ t: `Perdiem (${bc.depenses.perdiemCount})` }, { t: "- " + fmtFCFAForPdf(bc.depenses.perdiemTotal), color: RED, align: "right" }],
+    [{ t: `Lignes Internet (${bc.depenses.lignesCount})` }, { t: "- " + fmtFCFAForPdf(bc.depenses.lignesTotal), color: RED, align: "right" }],
+    [{ t: `Autres dépenses (${bc.depenses.autresCount})` }, { t: "- " + fmtFCFAForPdf(bc.depenses.autresTotal), color: RED, align: "right" }],
+  ], { totalRow: [{ t: `Bénéfice net  ·  marge ${bc.marge}%` }, { t: fmtFCFAForPdf(bc.benefice), align: "right", color: bc.benefice < 0 ? RED : GREEN }] });
+
+  // État du parc clients
+  sectionTitle("Clients");
+  table([{ w: 0.70, header: "Indicateur" }, { w: 0.30, header: "Valeur", align: "right" }], [
+    [{ t: "Clients au total" }, { t: String(bc.clients.total), align: "right" }],
+    [{ t: "À jour" }, { t: String(bc.clients.nbAJour), align: "right", color: GREEN }],
+    [{ t: "Expirés" }, { t: String(bc.clients.nbExpire), align: "right", color: RED }],
+    [{ t: "Réabonnements (période)" }, { t: String(bc.reabo.nbReabo), align: "right" }],
+    [{ t: "Taux de réabonnement" }, { t: bc.reabo.taux == null ? "—" : bc.reabo.taux + "%", align: "right" }],
+    [{ t: "Manque à gagner estimé (expirés)" }, { t: fmtFCFAForPdf(bc.manqueAGagner), align: "right", color: RED }],
+  ]);
+
+  // Caisse
+  sectionTitle("Caisse (actuelle)");
+  table([{ w: 0.70, header: "Poste" }, { w: 0.30, header: "Montant", align: "right" }], [
+    [{ t: "Total encaissé" }, { t: fmtFCFAForPdf(bc.caisse.totalEncaisse), align: "right" }],
+    [{ t: "Déjà versé" }, { t: "- " + fmtFCFAForPdf(bc.caisse.totalVerse), align: "right" }],
+  ], { totalRow: [{ t: "Reste à verser" }, { t: fmtFCFAForPdf(bc.caisse.resteAVerser), align: "right" }] });
+
+  // Paiements détaillés
+  sectionTitle(`Paiements détaillés (${bc.nbPaiements})`);
+  const payCols = [{ w: 0.15, header: "Date" }, { w: 0.32, header: "Client" }, { w: 0.20, header: "Mode" }, { w: 0.18, header: "Montant", align: "right" }, { w: 0.15, header: "Note" }];
+  if (bc.paiements.length === 0) table(payCols, [[{ t: "Aucun paiement.", color: MUTE }, { t: "" }, { t: "" }, { t: "" }, { t: "" }]]);
+  else table(payCols, bc.paiements.map((p) => [{ t: fmtDate(p.date) }, { t: p.clientNom || "-" }, { t: p.mode || "-" }, { t: fmtFCFAForPdf(p.montant), align: "right" }, { t: p.note || "-" }]),
+    { totalRow: [{ t: "Total" }, { t: "" }, { t: "" }, { t: fmtFCFAForPdf(bc.recettes), align: "right" }, { t: "" }] });
+
+  // Dépenses détaillées
+  sectionTitle(`Dépenses détaillées`);
+  const depCols = [{ w: 0.15, header: "Date" }, { w: 0.60, header: "Poste" }, { w: 0.25, header: "Montant", align: "right" }];
+  if (bc.depenses.detail.length === 0) table(depCols, [[{ t: "Aucune dépense.", color: MUTE }, { t: "" }, { t: "" }]]);
+  else table(depCols, bc.depenses.detail.map((d) => [{ t: d.date ? fmtDate(d.date) : "-" }, { t: d.label }, { t: "- " + fmtFCFAForPdf(d.montant), color: RED, align: "right" }]),
+    { totalRow: [{ t: "Total dépenses" }, { t: "" }, { t: fmtFCFAForPdf(bc.depenses.total), align: "right" }] });
+
+  // Clients expirés
+  sectionTitle(`Clients expirés (${bc.clients.nbExpire})`);
+  const expCols = [{ w: 0.45, header: "Client" }, { w: 0.35, header: "Offre" }, { w: 0.20, header: "Expiré le", align: "right" }];
+  if (bc.clients.expiredList.length === 0) table(expCols, [[{ t: "Aucun client expiré.", color: GREEN }, { t: "" }, { t: "" }]]);
+  else table(expCols, bc.clients.expiredList.map((c) => [{ t: c.nom || "-" }, { t: c.offre || "-" }, { t: c.dateExp ? fmtDate(c.dateExp) : "-", align: "right" }]));
+
+  const pages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "italic"); doc.setFontSize(8); doc.setTextColor(...MUTE);
+    doc.text("APESPOT WI-FI · Bilan complet", pageW / 2, pageH - 10, { align: "center" });
+    doc.text(`Page ${i} / ${pages}`, pageW - marginX, pageH - 10, { align: "right" });
+  }
+  doc.save(`bilan_apespot_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
 function normalizePhone(raw) {
   let d = (raw || "").replace(/[^\d]/g, "");
   if (!d) return "";
@@ -3955,6 +4087,12 @@ export default function AlerteClientWifi() {
     const n = new Date();
     return n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0");
   });
+  // Onglet Bilan complet : portée = "courante" (période de caisse, par défaut) ou "mois".
+  const [bilanScope, setBilanScope] = useState("courante");
+  const [bilanMois, setBilanMois] = useState(() => {
+    const n = new Date();
+    return n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0");
+  });
   const showToast = useCallback((msg) => {
     setToast(msg);
     window.clearTimeout(showToast._t);
@@ -4200,6 +4338,7 @@ export default function AlerteClientWifi() {
   useEffect(() => {
     if (tab === "notify" && !isPrincipalAdmin) setTab("dashboard");
     if (tab === "historique" && !isPrincipalAdmin) setTab("dashboard");
+    if (tab === "bilan" && !isPrincipalAdmin) setTab("dashboard");
   }, [tab, isPrincipalAdmin]);
   const canModifyEntry = (createdAt) => isPrincipalAdmin || (createdAt && Date.now() - new Date(createdAt).getTime() < 24 * 60 * 60 * 1000);
   const RENEW_COOLDOWN_MS = 60 * 60 * 1000; // 1h avant de pouvoir réabonner à nouveau (sauf admin principal)
@@ -4955,6 +5094,100 @@ export default function AlerteClientWifi() {
 
   const openBilan = () => setBilanOpen(true);
   const closeBilan = () => setBilanOpen(false);
+
+  // ---------- Onglet BILAN COMPLET ----------
+  // Mois disponibles pour le sélecteur (d'après les dates de paiement) + mois courant.
+  const bilanMoisDispo = useMemo(() => {
+    const set = new Set();
+    payments.forEach((p) => { if (p.date) set.add(String(p.date).slice(0, 7)); });
+    set.add(new Date().toISOString().slice(0, 7));
+    return [...set].sort().reverse();
+  }, [payments]);
+  const moisLabel = (m) => {
+    const [y, mm] = m.split("-").map(Number);
+    return new Date(y, mm - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  };
+
+  // Calcule TOUT le bilan pour la portée choisie (période de caisse en cours, ou un mois).
+  const bilanComplet = useMemo(() => {
+    const courante = bilanScope === "courante";
+    const depuis = periodeActuelle.depuis; // date du dernier versement, ou null
+    const mois = bilanMois;
+    const apresDepuis = (d) => !depuis || (String(d || "").slice(0, 10) > depuis);
+    const dansMois = (d) => String(d || "").startsWith(mois);
+    const inScope = (d) => (courante ? apresDepuis(d) : dansMois(d));
+
+    // --- Paiements de la portée ---
+    const paiementsList = courante ? payments.filter((p) => !p.verse) : payments.filter((p) => dansMois(p.date));
+    const paiements = [...paiementsList].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const recettes = paiementsList.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const nbPaiements = paiementsList.length;
+    const panierMoyen = nbPaiements ? Math.round(recettes / nbPaiements) : 0;
+    const byMode = MODE_LABELS.map((mode) => {
+      const rows = paiementsList.filter((p) => (p.mode || "Autre") === mode);
+      return { mode, count: rows.length, sum: rows.reduce((s, p) => s + (Number(p.montant) || 0), 0) };
+    }).filter((r) => r.count > 0);
+
+    // --- Dépenses détaillées de la portée ---
+    const sum = (arr) => arr.reduce((s, x) => s + (Number(x.montant) || 0), 0);
+    const fuelList = fuelExpenses.filter((f) => f.approvalStatus === "approved" && f.status === "paye" && inScope(f.createdAt))
+      .map((f) => ({ label: `🚗 ${f.technicienNom || "Technicien"}${f.clientNom ? ` → ${f.clientNom}` : ""}`, montant: Number(f.montant) || 0, date: (f.createdAt || "").slice(0, 10) }));
+    const perdiemList = perdiemExpenses.filter((p) => p.approvalStatus === "approved" && p.status === "paye" && inScope(p.createdAt))
+      .map((p) => ({ label: `💰 ${p.personneNom || "—"}${p.note ? ` · ${p.note}` : ""}`, montant: Number(p.montant) || 0, date: (p.createdAt || "").slice(0, 10) }));
+    const autresList = otherExpenses.filter((o) => o.approvalStatus === "approved" && inScope(o.createdAt))
+      .map((o) => ({ label: `📦 ${o.description || "Autre dépense"}`, montant: Number(o.montant) || 0, date: (o.createdAt || "").slice(0, 10) }));
+    const lignesList = (courante
+      ? expenseLines.filter((l) => l.paidActionAt && apresDepuis(l.paidActionAt)).map((l) => ({ label: `📡 ${l.nom}`, montant: Number(l.montant) || 0, date: (l.paidActionAt || "").slice(0, 10) }))
+      : expenseLines.filter((l) => l.lastPaidMonth === mois).map((l) => ({ label: `📡 ${l.nom}`, montant: Number(l.montant) || 0, date: l.lastPaidMonth })));
+    const fuelTotal = sum(fuelList), perdiemTotal = sum(perdiemList), autresTotal = sum(autresList), lignesTotal = sum(lignesList);
+    const depensesTotal = fuelTotal + perdiemTotal + autresTotal + lignesTotal;
+    const depensesDetail = [...fuelList, ...perdiemList, ...lignesList, ...autresList].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+    // --- Rentabilité ---
+    const benefice = recettes - depensesTotal;
+    const marge = recettes > 0 ? Math.round((benefice / recettes) * 100) : 0;
+
+    // --- Clients (photo actuelle) ---
+    const nbExpire = enrichedClients.filter((c) => c.statut === "EXPIRE").length;
+    const nbAttention = enrichedClients.filter((c) => c.statut === "ATTENTION").length;
+    const nbOk = enrichedClients.filter((c) => c.statut === "OK").length;
+    const expiredList = enrichedClients.filter((c) => c.statut === "EXPIRE").sort((a, b) => (a.dateExp || "").localeCompare(b.dateExp || ""));
+    const avgGlobal = payments.length ? Math.round(payments.reduce((s, p) => s + (Number(p.montant) || 0), 0) / payments.length) : 0;
+    const manqueAGagner = nbExpire * (panierMoyen || avgGlobal);
+
+    // --- Taux de réabonnement ---
+    const nbReabo = enrichedClients.filter((c) => c.renewedAt && (courante ? (String(c.renewedAt).slice(0, 10) > (depuis || "")) : String(c.renewedAt).startsWith(mois))).length;
+    const nbExpireNonRenouv = enrichedClients.filter((c) => c.statut === "EXPIRE" && c.dateExp && inScope(c.dateExp)).length;
+    const baseReabo = nbReabo + nbExpireNonRenouv;
+    const tauxReabo = baseReabo > 0 ? Math.round((nbReabo / baseReabo) * 100) : null;
+
+    return {
+      courante,
+      scopeLabel: courante ? (depuis ? `Période en cours · depuis le ${fmtDate(depuis)}` : "Période en cours · depuis le début") : moisLabel(mois),
+      recettes, nbPaiements, panierMoyen, paiements, byMode,
+      depenses: { fuelTotal, perdiemTotal, autresTotal, lignesTotal, total: depensesTotal, detail: depensesDetail,
+        fuelCount: fuelList.length, perdiemCount: perdiemList.length, autresCount: autresList.length, lignesCount: lignesList.length },
+      benefice, marge,
+      clients: { total: enrichedClients.length, nbOk, nbAttention, nbExpire, nbAJour: nbOk + nbAttention, expiredList },
+      manqueAGagner,
+      reabo: { nbReabo, nbExpireNonRenouv, taux: tauxReabo },
+      caisse: { totalEncaisse: caisseData.totalEncaisse, totalVerse: caisseData.totalVerse, resteAVerser: caisseData.resteAVerser },
+    };
+  }, [bilanScope, bilanMois, periodeActuelle, payments, fuelExpenses, perdiemExpenses, otherExpenses, expenseLines, enrichedClients, caisseData]);
+
+  const exportBilanCompletPDF = async () => {
+    if (busyBilanPdf) return;
+    setBusyBilanPdf(true);
+    try {
+      await generateBilanCompletPDF(bilanComplet);
+      showToast("Bilan complet exporté (PDF).");
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur lors de l'export du bilan.");
+    } finally {
+      setBusyBilanPdf(false);
+    }
+  };
   const [busyBilanPdf, setBusyBilanPdf] = useState(false);
   const printBilan = async () => {
     if (busyBilanPdf) return;
@@ -6355,6 +6588,7 @@ export default function AlerteClientWifi() {
           { key: "caisse", label: "Caisse", badge: 0 },
           { key: "users", label: "Utilisateurs", badge: 0 },
           { key: "money", label: "Mon argent", badge: 0 },
+          ...(isPrincipalAdmin ? [{ key: "bilan", label: "Bilan", badge: 0 }] : []),
           ...(isPrincipalAdmin ? [{ key: "notify", label: "Notifications", badge: 0 }] : []),
           ...(isPrincipalAdmin ? [{ key: "historique", label: "Historique", badge: 0 }] : []),
         ];
@@ -7565,6 +7799,106 @@ export default function AlerteClientWifi() {
                 <button className="icon-btn" onClick={() => deleteVersement(v)} title="Supprimer le versement">🗑</button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "bilan" && (
+        <div className="view active">
+          {/* Sélecteur de portée : période de caisse en cours (défaut) ou un mois */}
+          <div className="chips" style={{ marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <button className={`chip ${bilanScope === "courante" ? "active" : ""}`} onClick={() => setBilanScope("courante")}>
+              Période en cours{periodeActuelle.depuis ? ` · depuis le ${fmtDate(periodeActuelle.depuis)}` : ""}
+            </button>
+            <button className={`chip ${bilanScope === "mois" ? "active" : ""}`} onClick={() => setBilanScope("mois")}>
+              Par mois
+            </button>
+            {bilanScope === "mois" && (
+              <select value={bilanMois} onChange={(e) => setBilanMois(e.target.value)}
+                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg-card)", color: "var(--text)", fontSize: 13 }}>
+                {bilanMoisDispo.map((m) => <option key={m} value={m}>{moisLabel(m)}</option>)}
+              </select>
+            )}
+            <button className="btn-add btn-report" style={{ marginLeft: "auto" }} disabled={busyBilanPdf} onClick={exportBilanCompletPDF}>
+              📄 {busyBilanPdf ? "Génération…" : "Exporter en PDF"}
+            </button>
+          </div>
+
+          {/* Rentabilité */}
+          <div className="stats">
+            <div className="stat total"><div className="n">{fmtFCFA(bilanComplet.recettes)}</div><div className="l">Recettes (période)</div></div>
+            <div className="stat expire"><div className="n">{fmtFCFA(bilanComplet.depenses.total)}</div><div className="l">Dépenses (période)</div></div>
+            <div className="stat ok"><div className="n" style={bilanComplet.benefice < 0 ? { color: "var(--red)" } : undefined}>{fmtFCFA(bilanComplet.benefice)}</div><div className="l">Bénéfice net</div></div>
+            <div className="stat attention"><div className="n">{bilanComplet.marge}%</div><div className="l">Marge</div></div>
+          </div>
+
+          {/* Clients */}
+          <div className="stats">
+            <div className="stat total"><div className="n">{bilanComplet.clients.total}</div><div className="l">Clients au total</div></div>
+            <div className="stat ok"><div className="n">{bilanComplet.clients.nbAJour}</div><div className="l">À jour</div></div>
+            <div className="stat expire"><div className="n">{bilanComplet.clients.nbExpire}</div><div className="l">Expirés</div></div>
+            <div className="stat attention"><div className="n">{bilanComplet.reabo.taux == null ? "—" : bilanComplet.reabo.taux + "%"}</div><div className="l">Taux de réabonnement</div></div>
+          </div>
+
+          {/* Caisse */}
+          <div className="chart-card">
+            <div className="ctitle">CAISSE (ACTUELLE)</div>
+            <div className="caisse-calc">
+              <div className="caisse-calc-row"><span>Total encaissé</span><b>{fmtFCFA(bilanComplet.caisse.totalEncaisse)}</b></div>
+              <div className="caisse-calc-row neg"><span>− Déjà versé</span><b>− {fmtFCFA(bilanComplet.caisse.totalVerse)}</b></div>
+              <div className="caisse-calc-row total"><span>Reste à verser</span><b>{fmtFCFA(bilanComplet.caisse.resteAVerser)}</b></div>
+            </div>
+          </div>
+
+          {/* Paiements détaillés */}
+          <div className="chart-card">
+            <div className="ctitle">PAIEMENTS DÉTAILLÉS ({bilanComplet.nbPaiements}) · {fmtFCFA(bilanComplet.recettes)}</div>
+            {bilanComplet.paiements.length === 0 && <div className="empty">Aucun paiement sur cette période.</div>}
+            {bilanComplet.paiements.slice(0, 100).map((p) => (
+              <div key={p.id} className="rah-item">
+                <span>{fmtDate(p.date)} · {p.clientNom}</span>
+                <span>{p.mode || "—"}</span>
+                <span className="rah-amount">{fmtFCFA(p.montant)}</span>
+              </div>
+            ))}
+            {bilanComplet.paiements.length > 100 && <div className="empty">… et {bilanComplet.paiements.length - 100} autres (voir le PDF).</div>}
+            {bilanComplet.nbPaiements > 0 && <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 8 }}>Panier moyen : {fmtFCFA(bilanComplet.panierMoyen)}</div>}
+          </div>
+
+          {/* Dépenses détaillées */}
+          <div className="chart-card">
+            <div className="ctitle">DÉPENSES DÉTAILLÉES · {fmtFCFA(bilanComplet.depenses.total)}</div>
+            <div className="caisse-calc" style={{ marginBottom: 10 }}>
+              <div className="caisse-calc-row neg"><span>🚗 Carburant ({bilanComplet.depenses.fuelCount})</span><b>{fmtFCFA(bilanComplet.depenses.fuelTotal)}</b></div>
+              <div className="caisse-calc-row neg"><span>💰 Perdiem ({bilanComplet.depenses.perdiemCount})</span><b>{fmtFCFA(bilanComplet.depenses.perdiemTotal)}</b></div>
+              <div className="caisse-calc-row neg"><span>📡 Lignes Internet ({bilanComplet.depenses.lignesCount})</span><b>{fmtFCFA(bilanComplet.depenses.lignesTotal)}</b></div>
+              <div className="caisse-calc-row neg"><span>📦 Autres ({bilanComplet.depenses.autresCount})</span><b>{fmtFCFA(bilanComplet.depenses.autresTotal)}</b></div>
+              <div className="caisse-calc-row total"><span>Total dépenses</span><b>{fmtFCFA(bilanComplet.depenses.total)}</b></div>
+            </div>
+            {bilanComplet.depenses.detail.length === 0 && <div className="empty">Aucune dépense sur cette période.</div>}
+            {bilanComplet.depenses.detail.slice(0, 100).map((d, i) => (
+              <div key={i} className="rah-item">
+                <span>{d.date ? fmtDate(d.date) : "—"} · {d.label}</span>
+                <span className="rah-amount" style={{ color: "var(--red)" }}>− {fmtFCFA(d.montant)}</span>
+              </div>
+            ))}
+            {bilanComplet.depenses.detail.length > 100 && <div className="empty">… et {bilanComplet.depenses.detail.length - 100} autres (voir le PDF).</div>}
+          </div>
+
+          {/* Clients expirés */}
+          <div className="chart-card" style={{ borderColor: "var(--red)" }}>
+            <div className="ctitle" style={{ color: "var(--red)" }}>
+              CLIENTS EXPIRÉS ({bilanComplet.clients.nbExpire}) · manque à gagner estimé {fmtFCFA(bilanComplet.manqueAGagner)}
+            </div>
+            {bilanComplet.clients.expiredList.length === 0 && <div className="empty">Aucun client expiré. 👍</div>}
+            {bilanComplet.clients.expiredList.slice(0, 100).map((c) => (
+              <div key={c.id} className="rah-item">
+                <span>{c.nom}</span>
+                <span className="exp-date">{c.offre || "—"}</span>
+                <span className="exp-date">exp. {c.dateExp ? fmtDate(c.dateExp) : "—"}</span>
+              </div>
+            ))}
+            {bilanComplet.clients.expiredList.length > 100 && <div className="empty">… et {bilanComplet.clients.expiredList.length - 100} autres (voir le PDF).</div>}
           </div>
         </div>
       )}
