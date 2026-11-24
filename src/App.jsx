@@ -893,7 +893,7 @@ async function generateBilanCompletPDF(bc) {
     doc.setDrawColor(...LINE); doc.setLineWidth(0.3); doc.line(marginX, y, marginX + contentW, y); y += 5;
   };
   const table = (cols, rows, { totalRow } = {}) => {
-    const rowH = 8, headH = 8;
+    const headH = 8, lineH = 4.2, padV = 2.6; // hauteur de ligne AUTOMATIQUE (évite les chevauchements)
     const xs = []; let acc = marginX; cols.forEach((c) => { xs.push(acc); acc += c.w * contentW; });
     const drawHeader = () => {
       doc.setFillColor(...HEAD); doc.rect(marginX, y, contentW, headH, "F");
@@ -901,12 +901,22 @@ async function generateBilanCompletPDF(bc) {
       cols.forEach((c, i) => { const tx = c.align === "right" ? xs[i] + c.w * contentW - 3 : xs[i] + 3; doc.text(c.header.toUpperCase(), tx, y + 5.4, { align: c.align === "right" ? "right" : "left" }); });
       doc.setDrawColor(...LINE); doc.setLineWidth(0.3); doc.line(marginX, y + headH, marginX + contentW, y + headH); y += headH;
     };
-    ensure(headH + rowH); drawHeader();
+    ensure(headH + lineH + padV); drawHeader();
     const drawRow = (cells, { bold, fill } = {}) => {
-      if (y + rowH > bottomLimit) { newPage(); drawHeader(); }
-      if (fill) { doc.setFillColor(...ZEBRA); doc.rect(marginX, y, contentW, rowH, "F"); }
       doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(8.5);
-      cells.forEach((cell, i) => { doc.setTextColor(...(cell.color || INK)); const c = cols[i]; const tx = c.align === "right" ? xs[i] + c.w * contentW - 3 : xs[i] + 3; doc.text(String(cell.t), tx, y + 5.3, { align: c.align === "right" ? "right" : "left", maxWidth: c.w * contentW - 6 }); });
+      // Découpe chaque cellule en lignes selon la largeur de sa colonne, puis
+      // calcule la hauteur de la ligne d'après la cellule la plus haute.
+      const wrapped = cells.map((cell, i) => doc.splitTextToSize(String(cell.t == null ? "" : cell.t), cols[i].w * contentW - 6));
+      const nLines = Math.max(1, ...wrapped.map((w) => w.length));
+      const rowH = nLines * lineH + padV;
+      if (y + rowH > bottomLimit) { newPage(); drawHeader(); doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(8.5); }
+      if (fill) { doc.setFillColor(...ZEBRA); doc.rect(marginX, y, contentW, rowH, "F"); }
+      cells.forEach((cell, i) => {
+        doc.setTextColor(...(cell.color || INK));
+        const c = cols[i];
+        const tx = c.align === "right" ? xs[i] + c.w * contentW - 3 : xs[i] + 3;
+        doc.text(wrapped[i], tx, y + lineH, { align: c.align === "right" ? "right" : "left" });
+      });
       doc.setDrawColor(...LINE); doc.setLineWidth(0.2); doc.line(marginX, y + rowH, marginX + contentW, y + rowH); y += rowH;
     };
     rows.forEach((r, i) => drawRow(r, { fill: i % 2 === 0 }));
@@ -944,7 +954,7 @@ async function generateBilanCompletPDF(bc) {
 
   // Paiements détaillés
   sectionTitle(`Paiements détaillés (${bc.nbPaiements})`);
-  const payCols = [{ w: 0.15, header: "Date" }, { w: 0.32, header: "Client" }, { w: 0.20, header: "Mode" }, { w: 0.18, header: "Montant", align: "right" }, { w: 0.15, header: "Note" }];
+  const payCols = [{ w: 0.13, header: "Date" }, { w: 0.26, header: "Client" }, { w: 0.16, header: "Mode" }, { w: 0.15, header: "Montant", align: "right" }, { w: 0.30, header: "Note" }];
   if (bc.paiements.length === 0) table(payCols, [[{ t: "Aucun paiement.", color: MUTE }, { t: "" }, { t: "" }, { t: "" }, { t: "" }]]);
   else table(payCols, bc.paiements.map((p) => [{ t: fmtDate(p.date) }, { t: clean(p.clientNom) || "-" }, { t: clean(p.mode) || "-" }, { t: fmtFCFAForPdf(p.montant), align: "right" }, { t: clean(p.note) || "-" }]),
     { totalRow: [{ t: "Total" }, { t: "" }, { t: "" }, { t: fmtFCFAForPdf(bc.recettes), align: "right" }, { t: "" }] });
