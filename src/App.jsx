@@ -4517,6 +4517,7 @@ export default function AlerteClientWifi() {
   const [caisseFilter, setCaisseFilter] = useState("periode"); // "periode" (défaut) | "tout"
   const [historiqueSearch, setHistoriqueSearch] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false); // menu tiroir mobile
+  const [openGroup, setOpenGroup] = useState(null); // menu déroulant de groupe (desktop)
   const [exportMenuOpen, setExportMenuOpen] = useState(false); // menu Export (Excel/PDF)
   const [exportPaymentsMenuOpen, setExportPaymentsMenuOpen] = useState(false); // menu Export Paiements (CSV/PDF)
 
@@ -6607,7 +6608,7 @@ export default function AlerteClientWifi() {
           ...(isPrincipalAdmin ? [{ key: "notify", label: "Notifications", badge: 0 }] : []),
           ...(isPrincipalAdmin ? [{ key: "historique", label: "Historique", badge: 0 }] : []),
         ];
-        const goTab = (t) => { setTab(t.key); if (t.onSelect) t.onSelect(); setDrawerOpen(false); };
+        const goTab = (t) => { setTab(t.key); if (t.onSelect) t.onSelect(); setDrawerOpen(false); setOpenGroup(null); };
         const current = tabDefs.find((t) => t.key === tab);
         const totalBadge = tabDefs.reduce((s, t) => s + (t.badge || 0), 0);
         // Regroupement DESKTOP uniquement : on garde les principaux en haut
@@ -6635,22 +6636,28 @@ export default function AlerteClientWifi() {
               {groups.map((g) => {
                 const active = activeGroup && activeGroup.key === g.key;
                 const b = groupBadge(g);
+                const open = openGroup === g.key;
                 return (
-                  <button key={g.key} className={`tab tab-group ${active ? "active" : ""}`} onClick={() => { const m = groupMembers(g)[0]; if (m) goTab(m); }}>
-                    {g.label} ▾{b > 0 && <span className="tab-badge">{b}</span>}
-                  </button>
+                  <div key={g.key} className="tab-group-wrap">
+                    <button className={`tab tab-group ${active ? "active" : ""}`} onClick={() => setOpenGroup(open ? null : g.key)}>
+                      {g.label} ▾{b > 0 && <span className="tab-badge">{b}</span>}
+                    </button>
+                    {open && (
+                      <>
+                        <div className="group-backdrop" onClick={() => setOpenGroup(null)} />
+                        <div className="group-pop">
+                          {groupMembers(g).map((t) => (
+                            <button key={t.key} className={`group-it ${tab === t.key ? "act" : ""}`} onClick={() => goTab(t)}>
+                              <span className="nm">{t.label}</span>{t.badge > 0 && <span className="tab-badge">{t.badge}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 );
               })}
             </div>
-            {activeGroup && (
-              <div className="tabs tabs-desktop subtabs">
-                {groupMembers(activeGroup).map((t) => (
-                  <button key={t.key} className={`tab ${tab === t.key ? "active" : ""}`} onClick={() => goTab(t)}>
-                    {t.label}{t.badge > 0 && <span className="tab-badge">{t.badge}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
             <div className="tabs-mobile-wrap">
               <button className="tabs-mobile-btn" onClick={() => setDrawerOpen((v) => !v)}>
                 <span className="burger">☰</span>
@@ -8797,10 +8804,14 @@ const CSS = `
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);font-weight:800;text-shadow:0 0 16px rgba(62,216,195,.45);}
 .wifi-app .tab:hover{color:#FFFFFF;}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
-/* Regroupement desktop : onglets « groupe » + 2e barre de sous-onglets */
-.wifi-app .tabs-desktop.subtabs{margin-top:-16px;margin-bottom:20px;border-bottom:none;padding-left:2px;}
-.wifi-app .tabs-desktop.subtabs .tab{font-size:12.5px;font-weight:700;padding:7px 11px;color:#A7B7C8;}
-.wifi-app .tabs-desktop.subtabs .tab.active{color:var(--cyan);}
+/* Regroupement desktop : onglets « groupe » avec menu déroulant vertical */
+.wifi-app .tabs-desktop{overflow:visible;} /* laisse le menu déroulant déborder la barre */
+.wifi-app .tab-group-wrap{position:relative;display:inline-flex;align-items:stretch;flex-shrink:0;}
+.wifi-app .group-backdrop{position:fixed;inset:0;z-index:60;}
+.wifi-app .group-pop{position:absolute;top:calc(100% + 2px);left:0;z-index:71;min-width:172px;background:var(--bg-panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 40px -10px rgba(0,0,0,.85);display:flex;flex-direction:column;gap:3px;padding:7px;animation:apPopIn .16s ease;transform-origin:top left;}
+.wifi-app .group-it{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px 12px;border:none;border-radius:8px;background:none;color:#D5DEE8;font-family:var(--sans);font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap;text-align:left;}
+.wifi-app .group-it:hover{background:var(--bg-hover);color:#fff;}
+.wifi-app .group-it.act{color:var(--cyan);}
 /* --- Menu Export (Excel / PDF) --- */
 .wifi-app .export-menu-wrap{position:relative;display:inline-flex;}
 .wifi-app .export-backdrop{position:fixed;inset:0;z-index:40;}
