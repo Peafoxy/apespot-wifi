@@ -6610,15 +6610,47 @@ export default function AlerteClientWifi() {
         const goTab = (t) => { setTab(t.key); if (t.onSelect) t.onSelect(); setDrawerOpen(false); };
         const current = tabDefs.find((t) => t.key === tab);
         const totalBadge = tabDefs.reduce((s, t) => s + (t.badge || 0), 0);
+        // Regroupement DESKTOP uniquement : on garde les principaux en haut
+        // (Tableau de bord, Alertes WiFi, Paiements) et on réunit le reste sous
+        // des onglets « groupe ». Une 2e barre de sous-onglets apparaît quand un
+        // groupe est actif. Le menu mobile (tiroir ☰) reste à plat, inchangé.
+        const byKey = Object.fromEntries(tabDefs.map((t) => [t.key, t]));
+        const standaloneKeys = ["dashboard", "alerts", "payments"];
+        const groups = [
+          { key: "g_support", label: "Support", members: ["complaints", "messages", "tickets"] },
+          { key: "g_finances", label: "Finances", members: ["fuel", "caisse", "bilan"] },
+          { key: "g_gestion", label: "Gestion", members: ["users", "money", "notify", "historique"] },
+        ];
+        const groupMembers = (g) => g.members.map((k) => byKey[k]).filter(Boolean);
+        const groupBadge = (g) => groupMembers(g).reduce((s, t) => s + (t.badge || 0), 0);
+        const activeGroup = groups.find((g) => g.members.includes(tab));
         return (
           <>
             <div className="tabs tabs-desktop" ref={tabsRef}>
-              {tabDefs.map((t) => (
-                <button key={t.key} className={`tab ${tab === t.key ? "active" : ""}`} onClick={() => goTab(t)}>
-                  {t.label}{t.badge > 0 && <span className="tab-badge">{t.badge}</span>}
+              {standaloneKeys.map((k) => byKey[k] && (
+                <button key={k} className={`tab ${tab === k ? "active" : ""}`} onClick={() => goTab(byKey[k])}>
+                  {byKey[k].label}{byKey[k].badge > 0 && <span className="tab-badge">{byKey[k].badge}</span>}
                 </button>
               ))}
+              {groups.map((g) => {
+                const active = activeGroup && activeGroup.key === g.key;
+                const b = groupBadge(g);
+                return (
+                  <button key={g.key} className={`tab tab-group ${active ? "active" : ""}`} onClick={() => { const m = groupMembers(g)[0]; if (m) goTab(m); }}>
+                    {g.label} ▾{b > 0 && <span className="tab-badge">{b}</span>}
+                  </button>
+                );
+              })}
             </div>
+            {activeGroup && (
+              <div className="tabs tabs-desktop subtabs">
+                {groupMembers(activeGroup).map((t) => (
+                  <button key={t.key} className={`tab ${tab === t.key ? "active" : ""}`} onClick={() => goTab(t)}>
+                    {t.label}{t.badge > 0 && <span className="tab-badge">{t.badge}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="tabs-mobile-wrap">
               <button className="tabs-mobile-btn" onClick={() => setDrawerOpen((v) => !v)}>
                 <span className="burger">☰</span>
@@ -8765,6 +8797,10 @@ const CSS = `
 .wifi-app .tab.active{color:var(--cyan);border-bottom-color:var(--cyan);font-weight:800;text-shadow:0 0 16px rgba(62,216,195,.45);}
 .wifi-app .tab:hover{color:#FFFFFF;}
 .wifi-app .tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:8px;background:var(--red);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;}
+/* Regroupement desktop : onglets « groupe » + 2e barre de sous-onglets */
+.wifi-app .tabs-desktop.subtabs{margin-top:-16px;margin-bottom:20px;border-bottom:none;padding-left:2px;}
+.wifi-app .tabs-desktop.subtabs .tab{font-size:12.5px;font-weight:700;padding:7px 11px;color:#A7B7C8;}
+.wifi-app .tabs-desktop.subtabs .tab.active{color:var(--cyan);}
 /* --- Menu Export (Excel / PDF) --- */
 .wifi-app .export-menu-wrap{position:relative;display:inline-flex;}
 .wifi-app .export-backdrop{position:fixed;inset:0;z-index:40;}
