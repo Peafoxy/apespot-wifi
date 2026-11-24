@@ -852,6 +852,9 @@ async function generateBilanCompletPDF(bc) {
   const LINE = [226, 230, 235], ZEBRA = [244, 246, 248], HEAD = [244, 246, 248];
   const newPage = () => { doc.addPage(); y = 18; };
   const ensure = (h) => { if (y + h > bottomLimit) newPage(); };
+  // Filet de sécurité : retire emojis / flèches / caractères non gérés par la
+  // police du PDF (ils s'affichent sinon en charabia type « Ø=Üá »).
+  const clean = (s) => String(s == null ? "" : s).replace(/[^\x00-\xFF]/g, "").replace(/[ \t]+/g, " ").trim();
 
   y = 18;
   doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(18);
@@ -943,21 +946,21 @@ async function generateBilanCompletPDF(bc) {
   sectionTitle(`Paiements détaillés (${bc.nbPaiements})`);
   const payCols = [{ w: 0.15, header: "Date" }, { w: 0.32, header: "Client" }, { w: 0.20, header: "Mode" }, { w: 0.18, header: "Montant", align: "right" }, { w: 0.15, header: "Note" }];
   if (bc.paiements.length === 0) table(payCols, [[{ t: "Aucun paiement.", color: MUTE }, { t: "" }, { t: "" }, { t: "" }, { t: "" }]]);
-  else table(payCols, bc.paiements.map((p) => [{ t: fmtDate(p.date) }, { t: p.clientNom || "-" }, { t: p.mode || "-" }, { t: fmtFCFAForPdf(p.montant), align: "right" }, { t: p.note || "-" }]),
+  else table(payCols, bc.paiements.map((p) => [{ t: fmtDate(p.date) }, { t: clean(p.clientNom) || "-" }, { t: clean(p.mode) || "-" }, { t: fmtFCFAForPdf(p.montant), align: "right" }, { t: clean(p.note) || "-" }]),
     { totalRow: [{ t: "Total" }, { t: "" }, { t: "" }, { t: fmtFCFAForPdf(bc.recettes), align: "right" }, { t: "" }] });
 
   // Dépenses détaillées
   sectionTitle(`Dépenses détaillées`);
   const depCols = [{ w: 0.15, header: "Date" }, { w: 0.60, header: "Poste" }, { w: 0.25, header: "Montant", align: "right" }];
   if (bc.depenses.detail.length === 0) table(depCols, [[{ t: "Aucune dépense.", color: MUTE }, { t: "" }, { t: "" }]]);
-  else table(depCols, bc.depenses.detail.map((d) => [{ t: d.date ? fmtDate(d.date) : "-" }, { t: d.label }, { t: "- " + fmtFCFAForPdf(d.montant), color: RED, align: "right" }]),
+  else table(depCols, bc.depenses.detail.map((d) => [{ t: d.date ? fmtDate(d.date) : "-" }, { t: clean(d.label) }, { t: "- " + fmtFCFAForPdf(d.montant), color: RED, align: "right" }]),
     { totalRow: [{ t: "Total dépenses" }, { t: "" }, { t: fmtFCFAForPdf(bc.depenses.total), align: "right" }] });
 
   // Clients expirés
   sectionTitle(`Clients expirés (${bc.clients.nbExpire})`);
   const expCols = [{ w: 0.45, header: "Client" }, { w: 0.35, header: "Offre" }, { w: 0.20, header: "Expiré le", align: "right" }];
   if (bc.clients.expiredList.length === 0) table(expCols, [[{ t: "Aucun client expiré.", color: GREEN }, { t: "" }, { t: "" }]]);
-  else table(expCols, bc.clients.expiredList.map((c) => [{ t: c.nom || "-" }, { t: c.offre || "-" }, { t: c.dateExp ? fmtDate(c.dateExp) : "-", align: "right" }]));
+  else table(expCols, bc.clients.expiredList.map((c) => [{ t: clean(c.nom) || "-" }, { t: clean(c.offre) || "-" }, { t: c.dateExp ? fmtDate(c.dateExp) : "-", align: "right" }]));
 
   const pages = doc.internal.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {
@@ -5130,15 +5133,17 @@ export default function AlerteClientWifi() {
 
     // --- Dépenses détaillées de la portée ---
     const sum = (arr) => arr.reduce((s, x) => s + (Number(x.montant) || 0), 0);
+    // Libellés SANS emoji ni « → » : la police du PDF ne les affiche pas (charabia).
+    // L'icône est ajoutée seulement à l'écran via le champ `cat`.
     const fuelList = fuelExpenses.filter((f) => f.approvalStatus === "approved" && f.status === "paye" && inScope(f.createdAt))
-      .map((f) => ({ label: `🚗 ${f.technicienNom || "Technicien"}${f.clientNom ? ` → ${f.clientNom}` : ""}`, montant: Number(f.montant) || 0, date: (f.createdAt || "").slice(0, 10) }));
+      .map((f) => ({ cat: "fuel", label: `${f.technicienNom || "Technicien"}${f.clientNom ? ` -> ${f.clientNom}` : ""}`, montant: Number(f.montant) || 0, date: (f.createdAt || "").slice(0, 10) }));
     const perdiemList = perdiemExpenses.filter((p) => p.approvalStatus === "approved" && p.status === "paye" && inScope(p.createdAt))
-      .map((p) => ({ label: `💰 ${p.personneNom || "—"}${p.note ? ` · ${p.note}` : ""}`, montant: Number(p.montant) || 0, date: (p.createdAt || "").slice(0, 10) }));
+      .map((p) => ({ cat: "perdiem", label: `${p.personneNom || "-"}${p.note ? ` · ${p.note}` : ""}`, montant: Number(p.montant) || 0, date: (p.createdAt || "").slice(0, 10) }));
     const autresList = otherExpenses.filter((o) => o.approvalStatus === "approved" && inScope(o.createdAt))
-      .map((o) => ({ label: `📦 ${o.description || "Autre dépense"}`, montant: Number(o.montant) || 0, date: (o.createdAt || "").slice(0, 10) }));
+      .map((o) => ({ cat: "autres", label: `${o.description || "Autre dépense"}`, montant: Number(o.montant) || 0, date: (o.createdAt || "").slice(0, 10) }));
     const lignesList = (courante
-      ? expenseLines.filter((l) => l.paidActionAt && apresDepuis(l.paidActionAt)).map((l) => ({ label: `📡 ${l.nom}`, montant: Number(l.montant) || 0, date: (l.paidActionAt || "").slice(0, 10) }))
-      : expenseLines.filter((l) => l.lastPaidMonth === mois).map((l) => ({ label: `📡 ${l.nom}`, montant: Number(l.montant) || 0, date: l.lastPaidMonth })));
+      ? expenseLines.filter((l) => l.paidActionAt && apresDepuis(l.paidActionAt)).map((l) => ({ cat: "lignes", label: `${l.nom}`, montant: Number(l.montant) || 0, date: (l.paidActionAt || "").slice(0, 10) }))
+      : expenseLines.filter((l) => l.lastPaidMonth === mois).map((l) => ({ cat: "lignes", label: `${l.nom}`, montant: Number(l.montant) || 0, date: l.lastPaidMonth })));
     const fuelTotal = sum(fuelList), perdiemTotal = sum(perdiemList), autresTotal = sum(autresList), lignesTotal = sum(lignesList);
     const depensesTotal = fuelTotal + perdiemTotal + autresTotal + lignesTotal;
     const depensesDetail = [...fuelList, ...perdiemList, ...lignesList, ...autresList].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -7878,7 +7883,7 @@ export default function AlerteClientWifi() {
             {bilanComplet.depenses.detail.length === 0 && <div className="empty">Aucune dépense sur cette période.</div>}
             {bilanComplet.depenses.detail.slice(0, 100).map((d, i) => (
               <div key={i} className="rah-item">
-                <span>{d.date ? fmtDate(d.date) : "—"} · {d.label}</span>
+                <span>{d.date ? fmtDate(d.date) : "—"} · {({ fuel: "🚗", perdiem: "💰", lignes: "📡", autres: "📦" }[d.cat] || "")} {d.label}</span>
                 <span className="rah-amount" style={{ color: "var(--red)" }}>− {fmtFCFA(d.montant)}</span>
               </div>
             ))}
