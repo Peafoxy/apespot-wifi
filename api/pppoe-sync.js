@@ -31,7 +31,7 @@ const MS_3_MOIS = 90 * 24 * 60 * 60 * 1000;
 // Le client garde sa matinée, puis il est coupé à partir de cette heure, en
 // pleine journée, pour venir se réabonner aux heures d'ouverture.
 // Ex. 13 = 13h00. Change juste ce nombre pour avancer/reculer la coupure.
-const HEURE_COUPURE = 14;
+const HEURE_COUPURE = 13;
 
 // "SERVEUR V6" / "serveur v6" / "V6" -> "V6" ; "SERVEUR H2" / "H2" -> "H2".
 function normServeur(s) {
