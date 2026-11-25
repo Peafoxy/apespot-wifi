@@ -27,6 +27,12 @@ import { SUPABASE_URL, sbHeaders, envError } from "./_lib.js";
 
 const MS_3_MOIS = 90 * 24 * 60 * 60 * 1000;
 
+// Heure de coupure du JOUR d'expiration (heure de Lomé = UTC+0 toute l'année).
+// Le client garde sa matinée, puis il est coupé à partir de cette heure, en
+// pleine journée, pour venir se réabonner aux heures d'ouverture.
+// Ex. 13 = 13h00. Change juste ce nombre pour avancer/reculer la coupure.
+const HEURE_COUPURE = 13;
+
 // "SERVEUR V6" / "serveur v6" / "V6" -> "V6" ; "SERVEUR H2" / "H2" -> "H2".
 function normServeur(s) {
   return String(s || "").toUpperCase().replace(/SERVEUR/g, "").replace(/[^A-Z0-9]/g, "");
@@ -70,6 +76,8 @@ export default async (req, res) => {
     const clients = await upstream.json();
 
     const nowMs = Date.now();
+    // Heure actuelle de Lomé (Togo = UTC+0, donc l'heure UTC du serveur convient).
+    const heureLome = new Date().getUTCHours();
     const vus = new Set();
     const lignes = [];
     for (const c of clients) {
@@ -87,7 +95,13 @@ export default async (req, res) => {
       }
       const j = joursAvant(c.date_exp);
       if (j === null) continue;                            // pas de date -> on ne touche pas
-      lignes.push(`${j <= 0 ? "D" : "E"} ${login}`);
+      // Coupure :
+      //   - date déjà dépassée (j < 0)                 -> coupé
+      //   - jour J (j === 0) AVANT l'heure de coupure  -> encore actif (matinée)
+      //   - jour J (j === 0) À PARTIR de l'heure       -> coupé (en pleine journée)
+      // Ex. expiration le 25 : actif jusqu'à 13h le 25, puis coupé dans la journée.
+      const couper = j < 0 || (j === 0 && heureLome >= HEURE_COUPURE);
+      lignes.push(`${couper ? "D" : "E"} ${login}`);
     }
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
