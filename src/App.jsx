@@ -4171,6 +4171,72 @@ export default function AlerteClientWifi() {
     return [...set].sort();
   }, [clients]);
 
+  // ---- Diffusion (campagnes WhatsApp) — admin principal ----
+  const CIBLE_LABEL = { tous: "Tous les clients", expires: "Clients expirés", bientot: "Expire bientôt (0-4j)", ajour: "Clients à jour", zone: "Zone" };
+  const [diffusionForm, setDiffusionForm] = useState({ message: "", cible: "expires", zone: "", inclureNom: true });
+  const [busyDiffusion, setBusyDiffusion] = useState(false);
+  const [diffusions, setDiffusions] = useState([]);
+  const normServ = (s) => String(s || "").toUpperCase().replace(/SERVEUR/g, "").replace(/[^A-Z0-9]/g, "");
+  const diffusionCount = useMemo(() => {
+    const hasPhone = (c) => String(c.telephone || "").replace(/\D/g, "").length >= 8;
+    let list = enrichedClients.filter(hasPhone);
+    const f = diffusionForm.cible;
+    if (f === "expires") list = list.filter((c) => c.statut === "EXPIRE");
+    else if (f === "bientot") list = list.filter((c) => c.statut === "ATTENTION");
+    else if (f === "ajour") list = list.filter((c) => c.statut === "ATTENTION" || c.statut === "OK");
+    else if (f === "zone") list = list.filter((c) => normServ(c.serveur) === normServ(diffusionForm.zone));
+    return list.length;
+  }, [enrichedClients, diffusionForm]);
+  const fetchDiffusions = useCallback(async () => {
+    if (!SUPABASE_CONFIGURED) { setDiffusions([]); return; }
+    try {
+      const data = await sbFetch("wifi_diffusions?select=*&order=created_at.desc&limit=8");
+      setDiffusions(data || []);
+    } catch (e) { console.error(e); }
+  }, []);
+  useEffect(() => { if (tab === "diffusion") fetchDiffusions(); }, [tab, fetchDiffusions]);
+  const sendDiffusion = async () => {
+    if (busyDiffusion) return;
+    if (!isPrincipalAdmin) { showToast("Réservé à l'admin principal."); return; }
+    const msg = diffusionForm.message.trim();
+    if (!msg) { showToast("Écris d'abord ton message."); return; }
+    if (diffusionForm.cible === "zone" && !diffusionForm.zone) { showToast("Choisis une zone."); return; }
+    if (!SUPABASE_CONFIGURED) { showToast("Disponible en production uniquement."); return; }
+    const cibleTxt = diffusionForm.cible === "zone" ? `la zone ${diffusionForm.zone}` : (CIBLE_LABEL[diffusionForm.cible] || "").toLowerCase();
+    if (!window.confirm(`Envoyer ce message à ${diffusionCount} client(s) (${cibleTxt}) ?\n\nL'envoi se fait progressivement par le robot WhatsApp (avec des pauses).`)) return;
+    setBusyDiffusion(true);
+    try {
+      await sbFetch("wifi_diffusions", {
+        method: "POST",
+        body: JSON.stringify({
+          message: msg,
+          cible: diffusionForm.cible,
+          zone: diffusionForm.cible === "zone" ? diffusionForm.zone : null,
+          inclure_nom: diffusionForm.inclureNom,
+          statut: "active",
+          total: diffusionCount,
+          cree_par: authUser?.nom || null,
+        }),
+      });
+      showToast("Diffusion programmée ✓ Le robot l'envoie dans les 2 min.");
+      setDiffusionForm((f) => ({ ...f, message: "" }));
+      await fetchDiffusions();
+    } catch (e) {
+      showToast("Erreur : " + e.message);
+    } finally {
+      setBusyDiffusion(false);
+    }
+  };
+  const cancelDiffusion = async (id) => {
+    if (!isPrincipalAdmin) return;
+    if (!window.confirm("Arrêter cette diffusion ? Les messages déjà envoyés restent envoyés ; le reste ne partira pas.")) return;
+    try {
+      await sbFetch(`wifi_diffusions?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ statut: "annule" }) });
+      await fetchDiffusions();
+      showToast("Diffusion arrêtée.");
+    } catch (e) { showToast("Erreur : " + e.message); }
+  };
+
   const visibleClients = useMemo(() => {
     let rows = enrichedClients;
     if (filter !== "ALL") rows = rows.filter((c) => c.statut === filter);
@@ -4367,6 +4433,7 @@ export default function AlerteClientWifi() {
     if (tab === "notify" && !isPrincipalAdmin) setTab("dashboard");
     if (tab === "historique" && !isPrincipalAdmin) setTab("dashboard");
     if (tab === "bilan" && !isPrincipalAdmin) setTab("dashboard");
+    if (tab === "diffusion" && !isPrincipalAdmin) setTab("dashboard");
   }, [tab, isPrincipalAdmin]);
   const canModifyEntry = (createdAt) => isPrincipalAdmin || (createdAt && Date.now() - new Date(createdAt).getTime() < 24 * 60 * 60 * 1000);
   const RENEW_COOLDOWN_MS = 60 * 60 * 1000; // 1h avant de pouvoir réabonner à nouveau (sauf admin principal)
@@ -6639,6 +6706,7 @@ export default function AlerteClientWifi() {
           ...(isPrincipalAdmin ? [{ key: "bilan", label: "Bilan", badge: 0 }] : []),
           ...(isPrincipalAdmin ? [{ key: "notify", label: "Notifications", badge: 0 }] : []),
           ...(isPrincipalAdmin ? [{ key: "historique", label: "Historique", badge: 0 }] : []),
+          ...(isPrincipalAdmin ? [{ key: "diffusion", label: "Diffusion", badge: 0 }] : []),
         ];
         const goTab = (t) => { setTab(t.key); if (t.onSelect) t.onSelect(); setDrawerOpen(false); setOpenGroup(null); };
         const current = tabDefs.find((t) => t.key === tab);
@@ -6652,7 +6720,7 @@ export default function AlerteClientWifi() {
         const groups = [
           { key: "g_support", label: "Support", members: ["complaints", "messages", "tickets"] },
           { key: "g_finances", label: "Finances", members: ["fuel", "caisse", "bilan"] },
-          { key: "g_gestion", label: "Gestion", members: ["users", "money", "notify", "historique"] },
+          { key: "g_gestion", label: "Gestion", members: ["users", "money", "notify", "historique", "diffusion"] },
         ];
         const groupMembers = (g) => g.members.map((k) => byKey[k]).filter(Boolean);
         const groupBadge = (g) => groupMembers(g).reduce((s, t) => s + (t.badge || 0), 0);
@@ -8121,6 +8189,81 @@ export default function AlerteClientWifi() {
               {busyBroadcast ? "Envoi..." : "Envoyer à tous"}
             </button>
           </div>
+        </div>
+      )}
+
+      {tab === "diffusion" && isPrincipalAdmin && (
+        <div className="view active">
+          <div className="chart-card">
+            <div className="ctitle">DIFFUSION — MESSAGE WHATSAPP AUX CLIENTS</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginBottom: 14, lineHeight: 1.5 }}>
+              Écris un message et choisis à qui l'envoyer. Le robot WhatsApp l'enverra <b>progressivement</b> (avec des pauses) pour éviter tout blocage.
+              ⚠️ Évite d'envoyer trop souvent à « Tous » : WhatsApp peut bloquer le numéro en cas de spam.
+            </div>
+            <div className="field">
+              <label>Cible</label>
+              <select value={diffusionForm.cible} onChange={(e) => setDiffusionForm({ ...diffusionForm, cible: e.target.value })}>
+                <option value="tous">Tous les clients</option>
+                <option value="expires">Clients expirés</option>
+                <option value="bientot">Expire bientôt (0-4 jours)</option>
+                <option value="ajour">Clients à jour</option>
+                <option value="zone">Par zone</option>
+              </select>
+            </div>
+            {diffusionForm.cible === "zone" && (
+              <div className="field">
+                <label>Zone (serveur)</label>
+                <select value={diffusionForm.zone} onChange={(e) => setDiffusionForm({ ...diffusionForm, zone: e.target.value })}>
+                  <option value="">— Choisir une zone —</option>
+                  {availableServers.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="field">
+              <label>Message</label>
+              <textarea rows={5} placeholder="Ex: Cher client, pensez à renouveler votre abonnement WiFi APESPOT. Merci de votre confiance !" value={diffusionForm.message} onChange={(e) => setDiffusionForm({ ...diffusionForm, message: e.target.value })} />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14, cursor: "pointer" }}>
+              <input type="checkbox" checked={diffusionForm.inclureNom} onChange={(e) => setDiffusionForm({ ...diffusionForm, inclureNom: e.target.checked })} />
+              Commencer par le nom du client (ex. « Bonjour KOUWODO »)
+            </label>
+            <div style={{ fontSize: 13, color: "var(--cyan)", marginBottom: 12, fontWeight: 600 }}>
+              {diffusionCount} client(s) recevront ce message.
+            </div>
+            <button className="btn-add" disabled={busyDiffusion || !diffusionForm.message.trim() || diffusionCount === 0 || (diffusionForm.cible === "zone" && !diffusionForm.zone)} onClick={sendDiffusion}>
+              {busyDiffusion ? "Envoi en cours..." : `Envoyer à ${diffusionCount} client(s)`}
+            </button>
+          </div>
+
+          {diffusions.length > 0 && (
+            <div className="chart-card" style={{ marginTop: 16 }}>
+              <div className="ctitle">DIFFUSIONS RÉCENTES</div>
+              {diffusions.map((d) => {
+                const pct = d.total ? Math.round(((d.envoyes || 0) / d.total) * 100) : 0;
+                const statutTxt = d.statut === "active" ? "En cours" : d.statut === "termine" ? "Terminé" : "Arrêté";
+                const statutColor = d.statut === "active" ? "var(--cyan)" : d.statut === "termine" ? "var(--green)" : "var(--text-dim)";
+                return (
+                  <div key={d.id} style={{ borderTop: "1px solid var(--line)", padding: "10px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>
+                        {CIBLE_LABEL[d.cible] || d.cible}{d.cible === "zone" && d.zone ? ` (${d.zone})` : ""}
+                      </div>
+                      <div style={{ fontSize: 12, color: statutColor, fontWeight: 600 }}>{statutTxt}</div>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-dim)", margin: "4px 0" }}>
+                      {d.envoyes || 0}/{d.total ?? "?"} envoyés{d.total ? ` (${pct}%)` : ""} · par {d.cree_par || "—"}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--text)", whiteSpace: "pre-wrap", opacity: 0.85 }}>
+                      {(d.message || "").slice(0, 120)}{(d.message || "").length > 120 ? "…" : ""}
+                    </div>
+                    {d.statut === "active" && (
+                      <button className="btn-cancel" style={{ marginTop: 8, padding: "4px 14px", fontSize: 12 }} onClick={() => cancelDiffusion(d.id)}>Arrêter</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
