@@ -621,7 +621,12 @@ async function generateReceiptPDF(payment) {
     ["Date", fmtDate(payment.date)],
   ];
   if (payment.newExpiration) rows.push(["Abonnement valable jusqu'au", fmtDate(payment.newExpiration)]);
-  if (payment.note) rows.push(["Référence", payment.note]);
+  if (payment.note) {
+    // Reçu CLIENT : on retire le « par <nom> » (info interne de traçabilité).
+    // Ex. « Réactivation via WhatsApp par TIMO » -> « Réactivation via WhatsApp ».
+    const refPublique = String(payment.note).replace(/\s+par\s+.+$/i, "").trim();
+    if (refPublique) rows.push(["Référence", refPublique]);
+  }
   rows.push(["N° de reçu", payment.id ? payment.id.slice(0, 8).toUpperCase() : "—"]);
 
   const rowH = 11;
