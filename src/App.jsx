@@ -4045,6 +4045,7 @@ export default function AlerteClientWifi() {
   const [deleteClientModal, setDeleteClientModal] = useState(null); // null | { client, code, input }
   const [expenseLineModal, setExpenseLineModal] = useState(null); // null | { editingId, nom, montant, dateExp, note }
   const [renewConfirmModal, setRenewConfirmModal] = useState(null); // null | { client, previewDate }
+  const [robotOfflineModal, setRobotOfflineModal] = useState(null); // null | { nom, phone, message, outboxId }
   const [bonusStep, setBonusStep] = useState(null); // null | "unit" | { unit }
   const [broadcastModal, setBroadcastModal] = useState({ title: "APESPOT WI-FI", body: "" });
   const [busyBroadcast, setBusyBroadcast] = useState(false);
@@ -4791,22 +4792,38 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // Vérifie si le robot a donné signe de vie récemment (< 3 min). Le robot met à
+  // jour wifi_robot_status à chaque passage (toutes les minutes).
+  const verifierRobotEnLigne = async () => {
+    if (!SUPABASE_CONFIGURED) return true;
+    try {
+      const data = await sbFetch("wifi_robot_status?select=last_seen&limit=1");
+      const last = data && data[0] && data[0].last_seen;
+      if (!last) return false;
+      return (Date.now() - new Date(last).getTime()) < 3 * 60 * 1000;
+    } catch (e) { return true; } // erreur de lecture : on ne bloque pas l'envoi
+  };
+
   // Envoie un message à UN client VIA LE ROBOT (file d'attente wifi_outbox) :
   // l'app n'ouvre plus WhatsApp sur le téléphone/PC — le robot l'envoie tout seul.
+  // Renvoie { ok, robotOnline, outboxId, phone, message } pour que l'appelant
+  // puisse proposer un envoi manuel si le robot est injoignable.
   const envoyerViaRobot = async ({ telephone, nom, message, contexte }) => {
     const phone = normalizePhone(telephone);
-    if (!phone) { showToast("Aucun numéro WhatsApp — message non envoyé."); return false; }
-    if (!SUPABASE_CONFIGURED) { showToast("Mode démo : le robot enverrait ce message."); return false; }
+    if (!phone) { showToast("Aucun numéro WhatsApp — message non envoyé."); return { ok: false }; }
+    if (!SUPABASE_CONFIGURED) { showToast("Mode démo : le robot enverrait ce message."); return { ok: false }; }
     try {
-      await sbFetch("wifi_outbox", {
+      const inserted = await sbFetch("wifi_outbox", {
         method: "POST",
         body: JSON.stringify({ telephone: phone, nom: nom || null, message, contexte: contexte || null, cree_par: authUser?.nom || null }),
       });
-      return true;
+      const outboxId = inserted && inserted[0] && inserted[0].id;
+      const robotOnline = await verifierRobotEnLigne();
+      return { ok: true, robotOnline, outboxId, phone, message };
     } catch (e) {
       console.error(e);
       showToast("Erreur : le message n'a pas pu être mis en file.");
-      return false;
+      return { ok: false };
     }
   };
 
@@ -4818,11 +4835,16 @@ export default function AlerteClientWifi() {
       return;
     }
     const msg = buildWaMessage(c);
-    const ok = await envoyerViaRobot({ telephone: phone, nom: c.nom, message: msg, contexte: "relance" });
-    if (ok) {
-      showToast(`Relance programmée pour ${c.nom} — le robot l'envoie automatiquement.`);
+    const res = await envoyerViaRobot({ telephone: phone, nom: c.nom, message: msg, contexte: "relance" });
+    if (res.ok) {
       // On mémorise que le rappel de ce client est parti aujourd'hui.
       marquerRelance(c);
+      if (res.robotOnline) {
+        showToast(`Relance programmée pour ${c.nom} — le robot l'envoie automatiquement.`);
+      } else {
+        // Robot injoignable : on propose d'attendre ou d'envoyer manuellement.
+        setRobotOfflineModal({ nom: c.nom, phone, message: msg, outboxId: res.outboxId });
+      }
     }
   };
 
@@ -4843,8 +4865,10 @@ export default function AlerteClientWifi() {
       const phone = normalizePhone(client.telephone);
       if (phone) {
         const msg = `${greeting()} ${client.nom}\n\nBonne nouvelle ! Tu as reçu ${n} ${unitLabel} de bonus de la part de APESPOT WI-FI. 🎁\n\nTa nouvelle échéance : ${fmtDate(newDateExp)}.\n\nClick sur :\n\nhttps://apespot-wifi.vercel.app\n\nVas sur *client*\n\nTON CODE : ${client.accessCode || "(demande ton code à APESPOT WI-FI)"}\n\nAccède à ton espace pour payer ou soumettre une réclamation`;
-        const ok = await envoyerViaRobot({ telephone: phone, nom: client.nom, message: msg, contexte: "bonus" });
-        if (ok) showToast(`${client.nom} sera prévenu du bonus — le robot envoie le message automatiquement.`);
+        const res = await envoyerViaRobot({ telephone: phone, nom: client.nom, message: msg, contexte: "bonus" });
+        if (res.ok) showToast(res.robotOnline
+          ? `${client.nom} sera prévenu du bonus — le robot envoie le message automatiquement.`
+          : `Bonus appliqué · message en attente (le robot semble éteint — il partira dès son retour).`);
       } else {
         showToast("Aucun numéro WhatsApp enregistré — le bonus est appliqué mais le client n'a pas été prévenu.");
       }
@@ -8488,6 +8512,43 @@ export default function AlerteClientWifi() {
                 onClick={() => setRenewConfirmModal(null)}
               >
                 OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {robotOfflineModal && (
+        <div className="overlay show" style={{ zIndex: 70 }} onClick={(e) => e.target.classList.contains("overlay") && setRobotOfflineModal(null)}>
+          <div className="modal">
+            <h2>⚠️ Robot injoignable</h2>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, marginBottom: 16 }}>
+              Le message pour <strong>{robotOfflineModal.nom}</strong> est <strong>en file d'attente</strong>, mais le robot ne répond pas en ce moment.
+              <br /><br />
+              Tu peux <strong>attendre</strong> quelques instants — il partira tout seul dès que le robot sera rallumé — ou l'<strong>envoyer toi-même</strong> maintenant par WhatsApp.
+            </div>
+            <div className="modal-actions" style={{ flexDirection: "column", gap: 8 }}>
+              <button
+                className="btn-save"
+                style={{ width: "100%" }}
+                onClick={async () => {
+                  const m = robotOfflineModal;
+                  setRobotOfflineModal(null);
+                  // On retire le message de la file pour éviter un doublon quand le robot revient.
+                  if (m.outboxId && SUPABASE_CONFIGURED) {
+                    try { await sbFetch(`wifi_outbox?id=eq.${m.outboxId}`, { method: "DELETE" }); } catch (e) { console.error(e); }
+                  }
+                  ouvrirWhatsApp(`https://wa.me/${m.phone}?text=${encodeURIComponent(m.message)}`);
+                }}
+              >
+                Ouvrir WhatsApp maintenant
+              </button>
+              <button
+                className="btn-cancel"
+                style={{ width: "100%" }}
+                onClick={() => setRobotOfflineModal(null)}
+              >
+                OK, j'attends le robot
               </button>
             </div>
           </div>
