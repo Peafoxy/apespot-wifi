@@ -8475,16 +8475,17 @@ export default function AlerteClientWifi() {
             <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Réabonné "{renewConfirmModal.nom}"</h2>
             <div className="renew-confirm-box">
               Paiement enregistré · nouvelle échéance : <strong>{fmtDate(renewConfirmModal.previewDate)}</strong>
+              <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.45 }}>
+                {normalizePhone(renewConfirmModal.client?.telephone)
+                  ? "✅ Le client est prévenu automatiquement par WhatsApp — le robot envoie la confirmation. Tu n'as rien à faire."
+                  : "⚠️ Ce client n'a pas de numéro WhatsApp : il n'a pas pu être prévenu."}
+              </div>
             </div>
             <div className="modal-actions">
               <button
                 className="btn-save"
                 style={{ width: "100%" }}
-                onClick={() => {
-                  const { client } = renewConfirmModal;
-                  setRenewConfirmModal(null);
-                  if (client) sendWhatsApp(client);
-                }}
+                onClick={() => setRenewConfirmModal(null)}
               >
                 OK
               </button>
