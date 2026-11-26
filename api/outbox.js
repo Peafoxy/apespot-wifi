@@ -35,6 +35,15 @@ export default async (req, res) => {
   const cle = (req.query && req.query.cle) || "";
   if (cle !== CLE_ROBOT) { res.status(401).json({ ok: false, error: "Non autorisé." }); return; }
 
+  // Battement de coeur : le robot prouve qu'il est en vie a chaque passage
+  // (toutes les minutes). L'app lit cette date pour savoir si le robot tourne,
+  // et proposer un envoi manuel s'il est injoignable. Fire-and-forget.
+  fetch(`${SUPABASE_URL}/rest/v1/wifi_robot_status?on_conflict=id`, {
+    method: "POST",
+    headers: sbHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify({ id: "robot", last_seen: new Date().toISOString() }),
+  }).catch(() => {});
+
   // -------- POST : marquer des messages comme envoyés --------
   if (req.method === "POST") {
     let body = req.body;
