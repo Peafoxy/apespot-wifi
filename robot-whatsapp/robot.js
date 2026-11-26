@@ -100,7 +100,7 @@ client.on("authenticated", () => log("WhatsApp authentifié ✓"));
 client.on("auth_failure", (m) => log("Échec d'authentification :", m));
 
 client.on("ready", () => {
-  log("Robot connecté et prêt ✓  [VERSION 6 : contrôles équipe toutes les 5 min (économie Supabase)]");
+  log("Robot connecté et prêt ✓  [VERSION 7 : diffusions/campagnes activées (vérifiées toutes les 2 min)]");
   log(`Rappels clients : à ${HEURES.map((h) => h + "h").join(", ")} (heure de Lomé). Un client déjà relancé n'est pas renotifié.`);
   log(`Alertes équipe : vérifiées toutes les ${ALERTE_INTERVALLE_MIN} min.`);
   log(`Commandes (VALIDER/REJETER/REACTIVER/OUI) : lues toutes les ${Math.round(SONDAGE_MS / 1000)} s.`);
@@ -123,12 +123,17 @@ client.on("ready", () => {
   cron.schedule(`*/${ALERTE_INTERVALLE_MIN} * * * *`, () => {
     envoyerValidations().catch((e) => log("Erreur validations :", e.message));
   });
+  // 4) Diffusions (campagnes) composées dans l'app : vérifiées toutes les 2 min.
+  cron.schedule("*/2 * * * *", () => {
+    envoyerDiffusions().catch((e) => log("Erreur diffusion :", e.message));
+  });
   // Option de test : « npm run test-envoi » lance tout de suite.
   if (process.argv.includes("--maintenant")) {
     log("Option --maintenant : envoi immédiat (test).");
     envoyerRappels().catch((e) => log("Erreur pendant l'envoi :", e.message));
     envoyerAlertesEquipe().catch((e) => log("Erreur alertes équipe :", e.message));
     envoyerValidations().catch((e) => log("Erreur validations :", e.message));
+    envoyerDiffusions().catch((e) => log("Erreur diffusion :", e.message));
   }
 });
 
@@ -510,6 +515,78 @@ async function marquerRelance(ids) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids }),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+}
+
+// DIFFUSION (campagne) : l'admin principal a composé un message dans l'app pour
+// une cible (tous / expirés / expire bientôt / à jour / par zone). On récupère
+// les destinataires PAR LOTS et on envoie, avec pauses (anti-blocage WhatsApp).
+// On continue lot après lot jusqu'à épuisement. Verrou pour ne pas lancer deux
+// diffusions en parallèle.
+let diffusionEnCours = false;
+async function envoyerDiffusions() {
+  if (diffusionEnCours) return;
+  diffusionEnCours = true;
+  try {
+    while (true) {
+      let data;
+      try {
+        const res = await fetch(`${APP_URL}/api/diffusion?cle=${encodeURIComponent(CLE)}`);
+        data = await res.json();
+        if (!data.ok) throw new Error(data.error || "réponse invalide du serveur");
+      } catch (e) {
+        log("Diffusion : liste indisponible :", e.message);
+        return;
+      }
+      const clients = data.clients || [];
+      if (!data.diffusionId || clients.length === 0) return; // rien à diffuser
+      log(`Diffusion ${data.diffusionId} : lot de ${clients.length} (restants ~${data.total}).`);
+
+      let nbMarques = 0;
+      for (const c of clients) {
+        const chatId = `${c.telephone}@c.us`;
+        try {
+          const inscrit = await client.isRegisteredUser(chatId).catch(() => true);
+          if (!inscrit) {
+            // Pas sur WhatsApp : on le marque quand même « envoyé » pour cette
+            // campagne, sinon il serait renvoyé en boucle à chaque lot.
+            log(`✗ ${c.nom} (${c.telephone}) n'est pas sur WhatsApp — ignoré.`);
+            try { await marquerDiffusion(data.diffusionId, [c.id]); nbMarques++; } catch {}
+            await dodo(alea(DELAI_MIN, DELAI_MAX));
+            continue;
+          }
+          await client.sendMessage(chatId, c.message);
+          // Marquage immédiat (un par un) : si le robot est coupé juste après,
+          // ce client ne recevra pas le message deux fois.
+          try { await marquerDiffusion(data.diffusionId, [c.id]); nbMarques++; }
+          catch (e) { log(`⚠ ${c.nom} : envoyé mais marquage échoué (${e.message}) — risque de doublon.`); }
+          log(`✓ Diffusion envoyée à ${c.nom} (${c.telephone})`);
+        } catch (e) {
+          log(`✗ Diffusion échec pour ${c.nom} (${c.telephone}) :`, e.message);
+        }
+        await dodo(alea(DELAI_MIN, DELAI_MAX));
+      }
+
+      // Aucun progrès sur tout un lot (ni envoi ni marquage) : on arrête pour ne
+      // pas boucler indéfiniment (ex. serveur de marquage en panne).
+      if (nbMarques === 0) {
+        log("Diffusion : aucun progrès sur ce lot, arrêt (on reprendra plus tard).");
+        return;
+      }
+      // sinon : on repart chercher le lot suivant.
+    }
+  } finally {
+    diffusionEnCours = false;
+  }
+}
+
+// Confirme au serveur l'envoi de clients pour UNE campagne (reprise sûre).
+async function marquerDiffusion(id, ids) {
+  const r = await fetch(`${APP_URL}/api/diffusion?cle=${encodeURIComponent(CLE)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, ids }),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }
