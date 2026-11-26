@@ -100,7 +100,7 @@ client.on("authenticated", () => log("WhatsApp authentifié ✓"));
 client.on("auth_failure", (m) => log("Échec d'authentification :", m));
 
 client.on("ready", () => {
-  log("Robot connecté et prêt ✓  [VERSION 7 : diffusions/campagnes activées (vérifiées toutes les 2 min)]");
+  log("Robot connecté et prêt ✓  [VERSION 8 : diffusions + envois auto (relance/bonus/bienvenue/réabo) sans ouvrir WhatsApp]");
   log(`Rappels clients : à ${HEURES.map((h) => h + "h").join(", ")} (heure de Lomé). Un client déjà relancé n'est pas renotifié.`);
   log(`Alertes équipe : vérifiées toutes les ${ALERTE_INTERVALLE_MIN} min.`);
   log(`Commandes (VALIDER/REJETER/REACTIVER/OUI) : lues toutes les ${Math.round(SONDAGE_MS / 1000)} s.`);
@@ -127,6 +127,11 @@ client.on("ready", () => {
   cron.schedule("*/2 * * * *", () => {
     envoyerDiffusions().catch((e) => log("Erreur diffusion :", e.message));
   });
+  // 5) File d'envoi (relance, bonus, bienvenue, réabonnement) : toutes les minutes
+  //    pour un envoi quasi immédiat après l'action dans l'app.
+  cron.schedule("* * * * *", () => {
+    envoyerOutbox().catch((e) => log("Erreur outbox :", e.message));
+  });
   // Option de test : « npm run test-envoi » lance tout de suite.
   if (process.argv.includes("--maintenant")) {
     log("Option --maintenant : envoi immédiat (test).");
@@ -134,6 +139,7 @@ client.on("ready", () => {
     envoyerAlertesEquipe().catch((e) => log("Erreur alertes équipe :", e.message));
     envoyerValidations().catch((e) => log("Erreur validations :", e.message));
     envoyerDiffusions().catch((e) => log("Erreur diffusion :", e.message));
+    envoyerOutbox().catch((e) => log("Erreur outbox :", e.message));
   }
 });
 
@@ -587,6 +593,67 @@ async function marquerDiffusion(id, ids) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, ids }),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+}
+
+// FILE D'ENVOI (outbox) : messages transactionnels deposes par l'app (relance
+// d'un client, bonus offert, bienvenue, confirmation de reabonnement). Avant,
+// l'app ouvrait WhatsApp sur le telephone/PC pour les envoyer a la main ;
+// maintenant le robot les envoie automatiquement, avec pauses, lot apres lot
+// jusqu'a epuisement. Verrou anti-chevauchement.
+let outboxEnCours = false;
+async function envoyerOutbox() {
+  if (outboxEnCours) return;
+  outboxEnCours = true;
+  try {
+    while (true) {
+      let data;
+      try {
+        const res = await fetch(`${APP_URL}/api/outbox?cle=${encodeURIComponent(CLE)}`);
+        data = await res.json();
+        if (!data.ok) throw new Error(data.error || "reponse invalide du serveur");
+      } catch (e) {
+        log("Outbox : liste indisponible :", e.message);
+        return;
+      }
+      const messages = data.messages || [];
+      if (messages.length === 0) return;
+      log(`Outbox : ${messages.length} message(s) a envoyer.`);
+      let nbMarques = 0;
+      for (const m of messages) {
+        const chatId = `${m.telephone}@c.us`;
+        try {
+          const inscrit = await client.isRegisteredUser(chatId).catch(() => true);
+          if (!inscrit) {
+            log(`✗ ${m.nom} (${m.telephone}) n'est pas sur WhatsApp — ignore.`);
+            try { await marquerOutbox([m.id]); nbMarques++; } catch {}
+            await dodo(alea(DELAI_MIN, DELAI_MAX));
+            continue;
+          }
+          await client.sendMessage(chatId, m.message);
+          try { await marquerOutbox([m.id]); nbMarques++; }
+          catch (e) { log(`⚠ ${m.nom} : envoye mais marquage echoue (${e.message}).`); }
+          log(`✓ Message envoye a ${m.nom} (${m.telephone})`);
+        } catch (e) {
+          log(`✗ Outbox echec pour ${m.nom} (${m.telephone}) :`, e.message);
+        }
+        await dodo(alea(DELAI_MIN, DELAI_MAX));
+      }
+      if (nbMarques === 0) {
+        log("Outbox : aucun progres sur ce lot, arret (on reprendra plus tard).");
+        return;
+      }
+    }
+  } finally {
+    outboxEnCours = false;
+  }
+}
+async function marquerOutbox(ids) {
+  const r = await fetch(`${APP_URL}/api/outbox?cle=${encodeURIComponent(CLE)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }

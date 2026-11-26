@@ -4791,7 +4791,26 @@ export default function AlerteClientWifi() {
     }
   };
 
-  const sendWhatsApp = (c) => {
+  // Envoie un message à UN client VIA LE ROBOT (file d'attente wifi_outbox) :
+  // l'app n'ouvre plus WhatsApp sur le téléphone/PC — le robot l'envoie tout seul.
+  const envoyerViaRobot = async ({ telephone, nom, message, contexte }) => {
+    const phone = normalizePhone(telephone);
+    if (!phone) { showToast("Aucun numéro WhatsApp — message non envoyé."); return false; }
+    if (!SUPABASE_CONFIGURED) { showToast("Mode démo : le robot enverrait ce message."); return false; }
+    try {
+      await sbFetch("wifi_outbox", {
+        method: "POST",
+        body: JSON.stringify({ telephone: phone, nom: nom || null, message, contexte: contexte || null, cree_par: authUser?.nom || null }),
+      });
+      return true;
+    } catch (e) {
+      console.error(e);
+      showToast("Erreur : le message n'a pas pu être mis en file.");
+      return false;
+    }
+  };
+
+  const sendWhatsApp = async (c) => {
     const phone = normalizePhone(c.telephone);
     if (!phone) {
       showToast("Ajoute d'abord le numéro WhatsApp de ce client.");
@@ -4799,9 +4818,12 @@ export default function AlerteClientWifi() {
       return;
     }
     const msg = buildWaMessage(c);
-    ouvrirWhatsApp(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`);
-    // On mémorise que le rappel de ce client est parti aujourd'hui.
-    marquerRelance(c);
+    const ok = await envoyerViaRobot({ telephone: phone, nom: c.nom, message: msg, contexte: "relance" });
+    if (ok) {
+      showToast(`Relance programmée pour ${c.nom} — le robot l'envoie automatiquement.`);
+      // On mémorise que le rappel de ce client est parti aujourd'hui.
+      marquerRelance(c);
+    }
   };
 
   const applyBonus = async (client, unit, amountRaw) => {
@@ -4821,7 +4843,8 @@ export default function AlerteClientWifi() {
       const phone = normalizePhone(client.telephone);
       if (phone) {
         const msg = `${greeting()} ${client.nom}\n\nBonne nouvelle ! Tu as reçu ${n} ${unitLabel} de bonus de la part de APESPOT WI-FI. 🎁\n\nTa nouvelle échéance : ${fmtDate(newDateExp)}.\n\nClick sur :\n\nhttps://apespot-wifi.vercel.app\n\nVas sur *client*\n\nTON CODE : ${client.accessCode || "(demande ton code à APESPOT WI-FI)"}\n\nAccède à ton espace pour payer ou soumettre une réclamation`;
-        ouvrirWhatsApp(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`);
+        const ok = await envoyerViaRobot({ telephone: phone, nom: client.nom, message: msg, contexte: "bonus" });
+        if (ok) showToast(`${client.nom} sera prévenu du bonus — le robot envoie le message automatiquement.`);
       } else {
         showToast("Aucun numéro WhatsApp enregistré — le bonus est appliqué mais le client n'a pas été prévenu.");
       }
@@ -4854,11 +4877,27 @@ export default function AlerteClientWifi() {
     ].join("\n");
   };
 
-  const sendWelcomeWhatsApp = (c) => {
+  const sendWelcomeWhatsApp = async (c) => {
     const phone = normalizePhone(c.telephone);
     if (!phone) return;
     const msg = buildWelcomeMessage(c);
-    ouvrirWhatsApp(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`);
+    await envoyerViaRobot({ telephone: phone, nom: c.nom, message: msg, contexte: "bienvenue" });
+  };
+
+  // Message de confirmation envoyé automatiquement au client lors d'un réabonnement.
+  const buildRenewMessage = (c, newExp) => {
+    const codeLine = c.accessCode ? `TON CODE : ${c.accessCode}` : "(demande ton code à APESPOT WI-FI)";
+    return [
+      `${greeting()} ${c.nom}`,
+      ``,
+      `Votre abonnement WiFi APESPOT a été *réactivé* ✅`,
+      `Il est valable jusqu'au *${fmtDate(newExp)}*.`,
+      ``,
+      `Merci de votre confiance !`,
+      ``,
+      `Accède à ton espace : https://apespot-wifi.vercel.app`,
+      codeLine,
+    ].join("\n");
   };
 
   const renewClientSubscription = async (client) => {
@@ -5045,6 +5084,10 @@ export default function AlerteClientWifi() {
           if (SUPABASE_CONFIGURED) await updateClientRow(c.id, updated);
           setClients((cs) => cs.map((x) => (x.id === c.id ? updated : x)));
           setPaymentModal((pm) => (pm ? { ...pm, _prolonged: true } : pm));
+          // Confirmation automatique au client via le robot (plus besoin d'ouvrir WhatsApp).
+          if (normalizePhone(c.telephone)) {
+            envoyerViaRobot({ telephone: c.telephone, nom: c.nom, message: buildRenewMessage(c, newExpiration), contexte: "reabo" });
+          }
           if (_fromRenewal) {
             setRowActionsClient((rc) => (rc && rc.id === c.id ? updated : rc));
             setRenewConfirmModal({ nom: c.nom, previewDate: newExpiration, client: updated });
