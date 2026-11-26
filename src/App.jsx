@@ -4044,8 +4044,8 @@ export default function AlerteClientWifi() {
   const [userModal, setUserModal] = useState(null); // null | { editingId, nom, role, pin }
   const [deleteClientModal, setDeleteClientModal] = useState(null); // null | { client, code, input }
   const [expenseLineModal, setExpenseLineModal] = useState(null); // null | { editingId, nom, montant, dateExp, note }
-  const [renewConfirmModal, setRenewConfirmModal] = useState(null); // null | { client, previewDate }
   const [robotOfflineModal, setRobotOfflineModal] = useState(null); // null | { nom, phone, message, outboxId }
+  const [confirmWaModal, setConfirmWaModal] = useState(null); // null | { titre, nom, telephone, message, contexte, onAfter }
   const [bonusStep, setBonusStep] = useState(null); // null | "unit" | { unit }
   const [broadcastModal, setBroadcastModal] = useState({ title: "APESPOT WI-FI", body: "" });
   const [busyBroadcast, setBusyBroadcast] = useState(false);
@@ -4827,6 +4827,28 @@ export default function AlerteClientWifi() {
     }
   };
 
+  // Confirmation AVANT envoi : montre un aperçu du message et demande Envoyer/Annuler.
+  // Utilisé par tous les envois qui, avant, ouvraient WhatsApp (relance, bonus,
+  // bienvenue, réabonnement) et sont maintenant automatiques.
+  const demanderEnvoiWhatsApp = (opts) => {
+    if (!normalizePhone(opts.telephone)) { showToast("Aucun numéro WhatsApp pour ce client."); return; }
+    setConfirmWaModal(opts);
+  };
+  const confirmerEtEnvoyer = async () => {
+    const m = confirmWaModal;
+    setConfirmWaModal(null);
+    if (!m) return;
+    const res = await envoyerViaRobot({ telephone: m.telephone, nom: m.nom, message: m.message, contexte: m.contexte });
+    if (res.ok) {
+      if (m.onAfter) m.onAfter();
+      if (res.robotOnline) {
+        showToast(`Message programmé pour ${m.nom} — le robot l'envoie automatiquement.`);
+      } else {
+        setRobotOfflineModal({ nom: m.nom, phone: res.phone, message: m.message, outboxId: res.outboxId });
+      }
+    }
+  };
+
   const sendWhatsApp = async (c) => {
     const phone = normalizePhone(c.telephone);
     if (!phone) {
@@ -4865,10 +4887,7 @@ export default function AlerteClientWifi() {
       const phone = normalizePhone(client.telephone);
       if (phone) {
         const msg = `${greeting()} ${client.nom}\n\nBonne nouvelle ! Tu as reçu ${n} ${unitLabel} de bonus de la part de APESPOT WI-FI. 🎁\n\nTa nouvelle échéance : ${fmtDate(newDateExp)}.\n\nClick sur :\n\nhttps://apespot-wifi.vercel.app\n\nVas sur *client*\n\nTON CODE : ${client.accessCode || "(demande ton code à APESPOT WI-FI)"}\n\nAccède à ton espace pour payer ou soumettre une réclamation`;
-        const res = await envoyerViaRobot({ telephone: phone, nom: client.nom, message: msg, contexte: "bonus" });
-        if (res.ok) showToast(res.robotOnline
-          ? `${client.nom} sera prévenu du bonus — le robot envoie le message automatiquement.`
-          : `Bonus appliqué · message en attente (le robot semble éteint — il partira dès son retour).`);
+        demanderEnvoiWhatsApp({ titre: "Prévenir le client du bonus ?", nom: client.nom, telephone: phone, message: msg, contexte: "bonus" });
       } else {
         showToast("Aucun numéro WhatsApp enregistré — le bonus est appliqué mais le client n'a pas été prévenu.");
       }
@@ -4901,11 +4920,10 @@ export default function AlerteClientWifi() {
     ].join("\n");
   };
 
-  const sendWelcomeWhatsApp = async (c) => {
+  const sendWelcomeWhatsApp = (c) => {
     const phone = normalizePhone(c.telephone);
     if (!phone) return;
-    const msg = buildWelcomeMessage(c);
-    await envoyerViaRobot({ telephone: phone, nom: c.nom, message: msg, contexte: "bienvenue" });
+    demanderEnvoiWhatsApp({ titre: "Envoyer le message de bienvenue ?", nom: c.nom, telephone: phone, message: buildWelcomeMessage(c), contexte: "bienvenue" });
   };
 
   // Message de confirmation envoyé automatiquement au client lors d'un réabonnement.
@@ -5108,15 +5126,11 @@ export default function AlerteClientWifi() {
           if (SUPABASE_CONFIGURED) await updateClientRow(c.id, updated);
           setClients((cs) => cs.map((x) => (x.id === c.id ? updated : x)));
           setPaymentModal((pm) => (pm ? { ...pm, _prolonged: true } : pm));
-          // Confirmation automatique au client via le robot (plus besoin d'ouvrir WhatsApp).
+          if (_fromRenewal) setRowActionsClient((rc) => (rc && rc.id === c.id ? updated : rc));
+          showToast(_fromRenewal ? `"${c.nom}" réabonné · échéance ${fmtDate(newExpiration)}.` : "Paiement enregistré · abonnement WiFi prolongé.");
+          // Proposer de prévenir le client (confirmation avant envoi).
           if (normalizePhone(c.telephone)) {
-            envoyerViaRobot({ telephone: c.telephone, nom: c.nom, message: buildRenewMessage(c, newExpiration), contexte: "reabo" });
-          }
-          if (_fromRenewal) {
-            setRowActionsClient((rc) => (rc && rc.id === c.id ? updated : rc));
-            setRenewConfirmModal({ nom: c.nom, previewDate: newExpiration, client: updated });
-          } else {
-            showToast("Paiement enregistré · abonnement WiFi prolongé.");
+            demanderEnvoiWhatsApp({ titre: `Prévenir ${c.nom} du réabonnement ?`, nom: c.nom, telephone: c.telephone, message: buildRenewMessage(c, newExpiration), contexte: "reabo" });
           }
         } else {
           showToast("Paiement enregistré · client introuvable dans la liste WiFi.");
@@ -8493,26 +8507,19 @@ export default function AlerteClientWifi() {
         </div>
       )}
 
-      {renewConfirmModal && (
-        <div className="overlay show" style={{ zIndex: 60 }} onClick={(e) => e.target.classList.contains("overlay") && setRenewConfirmModal(null)}>
-          <div className="modal renew-confirm-modal">
-            <h2 style={{ color: "#FFFFFF", fontWeight: 700 }}>Réabonné "{renewConfirmModal.nom}"</h2>
-            <div className="renew-confirm-box">
-              Paiement enregistré · nouvelle échéance : <strong>{fmtDate(renewConfirmModal.previewDate)}</strong>
-              <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.45 }}>
-                {normalizePhone(renewConfirmModal.client?.telephone)
-                  ? "✅ Le client est prévenu automatiquement par WhatsApp — le robot envoie la confirmation. Tu n'as rien à faire."
-                  : "⚠️ Ce client n'a pas de numéro WhatsApp : il n'a pas pu être prévenu."}
-              </div>
+      {confirmWaModal && (
+        <div className="overlay show" style={{ zIndex: 65 }} onClick={(e) => e.target.classList.contains("overlay") && setConfirmWaModal(null)}>
+          <div className="modal">
+            <h2>{confirmWaModal.titre}</h2>
+            <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginBottom: 8 }}>
+              À : <strong>{confirmWaModal.nom}</strong> · le robot enverra ce message par WhatsApp.
+            </div>
+            <div style={{ background: "var(--bg-panel)", border: "1px solid var(--line)", borderRadius: 8, padding: 12, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 220, overflowY: "auto", marginBottom: 16 }}>
+              {confirmWaModal.message}
             </div>
             <div className="modal-actions">
-              <button
-                className="btn-save"
-                style={{ width: "100%" }}
-                onClick={() => setRenewConfirmModal(null)}
-              >
-                OK
-              </button>
+              <button className="btn-cancel" onClick={() => setConfirmWaModal(null)}>Annuler</button>
+              <button className="btn-save" onClick={confirmerEtEnvoyer}>Envoyer</button>
             </div>
           </div>
         </div>
@@ -8756,7 +8763,7 @@ export default function AlerteClientWifi() {
               })()}
             </div>
             <div className="row-actions-list">
-              <button className="row-action-btn wa" onClick={() => { const c = rowActionsClient; setRowActionsClient(null); sendWhatsApp(c); }}>
+              <button className="row-action-btn wa" onClick={() => { const c = rowActionsClient; setRowActionsClient(null); demanderEnvoiWhatsApp({ titre: "Envoyer la relance ?", nom: c.nom, telephone: c.telephone, message: buildWaMessage(c), contexte: "relance", onAfter: () => marquerRelance(c) }); }}>
                 <WhatsAppIcon />
                 Envoyer sur WhatsApp
               </button>
@@ -8882,7 +8889,7 @@ export default function AlerteClientWifi() {
             )}
             <div className="modal-actions">
               <button className="btn-cancel" onClick={bulkSkipCurrent} style={{ display: bulkIndex >= bulkQueue.length ? "none" : undefined }}>Passer</button>
-              <button className="btn-save" onClick={bulkSendCurrent} style={{ display: bulkIndex >= bulkQueue.length ? "none" : undefined }}>Ouvrir WhatsApp</button>
+              <button className="btn-save" onClick={bulkSendCurrent} style={{ display: bulkIndex >= bulkQueue.length ? "none" : undefined }}>Envoyer</button>
             </div>
             <button className="btn-cancel" style={{ width: "100%", marginTop: 10 }} onClick={closeBulk}>Fermer</button>
           </div>
