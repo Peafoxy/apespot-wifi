@@ -5344,8 +5344,8 @@ export default function AlerteClientWifi() {
     const autresList = otherExpenses.filter((o) => o.approvalStatus === "approved" && inScope(o.createdAt))
       .map((o) => ({ cat: "autres", label: `${o.description || "Autre dépense"}`, montant: Number(o.montant) || 0, date: (o.createdAt || "").slice(0, 10) }));
     const lignesList = (courante
-      ? expenseLines.filter((l) => l.paidActionAt && apresDepuis(l.paidActionAt)).map((l) => ({ cat: "lignes", label: `${l.nom}`, montant: Number(l.montant) || 0, date: (l.paidActionAt || "").slice(0, 10) }))
-      : expenseLines.filter((l) => l.lastPaidMonth === mois).map((l) => ({ cat: "lignes", label: `${l.nom}`, montant: Number(l.montant) || 0, date: l.lastPaidMonth })));
+      ? expenseLines.filter((l) => l.paidActionAt && apresDepuis(l.paidActionAt)).map((l) => ({ cat: "lignes", label: `${l.nom}${l.note ? " - " + l.note : ""}`, montant: Number(l.montant) || 0, date: (l.paidActionAt || "").slice(0, 10) }))
+      : expenseLines.filter((l) => l.lastPaidMonth === mois).map((l) => ({ cat: "lignes", label: `${l.nom}${l.note ? " - " + l.note : ""}`, montant: Number(l.montant) || 0, date: l.lastPaidMonth })));
     const fuelTotal = sum(fuelList), perdiemTotal = sum(perdiemList), autresTotal = sum(autresList), lignesTotal = sum(lignesList);
     const depensesTotal = fuelTotal + perdiemTotal + autresTotal + lignesTotal;
     const depensesDetail = [...fuelList, ...perdiemList, ...lignesList, ...autresList].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -9121,6 +9121,9 @@ const CSS = `
     radial-gradient(900px 900px at 50% 120%, rgba(62,216,195,.05), transparent 60%),
     linear-gradient(180deg,#0B111B 0%, var(--bg) 60%);
   color:var(--text); font-family:var(--sans); min-height:100vh; padding:28px 20px 60px;
+  /* Sur grand écran (PC), on centre le contenu et on limite la largeur : évite
+     que tout s'étale d'un bord à l'autre avec du vide. Sans effet sur mobile. */
+  max-width:1200px; margin-left:auto; margin-right:auto;
 }
 .wifi-app *{box-sizing:border-box;}
 .wifi-app{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
