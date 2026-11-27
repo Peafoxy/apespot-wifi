@@ -948,6 +948,7 @@ async function generateBilanCompletPDF(bc) {
     [{ t: "Réabonnements (période)" }, { t: String(bc.reabo.nbReabo), align: "right" }],
     [{ t: "Taux de réabonnement" }, { t: bc.reabo.taux == null ? "—" : bc.reabo.taux + "%", align: "right" }],
     [{ t: "Manque à gagner estimé (expirés)" }, { t: fmtFCFAForPdf(bc.manqueAGagner), align: "right", color: RED }],
+    [{ t: "Jours offerts (bonus)" }, { t: String(bc.bonus?.jours || 0) + " j", align: "right" }],
   ]);
 
   // Caisse
@@ -970,6 +971,14 @@ async function generateBilanCompletPDF(bc) {
   if (bc.depenses.detail.length === 0) table(depCols, [[{ t: "Aucune dépense.", color: MUTE }, { t: "" }, { t: "" }]]);
   else table(depCols, bc.depenses.detail.map((d) => [{ t: d.date ? fmtDate(d.date) : "-" }, { t: clean(d.label) }, { t: "- " + fmtFCFAForPdf(d.montant), color: RED, align: "right" }]),
     { totalRow: [{ t: "Total dépenses" }, { t: "" }, { t: fmtFCFAForPdf(bc.depenses.total), align: "right" }] });
+
+  // Jours offerts (bonus) — information, n'entre pas dans la caisse
+  sectionTitle(`Jours offerts - bonus (${bc.bonus?.count || 0})`);
+  const bonCols = [{ w: 0.20, header: "Date" }, { w: 0.45, header: "Client" }, { w: 0.20, header: "Par" }, { w: 0.15, header: "Jours", align: "right" }];
+  const bonDetail = bc.bonus?.detail || [];
+  if (bonDetail.length === 0) table(bonCols, [[{ t: "Aucun bonus sur cette periode.", color: MUTE }, { t: "" }, { t: "" }, { t: "" }]]);
+  else table(bonCols, bonDetail.map((b) => [{ t: b.date ? fmtDate(b.date) : "-" }, { t: clean(b.nom) || "-" }, { t: clean(b.par) || "-" }, { t: String(b.jours) + " j", align: "right" }]),
+    { totalRow: [{ t: "Total jours offerts" }, { t: "" }, { t: "" }, { t: String(bc.bonus?.jours || 0) + " j", align: "right" }] });
 
   // Clients expirés
   sectionTitle(`Clients expirés (${bc.clients.nbExpire})`);
