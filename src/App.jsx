@@ -1995,6 +1995,10 @@ function LoginScreen({ clients, users, complaints, onAdminLogin, onTechLogin, on
             <div style={{ position: "relative" }}>
               <input
                 autoFocus
+                name="apespot-acces"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 style={{ width: "100%", boxSizing: "border-box", letterSpacing: 3, textAlign: "center", fontFamily: "var(--mono)", fontWeight: 700, fontSize: 18, textTransform: "uppercase", ...(selected !== "client" ? { paddingLeft: 46, paddingRight: 46 } : {}) }}
                 type={selected === "client" || showLoginCode ? "text" : "password"}
                 value={value}
@@ -6794,6 +6798,9 @@ export default function AlerteClientWifi() {
             {today.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
           </span>
           <button className="logout-link logout-inline reminder-btn-desktop" onClick={async () => { const r = await subscribeToDailyReminder(authUser); showToast(r.message); }}>🔔 Rappels</button>
+          <span className="logout-link logout-inline" style={{ cursor: "default", fontWeight: 700, color: isPrincipalAdmin ? "var(--cyan)" : "var(--amber)" }} title={isPrincipalAdmin ? "Administrateur principal" : "Administrateur (non principal)"}>
+            👤 {authUser?.nom || "—"}{isPrincipalAdmin ? " · principal" : ""}
+          </span>
           <button className="logout-link logout-inline" onClick={handleLogout}>Déconnexion</button>
         </div>
       </header>
