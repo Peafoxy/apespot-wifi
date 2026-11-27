@@ -4177,6 +4177,16 @@ export default function AlerteClientWifi() {
   const [diffusionForm, setDiffusionForm] = useState({ message: "", cible: "expires", zone: "", inclureNom: true });
   const [busyDiffusion, setBusyDiffusion] = useState(false);
   const [diffusions, setDiffusions] = useState([]);
+  // Bonus (jours offerts) : chargés pour le compteur du Bilan. N'affecte pas la caisse.
+  const [bonuses, setBonuses] = useState([]);
+  const fetchBonuses = useCallback(async () => {
+    if (!SUPABASE_CONFIGURED) { setBonuses([]); return; }
+    try {
+      const data = await sbFetch("wifi_bonus?select=*&order=created_at.desc");
+      setBonuses((data || []).map((r) => ({ id: r.id, clientNom: r.client_nom, jours: r.jours, quantite: r.quantite, unite: r.unite, date: r.date, par: r.par })));
+    } catch (e) { console.error(e); }
+  }, []);
+  useEffect(() => { if (tab === "bilan") fetchBonuses(); }, [tab, fetchBonuses]);
   const normServ = (s) => String(s || "").toUpperCase().replace(/SERVEUR/g, "").replace(/[^A-Z0-9]/g, "");
   const diffusionCount = useMemo(() => {
     const hasPhone = (c) => String(c.telephone || "").replace(/\D/g, "").length >= 8;
@@ -4882,6 +4892,15 @@ export default function AlerteClientWifi() {
       if (SUPABASE_CONFIGURED) await updateClientRow(client.id, updated);
       setClients((cs) => cs.map((c) => (c.id === client.id ? updated : c)));
       setRowActionsClient(updated);
+      // Trace le bonus (jours offerts) pour le compteur du Bilan — ne touche PAS la caisse.
+      const joursOfferts = n * (unit === "jour" ? 1 : unit === "semaine" ? 7 : 30);
+      if (SUPABASE_CONFIGURED) {
+        try {
+          const dateJour = new Date().toISOString().slice(0, 10);
+          const ins = await sbFetch("wifi_bonus", { method: "POST", body: JSON.stringify({ client_nom: client.nom, client_id: client.id, jours: joursOfferts, quantite: n, unite: unit, date: dateJour, par: authUser?.nom || null }) });
+          if (ins && ins[0]) setBonuses((bs) => [{ id: ins[0].id, clientNom: client.nom, jours: joursOfferts, quantite: n, unite: unit, date: dateJour, par: authUser?.nom || null }, ...bs]);
+        } catch (e) { console.error(e); }
+      }
       const unitLabel = unit === "jour" ? (n > 1 ? "jours" : "jour") : unit === "semaine" ? (n > 1 ? "semaines" : "semaine") : (n > 1 ? "mois" : "mois");
       showToast(`Bonus de ${n} ${unitLabel} appliqué — nouvelle échéance le ${fmtDate(newDateExp)}.`);
       const phone = normalizePhone(client.telephone);
@@ -5340,6 +5359,10 @@ export default function AlerteClientWifi() {
     const baseReabo = nbReabo + nbExpireNonRenouv;
     const tauxReabo = baseReabo > 0 ? Math.round((nbReabo / baseReabo) * 100) : null;
 
+    // --- Jours offerts (bonus) de la portée (n'affecte pas la caisse) ---
+    const bonusList = bonuses.filter((b) => inScope(b.date)).map((b) => ({ nom: b.clientNom || "-", jours: b.jours || 0, date: b.date, par: b.par }));
+    const joursOfferts = bonusList.reduce((s, b) => s + (b.jours || 0), 0);
+
     return {
       courante,
       scopeLabel: courante ? (depuis ? `Période en cours · depuis le ${fmtDate(depuis)}` : "Période en cours · depuis le début") : moisLabel(mois),
@@ -5350,9 +5373,10 @@ export default function AlerteClientWifi() {
       clients: { total: enrichedClients.length, nbOk, nbAttention, nbExpire, nbAJour: nbOk + nbAttention, expiredList },
       manqueAGagner,
       reabo: { nbReabo, nbExpireNonRenouv, taux: tauxReabo },
+      bonus: { jours: joursOfferts, count: bonusList.length, detail: bonusList },
       caisse: { totalEncaisse: caisseData.totalEncaisse, totalVerse: caisseData.totalVerse, resteAVerser: caisseData.resteAVerser },
     };
-  }, [bilanScope, bilanMois, periodeActuelle, payments, fuelExpenses, perdiemExpenses, otherExpenses, expenseLines, enrichedClients, caisseData]);
+  }, [bilanScope, bilanMois, periodeActuelle, payments, fuelExpenses, perdiemExpenses, otherExpenses, expenseLines, enrichedClients, caisseData, bonuses]);
 
   const exportBilanCompletPDF = async () => {
     if (busyBilanPdf) return;
@@ -8091,6 +8115,23 @@ export default function AlerteClientWifi() {
               <div className="caisse-calc-row neg"><span>− Déjà versé</span><b>− {fmtFCFA(bilanComplet.caisse.totalVerse)}</b></div>
               <div className="caisse-calc-row total"><span>Reste à verser</span><b>{fmtFCFA(bilanComplet.caisse.resteAVerser)}</b></div>
             </div>
+          </div>
+
+          {/* Jours offerts (bonus) — information, n'affecte pas la caisse */}
+          <div className="chart-card">
+            <div className="ctitle">🎁 JOURS OFFERTS (BONUS) · {bilanComplet.bonus.jours} jour{bilanComplet.bonus.jours > 1 ? "s" : ""}</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginBottom: 8 }}>
+              {bilanComplet.bonus.count} bonus accordé{bilanComplet.bonus.count > 1 ? "s" : ""} sur cette période · n'entre pas dans la caisse.
+            </div>
+            {bilanComplet.bonus.detail.length === 0 && <div className="empty">Aucun bonus accordé sur cette période.</div>}
+            {bilanComplet.bonus.detail.slice(0, 50).map((b, i) => (
+              <div key={i} className="rah-item">
+                <span>{fmtDate(b.date)} · {b.nom}</span>
+                <span>{b.par || "—"}</span>
+                <span className="rah-amount">{b.jours} j</span>
+              </div>
+            ))}
+            {bilanComplet.bonus.detail.length > 50 && <div className="empty">… et {bilanComplet.bonus.detail.length - 50} autres.</div>}
           </div>
 
           {/* Paiements détaillés */}
