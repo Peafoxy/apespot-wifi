@@ -9121,9 +9121,6 @@ const CSS = `
     radial-gradient(900px 900px at 50% 120%, rgba(62,216,195,.05), transparent 60%),
     linear-gradient(180deg,#0B111B 0%, var(--bg) 60%);
   color:var(--text); font-family:var(--sans); min-height:100vh; padding:28px 20px 60px;
-  /* Sur grand écran (PC), on centre le contenu et on limite la largeur : évite
-     que tout s'étale d'un bord à l'autre avec du vide. Sans effet sur mobile. */
-  max-width:1200px; margin-left:auto; margin-right:auto;
 }
 .wifi-app *{box-sizing:border-box;}
 .wifi-app{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
